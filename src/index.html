@@ -326,8 +326,7 @@ function update(now) {
   const jump = !aiming && (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space'));
   const down = !aiming && (keys.has('KeyS') || keys.has('ArrowDown'));
 
-  // Drop-through timer
-  if (down && grounded) { dropThrough = 0.15; grounded = false; gvy = 50; }
+  // Drop-through timer (disabled — walk off edges instead)
   if (dropThrough > 0) dropThrough -= dt;
 
   // ── Rope update ──────────────────────────────────────────────
