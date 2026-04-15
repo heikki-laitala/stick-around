@@ -1,26 +1,10 @@
 use tauri::Manager;
-use tauri::Emitter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use signal_hook::consts::SIGINT;
 
-fn rdev_key_to_code(key: rdev::Key) -> Option<&'static str> {
-    match key {
-        rdev::Key::KeyA => Some("KeyA"),
-        rdev::Key::KeyD => Some("KeyD"),
-        rdev::Key::KeyW => Some("KeyW"),
-        rdev::Key::UpArrow => Some("ArrowUp"),
-        rdev::Key::DownArrow => Some("ArrowDown"),
-        rdev::Key::LeftArrow => Some("ArrowLeft"),
-        rdev::Key::RightArrow => Some("ArrowRight"),
-        rdev::Key::Space => Some("Space"),
-        _ => None,
-    }
-}
-
 /// Get the bounds of a window by matching its title within an app process.
 fn get_window_bounds_by_title(app: &str, title: &str) -> Option<(i32, i32, u32, u32)> {
-    // Escape quotes in title for AppleScript
     let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!(
         r#"tell application "System Events"
@@ -97,6 +81,28 @@ fn parse_bounds_output(script: &str) -> Option<(i32, i32, u32, u32)> {
     None
 }
 
+fn get_frontmost_app() -> Option<String> {
+    let script = r#"tell application "System Events" to get name of first process whose frontmost is true"#;
+    std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn activate_app(app_name: &str) {
+    let script = format!(
+        r#"tell application "System Events" to set frontmost of process "{}" to true"#,
+        app_name
+    );
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+}
+
 /// Tracks a specific window by app name + window title.
 struct WindowTarget {
     app_name: String,
@@ -104,9 +110,7 @@ struct WindowTarget {
 }
 
 impl WindowTarget {
-    /// Detect the frontmost window of the frontmost app.
     fn detect(explicit_app: Option<String>) -> Option<Self> {
-        // Use the explicitly provided app name, or detect the frontmost one
         let app = explicit_app.or_else(|| {
             let script = r#"tell application "System Events" to get name of first process whose frontmost is true"#;
             std::process::Command::new("osascript")
@@ -119,12 +123,10 @@ impl WindowTarget {
         })?;
 
         let title = get_front_window_title(&app)?;
-        eprintln!("[detect] app={:?} title={:?}", app, title);
         Some(Self { app_name: app, window_title: title })
     }
 
     fn get_bounds(&self) -> Option<(i32, i32, u32, u32)> {
-        // Try title match first, fall back to front window
         get_window_bounds_by_title(&self.app_name, &self.window_title)
             .or_else(|| get_front_window_bounds(&self.app_name))
     }
@@ -139,73 +141,96 @@ fn apply_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
     ));
 }
 
+#[tauri::command]
+fn focus_terminal(app_name: String) {
+    activate_app(&app_name);
+}
+
+#[tauri::command]
+fn quit_app(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
+const PID_FILE: &str = "/tmp/stick-around.pid";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(terminal_app: Option<String>) {
+    std::fs::write(PID_FILE, std::process::id().to_string()).ok();
+
     tauri::Builder::default()
         .setup(move |app| {
             let window = app.get_webview_window("overlay").unwrap();
-            window.set_ignore_cursor_events(true)?;
 
             // Detect which window launched us
             let target = WindowTarget::detect(terminal_app);
+
+            // Inject terminal app name into JS directly (with small delay for webview init)
             if let Some(ref t) = target {
-                eprintln!("[overlay] tracking app={:?} title={:?}", t.app_name, t.window_title);
+                let name = t.app_name.clone();
+                let win = window.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = win.eval(&format!("window.TERMINAL_APP = '{}'", name));
+                });
+
                 if let Some((x, y, w, h)) = t.get_bounds() {
                     apply_bounds(&window, x, y, w, h);
                 }
-            } else {
-                eprintln!("[overlay] WARNING: could not identify parent window");
             }
 
-            // Poll window position
+            // Poll window position and visibility
             let win_track = window.clone();
             std::thread::spawn(move || {
                 let mut last = (0i32, 0i32, 0u32, 0u32);
+                let mut was_visible = true;
                 loop {
-                    let bounds = target.as_ref().and_then(|t| t.get_bounds());
-                    if let Some(b) = bounds {
-                        if b != last {
-                            apply_bounds(&win_track, b.0, b.1, b.2, b.3);
-                            last = b;
+                    // Only show overlay when the terminal or the overlay itself is frontmost
+                    let should_show = get_frontmost_app()
+                        .map(|front| {
+                            target.as_ref().map_or(false, |t| front == t.app_name)
+                                || front == "stick-around"
+                        })
+                        .unwrap_or(false);
+
+                    if should_show && !was_visible {
+                        let _ = win_track.show();
+                        was_visible = true;
+                    } else if !should_show && was_visible {
+                        let _ = win_track.hide();
+                        was_visible = false;
+                    }
+
+                    if should_show {
+                        let bounds = target.as_ref().and_then(|t| t.get_bounds());
+                        if let Some(b) = bounds {
+                            if b != last {
+                                apply_bounds(&win_track, b.0, b.1, b.2, b.3);
+                                last = b;
+                            }
                         }
                     }
+
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
             });
 
-            // Handle SIGINT (Ctrl+C) for clean shutdown
+            // Handle SIGINT and SIGTERM for clean shutdown
             let app_handle = app.handle().clone();
-            let sigint_flag = Arc::new(AtomicBool::new(false));
-            signal_hook::flag::register(SIGINT, sigint_flag.clone())?;
+            let shutdown_flag = Arc::new(AtomicBool::new(false));
+            signal_hook::flag::register(SIGINT, shutdown_flag.clone())?;
+            signal_hook::flag::register(signal_hook::consts::SIGTERM, shutdown_flag.clone())?;
             std::thread::spawn(move || {
-                while !sigint_flag.load(Ordering::Relaxed) {
+                while !shutdown_flag.load(Ordering::Relaxed) {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
                 app_handle.exit(0);
             });
 
-            // Global keyboard listener for game controls
-            let win_keys = window.clone();
-            std::thread::spawn(move || {
-                rdev::listen(move |event| {
-                    match event.event_type {
-                        rdev::EventType::KeyPress(key) => {
-                            if let Some(code) = rdev_key_to_code(key) {
-                                let _ = win_keys.emit("global-keydown", code);
-                            }
-                        }
-                        rdev::EventType::KeyRelease(key) => {
-                            if let Some(code) = rdev_key_to_code(key) {
-                                let _ = win_keys.emit("global-keyup", code);
-                            }
-                        }
-                        _ => {}
-                    }
-                }).ok();
-            });
-
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![focus_terminal, quit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    std::fs::remove_file(PID_FILE).ok();
 }

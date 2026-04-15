@@ -110,13 +110,20 @@ let curPose = JSON.parse(JSON.stringify(IDLE));
 
 const keys = new Set();
 
-// Listen for global key events from Rust backend
-if (window.__TAURI__) {
-  window.__TAURI__.event.listen('global-keydown', (e) => keys.add(e.payload));
-  window.__TAURI__.event.listen('global-keyup', (e) => keys.delete(e.payload));
-}
-// Fallback for non-Tauri testing
-document.addEventListener('keydown', e => keys.add(e.code));
+// Click overlay → play. Escape → return to terminal. Q → quit.
+document.addEventListener('keydown', e => {
+  if (window.__TAURI__) {
+    if (e.code === 'KeyQ') {
+      window.__TAURI__.core.invoke('quit_app').catch(() => {});
+      return;
+    }
+    if (e.code === 'Escape' && window.TERMINAL_APP) {
+      window.__TAURI__.core.invoke('focus_terminal', { appName: window.TERMINAL_APP }).catch(() => {});
+      return;
+    }
+  }
+  keys.add(e.code);
+});
 document.addEventListener('keyup', e => keys.delete(e.code));
 
 let lastTime = performance.now();
