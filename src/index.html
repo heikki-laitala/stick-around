@@ -145,6 +145,16 @@ function rebuildFromContent(content) {
       platforms.push({ y, x: textOffsetX, w: cols * charWidth, hash: hashes[i] || 0 });
     }
   }
+
+  // Spawn man at terminal right edge, on the input area border line
+  if (!hasSpawned && platforms.length > 0) {
+    const inputIdx = content.input_line;
+    if (inputIdx != null && inputIdx < fitLines) {
+      gx = textOffsetX + textWidth - 20 * SCALE - 2;
+      feetY = textOffsetY + inputIdx * lineHeight;
+      hasSpawned = true;
+    }
+  }
 }
 
 // Start with fallback platforms until backend sends real data
@@ -206,7 +216,8 @@ function findPlatformAbove(feetScreenY, xPos, maxDist) {
 // ── Game State ──────────────────────────────────────────────────────
 // Using screen-Y for feet position directly (0 = top, H() = bottom)
 let gx = 200;
-let feetY = platforms.length > 0 ? platforms[0].y : H() - lineHeight; // start on lowest platform
+let feetY = H() - lineHeight;
+let hasSpawned = false; // true after first real terminal data positions the man
 let gvx = 0, gvy = 0; // gvy: positive = moving down on screen
 let grounded = true, faceR = true;
 let walkPh = 0, landT = 0;

@@ -13,6 +13,8 @@ pub struct TerminalContent {
     pub term_cols: usize,
     /// Terminal row count (visible rows)
     pub term_rows: usize,
+    /// Line index of the input area border (if detected), 0-based
+    pub input_line: Option<usize>,
     /// Display width per visible line in columns (top to bottom)
     pub lines: Vec<usize>,
     /// Simple hash per line for content-based coloring

@@ -237,10 +237,12 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
     let title = run_osascript(&title_script).unwrap_or_default();
     let (term_cols, term_rows) = parse_dimensions_from_title(&title).unwrap_or((80, 24));
 
-    // Count Unicode display width and compute content hash per line
+    // Count Unicode display width, compute content hash, and detect input area
     let mut lines: Vec<usize> = Vec::new();
     let mut hashes: Vec<u32> = Vec::new();
-    for l in text.lines() {
+    let mut input_line: Option<usize> = None;
+    let text_lines: Vec<&str> = text.lines().collect();
+    for (i, l) in text_lines.iter().enumerate() {
         let width: usize = l.chars().map(|c| if is_wide_char(c) { 2 } else { 1 }).sum();
         lines.push(width);
         // Simple FNV-1a hash for content-based coloring
@@ -250,6 +252,19 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
             h = h.wrapping_mul(16777619);
         }
         hashes.push(h);
+
+        // Detect input area: find the ❯ prompt line (U+276F) or a line
+        // of ─ (U+2500) box drawing chars just before it.
+        // We want the border line above the prompt, so track both.
+        let trimmed = l.trim_start();
+        if trimmed.starts_with('\u{276F}') {
+            // The border line is one line above the prompt
+            if i > 0 {
+                input_line = Some(i - 1);
+            } else {
+                input_line = Some(i);
+            }
+        }
     }
 
     Some(TerminalContent {
@@ -259,6 +274,7 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
         text_width: scroll_w,
         term_cols,
         term_rows,
+        input_line,
         lines,
         hashes,
     })
