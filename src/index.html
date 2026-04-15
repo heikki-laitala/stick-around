@@ -102,7 +102,7 @@ const MAXV = 250;
 const SCALE = 0.35;
 // lineHeight is declared above in terminal metrics section
 
-let DEBUG_DRAW = true; // show platform bounding boxes (togglable with B key)
+let DEBUG_DRAW = false; // toggle all debug visuals with B key
 
 // ── Terminal metrics (updated dynamically from backend) ─────────────
 let textOffsetX = 0;   // text area left offset within window (px)
@@ -152,6 +152,7 @@ function rebuildFromContent(content) {
     if (inputIdx != null && inputIdx < fitLines) {
       gx = textOffsetX + textWidth - 20 * SCALE - 2;
       feetY = textOffsetY + inputIdx * lineHeight;
+      faceR = true; // face right at spawn
       hasSpawned = true;
     }
   }
@@ -515,13 +516,12 @@ function render() {
       ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
       ctx.fill();
     } else if (rope.state === 'flying') {
-      // Debug: draw ALL platforms with filled boxes
-      for (const p of platforms) {
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
-        ctx.fillRect(p.x, p.y, p.w, lineHeight);
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(p.x, p.y, p.w, lineHeight);
+      if (DEBUG_DRAW) {
+        // Debug: draw ALL platforms with filled boxes
+        for (const p of platforms) {
+          ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+          ctx.fillRect(p.x, p.y, p.w, lineHeight);
+        }
       }
       // Draw rope from hand to flying tip
       ctx.strokeStyle = 'rgba(255, 200, 50, 0.9)';
@@ -530,13 +530,11 @@ function render() {
       ctx.moveTo(handPos.x, handPos.y);
       ctx.lineTo(rope.tipX, rope.tipY);
       ctx.stroke();
-      // Hook - big crosshair for visibility
-      ctx.strokeStyle = 'rgba(0, 255, 0, 1)';
-      ctx.lineWidth = 2;
+      // Hook
       ctx.beginPath();
-      ctx.moveTo(rope.tipX - 8, rope.tipY); ctx.lineTo(rope.tipX + 8, rope.tipY);
-      ctx.moveTo(rope.tipX, rope.tipY - 8); ctx.lineTo(rope.tipX, rope.tipY + 8);
-      ctx.stroke();
+      ctx.arc(rope.tipX, rope.tipY, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+      ctx.fill();
     } else if (rope.state === 'swinging') {
       // Draw taut rope from hand to anchor point
       ctx.beginPath();
@@ -589,47 +587,42 @@ function render() {
 
   ctx.shadowBlur = 0;
 
-  // Debug: overlay border
-  ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, W() - 2, H() - 2);
-
-  // Debug: show computed metrics
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.font = '11px monospace';
-  const pad = textHeight - platforms.length * lineHeight;
-  // Debug panel - black background for readability
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-  ctx.fillRect(0, 0, 500, 60);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.font = '12px monospace';
-  const p0 = platforms[0];
-  const pLast = platforms[platforms.length - 1];
-  const platInfo = p0 ? `p0: x:${p0.x.toFixed(0)}-${(p0.x+p0.w).toFixed(0)} y:${p0.y.toFixed(0)}` : 'no plats';
-  const platInfo2 = pLast ? `pN: x:${pLast.x.toFixed(0)}-${(pLast.x+pLast.w).toFixed(0)} y:${pLast.y.toFixed(0)}` : '';
-  const ropeDbg = rope ? `rope:${rope.state} tip:${rope.tipX.toFixed(0)},${rope.tipY.toFixed(0)} ang:${(rope.angle * 180 / Math.PI).toFixed(0)}°` : 'rope:none';
-  ctx.fillText(`man:${gx.toFixed(0)},${feetY.toFixed(0)} | plats:${platforms.length} lH:${lineHeight.toFixed(1)}`, 10, 16);
-  ctx.fillText(`${platInfo} | ${platInfo2}`, 10, 32);
-  ctx.fillText(ropeDbg, 10, 48);
-
-  // Debug: draw text area outline
-  ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(textOffsetX, textOffsetY, textWidth, textHeight);
-
-  // ── Debug: draw platform bounding boxes ───────────────────────
+  // ── Debug visuals (toggle with B key) ───────────────────────
   if (DEBUG_DRAW) {
-    // Color from content hash: same text content = same color
+    // Overlay border
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, W() - 2, H() - 2);
+
+    // Debug panel
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, 500, 60);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.font = '12px monospace';
+    const p0 = platforms[0];
+    const pLast = platforms[platforms.length - 1];
+    const platInfo = p0 ? `p0: x:${p0.x.toFixed(0)}-${(p0.x+p0.w).toFixed(0)} y:${p0.y.toFixed(0)}` : 'no plats';
+    const platInfo2 = pLast ? `pN: x:${pLast.x.toFixed(0)}-${(pLast.x+pLast.w).toFixed(0)} y:${pLast.y.toFixed(0)}` : '';
+    const ropeDbg = rope ? `rope:${rope.state} tip:${rope.tipX.toFixed(0)},${rope.tipY.toFixed(0)} ang:${(rope.angle * 180 / Math.PI).toFixed(0)}°` : 'rope:none';
+    ctx.fillText(`man:${gx.toFixed(0)},${feetY.toFixed(0)} | plats:${platforms.length} lH:${lineHeight.toFixed(1)}`, 10, 16);
+    ctx.fillText(`${platInfo} | ${platInfo2}`, 10, 32);
+    ctx.fillText(ropeDbg, 10, 48);
+
+    // Text area outline
+    ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(textOffsetX, textOffsetY, textWidth, textHeight);
+
+    // Platform bounding boxes
     function hashToColor(h) {
       const r = ((h >> 0) & 0xFF);
       const g = ((h >> 8) & 0xFF);
       const b = ((h >> 16) & 0xFF);
-      // Ensure minimum brightness for visibility
       return [Math.max(r, 100), Math.max(g, 100), Math.max(b, 100)];
     }
     const step = Math.max(1, Math.floor(platforms.length / 5));
     for (let i = 0; i < platforms.length; i++) {
-      if (i % step !== 0) continue; // show only ~5 boxes spread evenly
+      if (i % step !== 0) continue;
       const p = platforms[i];
       const c = hashToColor(p.hash || 0);
       ctx.strokeStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, 0.7)`;
