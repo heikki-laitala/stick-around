@@ -1,7 +1,50 @@
 use std::process::Command;
-use objc2::runtime::AnyObject;
+use std::sync::Once;
+use objc2::runtime::{AnyClass, AnyObject, Imp};
 use objc2::ffi::object_setClass;
-use objc2::{msg_send, class};
+use objc2::msg_send;
+
+/// Create a custom NSPanel subclass that always returns YES for canBecomeKeyWindow.
+/// NSPanel without decorations returns NO by default, blocking keyboard events.
+fn get_key_panel_class() -> *const AnyClass {
+    static REGISTER: Once = Once::new();
+    static mut CLASS_PTR: *const AnyClass = std::ptr::null();
+
+    REGISTER.call_once(|| {
+        unsafe {
+            let superclass = objc2::ffi::objc_getClass(c"NSPanel".as_ptr());
+            let new_class = objc2::ffi::objc_allocateClassPair(
+                superclass,
+                c"StickAroundPanel".as_ptr(),
+                0,
+            );
+
+            unsafe extern "C-unwind" fn can_become_key(
+                _self: *mut AnyObject,
+                _sel: objc2::runtime::Sel,
+            ) -> objc2::runtime::Bool {
+                objc2::runtime::Bool::YES
+            }
+
+            let sel = objc2::ffi::sel_registerName(c"canBecomeKeyWindow".as_ptr()).unwrap();
+            let imp: Imp = std::mem::transmute::<
+                unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel) -> objc2::runtime::Bool,
+                Imp,
+            >(can_become_key);
+            objc2::ffi::class_addMethod(
+                new_class,
+                sel,
+                imp,
+                c"B@:".as_ptr(),
+            );
+
+            objc2::ffi::objc_registerClassPair(new_class);
+            CLASS_PTR = new_class as *const _;
+        }
+    });
+
+    unsafe { CLASS_PTR }
+}
 
 /// Convert a Tauri window into a non-activating panel.
 /// This lets the overlay receive keyboard events without stealing
@@ -12,10 +55,9 @@ use objc2::{msg_send, class};
 pub unsafe fn configure_as_panel(ns_window: *mut std::ffi::c_void) {
     let window = ns_window as *mut AnyObject;
 
-    // Swap the window's class from NSWindow to NSPanel.
-    // NSPanel supports the nonactivatingPanel style mask.
-    let panel_class = class!(NSPanel);
-    object_setClass(window as *mut _, panel_class as *const _ as *const _);
+    // Swap to our custom NSPanel subclass that can become key window
+    let panel_class = get_key_panel_class();
+    object_setClass(window as *mut _, panel_class as *const _);
 
     // Get current style mask and add nonactivatingPanel (1 << 7)
     let style_mask: usize = msg_send![window, styleMask];
@@ -27,6 +69,15 @@ pub unsafe fn configure_as_panel(ns_window: *mut std::ffi::c_void) {
 
     // Allow keyboard events even though the app isn't active
     let _: () = msg_send![window, setWorksWhenModal: true];
+
+    // Always become key window when clicked (don't wait for a key view)
+    let _: () = msg_send![window, setBecomesKeyOnlyIfNeeded: false];
+
+    // Accept mouse events so clicks register
+    let _: () = msg_send![window, setAcceptsMouseMovedEvents: true];
+
+    // Explicitly make it the key window now
+    let _: () = msg_send![window, makeKeyWindow];
 }
 
 fn run_osascript(script: &str) -> Option<String> {

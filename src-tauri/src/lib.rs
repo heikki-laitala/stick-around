@@ -37,7 +37,17 @@ struct TerminalState {
 }
 
 #[tauri::command]
-fn focus_terminal(state: tauri::State<'_, TerminalState>) {
+fn focus_terminal(window: tauri::WebviewWindow, state: tauri::State<'_, TerminalState>) {
+    // Resign key window so the overlay stops capturing keyboard events
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(ns_window) = window.ns_window() {
+            unsafe {
+                let w = ns_window as *mut objc2::runtime::AnyObject;
+                let _: () = objc2::msg_send![w, resignKeyWindow];
+            }
+        }
+    }
     let (x, y, _, _) = *state.bounds.lock().unwrap();
     platform::raise_window_at(state.pid, x, y);
 }
