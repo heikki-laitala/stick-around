@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "windows": ["overlay"],
+  "permissions": [
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:event:default",
+    "core:event:allow-listen"
+  ]
+}

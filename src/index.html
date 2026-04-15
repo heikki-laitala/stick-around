@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html style="background: transparent; margin: 0; padding: 0;">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body { background: transparent; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ── Setup ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+}
+resize();
+window.addEventListener('resize', resize);
+
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+const GROUND = () => H() - 40;
+
+// ── Skeleton ────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpPose(a, b, t) {
+  const r = {};
+  for (const k of Object.keys(a)) r[k] = { x: lerp(a[k].x, b[k].x, t), y: lerp(a[k].y, b[k].y, t) };
+  return r;
+}
+
+function p(hd,nk,hp,ls,rs,le,re,lh,rh,lhp,rhp,lk,rk,lf,rf) {
+  return {head:hd,neck:nk,hip:hp,lsh:ls,rsh:rs,lel:le,rel:re,lh,rh,lhip:lhp,rhip:rhp,lk,rk,lf,rf};
+}
+
+const IDLE = p(
+  {x:0,y:-48},{x:0,y:-36},{x:0,y:0},
+  {x:-8,y:-33},{x:8,y:-33},{x:-14,y:-18},{x:14,y:-18},
+  {x:-12,y:-4},{x:12,y:-4},{x:-5,y:2},{x:5,y:2},
+  {x:-8,y:22},{x:8,y:22},{x:-10,y:44},{x:10,y:44}
+);
+
+const WALK = [
+  p( // right stride - head forward, torso leans, arms swing
+    {x:6,y:-45},{x:5,y:-33},{x:0,y:3},
+    {x:-5,y:-30},{x:12,y:-30},{x:6,y:-16},{x:-4,y:-18},
+    {x:10,y:-4},{x:-10,y:-6},{x:-4,y:4},{x:5,y:5},
+    {x:-14,y:20},{x:16,y:24},{x:-8,y:44},{x:22,y:44}
+  ),
+  p( // passing up - body rises
+    {x:3,y:-50},{x:2,y:-38},{x:0,y:-2},
+    {x:-8,y:-35},{x:8,y:-35},{x:-4,y:-20},{x:4,y:-20},
+    {x:-2,y:-6},{x:2,y:-6},{x:-3,y:0},{x:3,y:0},
+    {x:-2,y:20},{x:2,y:20},{x:-2,y:44},{x:2,y:44}
+  ),
+  p( // left stride - mirror of right
+    {x:6,y:-45},{x:5,y:-33},{x:0,y:3},
+    {x:-5,y:-30},{x:12,y:-30},{x:-4,y:-18},{x:6,y:-16},
+    {x:-10,y:-6},{x:10,y:-4},{x:-4,y:5},{x:5,y:4},
+    {x:16,y:24},{x:-14,y:20},{x:22,y:44},{x:-8,y:44}
+  ),
+  p( // passing up
+    {x:3,y:-50},{x:2,y:-38},{x:0,y:-2},
+    {x:-8,y:-35},{x:8,y:-35},{x:4,y:-20},{x:-4,y:-20},
+    {x:2,y:-6},{x:-2,y:-6},{x:-3,y:0},{x:3,y:0},
+    {x:2,y:20},{x:-2,y:20},{x:2,y:44},{x:-2,y:44}
+  ),
+];
+
+const JUMP_RISE = p(
+  {x:0,y:-54},{x:0,y:-42},{x:0,y:0},
+  {x:-8,y:-39},{x:8,y:-39},{x:-16,y:-48},{x:16,y:-48},
+  {x:-22,y:-56},{x:22,y:-56},{x:-5,y:2},{x:5,y:2},
+  {x:-10,y:14},{x:10,y:14},{x:-6,y:28},{x:6,y:28}
+);
+
+const JUMP_FALL = p(
+  {x:0,y:-46},{x:0,y:-34},{x:0,y:0},
+  {x:-8,y:-31},{x:8,y:-31},{x:-18,y:-24},{x:18,y:-24},
+  {x:-24,y:-16},{x:24,y:-16},{x:-5,y:2},{x:5,y:2},
+  {x:-8,y:12},{x:8,y:12},{x:-14,y:28},{x:14,y:28}
+);
+
+const LAND = p(
+  {x:0,y:-36},{x:0,y:-26},{x:0,y:6},
+  {x:-8,y:-23},{x:8,y:-23},{x:-16,y:-12},{x:16,y:-12},
+  {x:-18,y:-2},{x:18,y:-2},{x:-6,y:8},{x:6,y:8},
+  {x:-16,y:24},{x:16,y:24},{x:-18,y:44},{x:18,y:44}
+);
+
+// ── Game State ──────────────────────────────────────────────────────
+const GRAV = 1400;
+const JUMP_V = 520;
+const ACCEL = 1200;
+const FRIC = 0.88;
+const MAXV = 350;
+const SCALE = 0.8;
+
+let gx = 400, gy = 0; // gy: 0=ground, positive=up
+let gvx = 0, gvy = 0;
+let grounded = true, faceR = true;
+let walkPh = 0, landT = 0;
+let curPose = JSON.parse(JSON.stringify(IDLE));
+
+const keys = new Set();
+
+// Listen for global key events from Rust backend
+if (window.__TAURI__) {
+  window.__TAURI__.event.listen('global-keydown', (e) => keys.add(e.payload));
+  window.__TAURI__.event.listen('global-keyup', (e) => keys.delete(e.payload));
+}
+// Fallback for non-Tauri testing
+document.addEventListener('keydown', e => keys.add(e.code));
+document.addEventListener('keyup', e => keys.delete(e.code));
+
+let lastTime = performance.now();
+
+function update(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  const left = keys.has('KeyA') || keys.has('ArrowLeft');
+  const right = keys.has('KeyD') || keys.has('ArrowRight');
+  const jump = keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space');
+
+  if (left) { gvx -= ACCEL * dt; faceR = false; }
+  if (right) { gvx += ACCEL * dt; faceR = true; }
+  if (!left && !right) { gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(gvx) < 1) gvx = 0; }
+  gvx = Math.max(-MAXV, Math.min(MAXV, gvx));
+
+  if (jump && grounded) { gvy = JUMP_V; grounded = false; landT = 0; }
+  if (!grounded) gvy -= GRAV * dt;
+
+  gx += gvx * dt;
+  gy += gvy * dt;
+
+  if (gy <= 0) {
+    if (gvy < -150) landT = 0.15;
+    gy = 0; gvy = 0; grounded = true;
+  }
+
+  // Wrap
+  if (gx < -50) gx = W();
+  if (gx > W() + 50) gx = -50;
+
+  // Target pose
+  let target;
+  if (!grounded) {
+    const t = Math.max(0, Math.min(1, (gvy + JUMP_V) / (JUMP_V * 2)));
+    target = lerpPose(JUMP_FALL, JUMP_RISE, t);
+  } else if (landT > 0) {
+    target = lerpPose(IDLE, LAND, landT / 0.15);
+    landT -= dt;
+  } else if (Math.abs(gvx) > 5) {
+    walkPh += Math.abs(gvx) * dt * 0.008;
+    if (walkPh >= 1) walkPh -= 1;
+    const n = WALK.length, raw = walkPh * n;
+    const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
+    target = lerpPose(WALK[i], WALK[(i + 1) % n], f);
+  } else {
+    target = IDLE;
+  }
+
+  curPose = lerpPose(curPose, target, Math.min(1, dt * 12));
+}
+
+// ── Draw ────────────────────────────────────────────────────────────
+function drawLimb(ax, ay, bx, by) {
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(bx, by);
+  ctx.stroke();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W(), H());
+
+  const ox = gx;
+  const oy = GROUND() - gy;
+  const s = SCALE;
+  const fl = faceR ? 1 : -1;
+
+  const j = (name) => ({ x: ox + curPose[name].x * s * fl, y: oy + curPose[name].y * s });
+
+  const head = j('head'), neck = j('neck'), hip = j('hip');
+  const lsh = j('lsh'), rsh = j('rsh'), lel = j('lel'), rel = j('rel');
+  const lh = j('lh'), rh = j('rh');
+  const lhip = j('lhip'), rhip = j('rhip');
+  const lk = j('lk'), rk = j('rk'), lf = j('lf'), rf = j('rf');
+
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Glow effect
+  ctx.shadowColor = 'rgba(0, 220, 255, 0.4)';
+  ctx.shadowBlur = 8;
+
+  // Body color
+  const color = 'rgba(0, 220, 255, 0.95)';
+  ctx.strokeStyle = color;
+
+  // Spine (thick)
+  ctx.lineWidth = 3.5;
+  drawLimb(neck.x, neck.y, hip.x, hip.y);
+
+  // Shoulders
+  ctx.lineWidth = 2.5;
+  drawLimb(lsh.x, lsh.y, rsh.x, rsh.y);
+
+  // Limbs
+  ctx.lineWidth = 2.5;
+  drawLimb(lsh.x, lsh.y, lel.x, lel.y);
+  drawLimb(lel.x, lel.y, lh.x, lh.y);
+  drawLimb(rsh.x, rsh.y, rel.x, rel.y);
+  drawLimb(rel.x, rel.y, rh.x, rh.y);
+
+  drawLimb(lhip.x, lhip.y, lk.x, lk.y);
+  drawLimb(lk.x, lk.y, lf.x, lf.y);
+  drawLimb(rhip.x, rhip.y, rk.x, rk.y);
+  drawLimb(rk.x, rk.y, rf.x, rf.y);
+
+  // Head
+  const hr = 7 * s;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(head.x, head.y, hr, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+
+  // Debug bounding box
+  ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W() - 2, H() - 2);
+}
+
+function loop(now) {
+  update(now);
+  render();
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

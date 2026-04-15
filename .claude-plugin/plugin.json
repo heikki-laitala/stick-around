@@ -1,0 +1,8 @@
+{
+  "name": "stick-around",
+  "description": "A stick man runner game to play while Claude Code works",
+  "version": "1.0.0",
+  "author": {
+    "name": "hlaitala"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicechute/tauri-v2-json-schema/main/tauri.conf.v2.schema.json",
+  "productName": "stick-around",
+  "version": "1.0.0",
+  "identifier": "com.stick-around.overlay",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "overlay",
+        "title": "",
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "width": 800,
+        "height": 600,
+        "x": 100,
+        "y": 100,
+        "resizable": false
+      }
+    ]
+  }
+}

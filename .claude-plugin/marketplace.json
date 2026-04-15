@@ -1,0 +1,13 @@
+{
+  "name": "stick-around",
+  "owner": {
+    "name": "hlaitala"
+  },
+  "plugins": [
+    {
+      "name": "stick-around",
+      "source": "./",
+      "description": "A stick man runner game to play while Claude Code works"
+    }
+  ]
+}
