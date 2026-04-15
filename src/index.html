@@ -155,6 +155,19 @@ function rebuildFromContent(content) {
       faceR = true; // face right at spawn
       hasSpawned = true;
     }
+  } else if (hasSpawned && grounded && platforms.length > 0) {
+    // When platforms rebuild (terminal text changed), snap to nearest platform
+    let nearest = null, nearestDist = Infinity;
+    for (const p of platforms) {
+      const dist = Math.abs(p.y - feetY);
+      if (dist < nearestDist && gx >= p.x - 10 && gx <= p.x + p.w + 10) {
+        nearest = p;
+        nearestDist = dist;
+      }
+    }
+    if (nearest && nearestDist < lineHeight * 2) {
+      feetY = nearest.y;
+    }
   }
 }
 

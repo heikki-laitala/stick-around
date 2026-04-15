@@ -243,7 +243,13 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
     let mut input_line: Option<usize> = None;
     let text_lines: Vec<&str> = text.lines().collect();
     for (i, l) in text_lines.iter().enumerate() {
-        let width: usize = l.chars().map(|c| if is_wide_char(c) { 2 } else { 1 }).sum();
+        // Measure trimmed content width (exclude padding spaces).
+        // This prevents UI chrome (borders, status bars) padded to full
+        // terminal width from creating full-width platforms.
+        let trimmed_content = l.trim();
+        let width: usize = trimmed_content.chars()
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
         lines.push(width);
         // Simple FNV-1a hash for content-based coloring
         let mut h: u32 = 2166136261;
