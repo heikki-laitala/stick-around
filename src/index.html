@@ -117,8 +117,8 @@ document.addEventListener('keydown', e => {
       window.__TAURI__.core.invoke('quit_app').catch(() => {});
       return;
     }
-    if (e.code === 'Escape' && window.TERMINAL_APP) {
-      window.__TAURI__.core.invoke('focus_terminal', { appName: window.TERMINAL_APP }).catch(() => {});
+    if (e.code === 'Escape') {
+      window.__TAURI__.core.invoke('focus_terminal').catch(() => {});
       return;
     }
   }

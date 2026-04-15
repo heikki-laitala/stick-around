@@ -15,7 +15,7 @@
         "title": "",
         "transparent": true,
         "decorations": false,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "skipTaskbar": true,
         "shadow": false,
         "width": 800,
