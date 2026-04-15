@@ -224,11 +224,14 @@ let walkPh = 0, landT = 0;
 let dropThrough = 0; // timer for dropping through platforms
 let curPose = JSON.parse(JSON.stringify(IDLE));
 
-// ── Lasso State ─────────────────────────────────────────────────────
-let lasso = null; // { targetY, ropeLen, reeling }
-const LASSO_LINES = 8; // can reach 8 lines up
-const LASSO_SPEED = 600; // pixels per second rope travels
-const REEL_SPEED = 200; // pixels per second climbing
+// ── Rope State ──────────────────────────────────────────────────────
+let rope = null; // { state, angle, tipX, tipY, hitX, hitY, hitPlatform }
+// state: 'aiming' | 'flying' | 'attached' | 'climbing'
+let ropeAngle = -Math.PI / 4; // default aim: 45° upward
+const ROPE_AIM_SPEED = 2.0; // radians per second
+const ROPE_FLY_SPEED = 800; // pixels per second
+const ROPE_MAX_LEN = 400; // max rope length in pixels
+const ROPE_CLIMB_SPEED = 200; // pixels per second climbing
 
 const keys = new Set();
 
@@ -246,20 +249,23 @@ document.addEventListener('keydown', e => {
   }
   // Toggle platform bounding boxes
   if (e.code === 'KeyB') { DEBUG_DRAW = !DEBUG_DRAW; return; }
-  // Lasso: press E to throw
-  if (e.code === 'KeyE' && !lasso) {
-    const target = findPlatformAbove(feetY, gx, lineHeight * LASSO_LINES);
-    if (target !== null) {
-      lasso = { targetY: target.y, ropeLen: 0, maxLen: feetY - target.y, reeling: false };
+  // Rope: press E to start aiming, or cancel if climbing
+  if (e.code === 'KeyE') {
+    if (!rope) {
+      rope = { state: 'aiming', angle: ropeAngle, tipX: 0, tipY: 0, hitX: 0, hitY: 0, hitPlatform: null };
+    } else if (rope.state === 'climbing' || rope.state === 'attached') {
+      rope = null; // cancel rope
     }
   }
   keys.add(e.code);
 });
 document.addEventListener('keyup', e => {
   keys.delete(e.code);
-  // Release lasso when E is released
-  if (e.code === 'KeyE' && lasso && lasso.reeling) {
-    lasso = null;
+  // Release E: fire the rope if aiming
+  if (e.code === 'KeyE' && rope && rope.state === 'aiming') {
+    rope.state = 'flying';
+    rope.tipX = gx;
+    rope.tipY = feetY - 15 * SCALE; // start from hand height
   }
 });
 
@@ -269,38 +275,82 @@ function update(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  const left = keys.has('KeyA') || keys.has('ArrowLeft');
-  const right = keys.has('KeyD') || keys.has('ArrowRight');
-  const jump = keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space');
-  const down = keys.has('KeyS') || keys.has('ArrowDown');
+  const aiming = rope && rope.state === 'aiming';
+  const left = !aiming && (keys.has('KeyA') || keys.has('ArrowLeft'));
+  const right = !aiming && (keys.has('KeyD') || keys.has('ArrowRight'));
+  const jump = !aiming && (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space'));
+  const down = !aiming && (keys.has('KeyS') || keys.has('ArrowDown'));
 
   // Drop-through timer
   if (down && grounded) { dropThrough = 0.15; grounded = false; gvy = 50; }
   if (dropThrough > 0) dropThrough -= dt;
 
-  // ── Lasso update ──────────────────────────────────────────────
-  if (lasso) {
-    if (!lasso.reeling) {
-      // Rope extending toward target
-      lasso.ropeLen += LASSO_SPEED * dt;
-      if (lasso.ropeLen >= lasso.maxLen) {
-        lasso.ropeLen = lasso.maxLen;
-        lasso.reeling = true;
+  // ── Rope update ──────────────────────────────────────────────
+  if (rope) {
+    if (rope.state === 'aiming') {
+      // Adjust angle with up/down while aiming
+      if (keys.has('ArrowUp') || keys.has('KeyW')) ropeAngle -= ROPE_AIM_SPEED * dt;
+      if (keys.has('ArrowDown') || keys.has('KeyS')) ropeAngle += ROPE_AIM_SPEED * dt;
+      // Clamp: only upward angles (-170° to -10°)
+      ropeAngle = Math.max(-Math.PI * 0.95, Math.min(-Math.PI * 0.05, ropeAngle));
+      rope.angle = ropeAngle;
+    } else if (rope.state === 'flying') {
+      // Move rope tip along angle
+      const dx = Math.cos(rope.angle) * ROPE_FLY_SPEED * dt;
+      const dy = Math.sin(rope.angle) * ROPE_FLY_SPEED * dt;
+      rope.tipX += dx;
+      rope.tipY += dy;
+      // Check if rope hit a platform
+      let hit = null;
+      for (const p of platforms) {
+        // Check if tip crossed through a platform (tip is above platform top, within width)
+        if (rope.tipY <= p.y + lineHeight && rope.tipY >= p.y - 2 &&
+            rope.tipX >= p.x && rope.tipX <= p.x + p.w) {
+          hit = p;
+          break;
+        }
       }
-    } else {
-      // Reeling up: pull stick man toward target platform
-      feetY -= REEL_SPEED * dt;
-      gvy = 0;
-      gvx *= 0.9; // dampen horizontal while climbing
-      grounded = false;
-      if (feetY <= lasso.targetY) {
-        feetY = lasso.targetY;
+      if (hit) {
+        rope.state = 'attached';
+        rope.hitX = rope.tipX;
+        rope.hitY = hit.y;
+        rope.hitPlatform = hit;
+        // Auto-start climbing
+        rope.state = 'climbing';
+      }
+      // Cancel if rope exceeds max length
+      const ropeDist = Math.hypot(rope.tipX - gx, rope.tipY - feetY);
+      if (ropeDist > ROPE_MAX_LEN) {
+        rope = null;
+      }
+    } else if (rope.state === 'climbing') {
+      // Pull man toward the hit point
+      const targetY = rope.hitY;
+      const targetX = rope.hitX;
+      const dx = targetX - gx;
+      const dy = targetY - feetY;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 3) {
+        // Arrived at platform
+        feetY = targetY;
+        gx = targetX;
         grounded = true;
         gvy = 0;
-        lasso = null;
+        gvx = 0;
+        rope = null;
+      } else {
+        // Move toward target
+        const speed = ROPE_CLIMB_SPEED * dt;
+        gx += (dx / dist) * speed;
+        feetY += (dy / dist) * speed;
+        gvy = 0;
+        gvx = 0;
+        grounded = false;
       }
     }
-  } else {
+  }
+
+  if (!rope || rope.state === 'aiming') {
     // Normal physics (only when not reeling)
 
     // Horizontal movement
@@ -353,7 +403,7 @@ function update(now) {
 
   // ── Pose ──────────────────────────────────────────────────────
   let target;
-  if (lasso && lasso.reeling) {
+  if (rope && rope.state === 'climbing') {
     // Climbing pose: arms up
     target = JUMP_RISE;
   } else if (!grounded) {
@@ -406,30 +456,55 @@ function render() {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // ── Lasso rope ────────────────────────────────────────────────
-  if (lasso) {
+  // ── Rope ─────────────────────────────────────────────────────
+  if (rope) {
     const handPos = faceR ? rh : lh;
-    const ropeEndY = lasso.reeling
-      ? lasso.targetY
-      : feetY - lasso.ropeLen;
     ctx.strokeStyle = 'rgba(255, 200, 50, 0.9)';
     ctx.lineWidth = 1.5;
     ctx.shadowColor = 'rgba(255, 200, 50, 0.3)';
     ctx.shadowBlur = 4;
 
-    // Draw rope as slight curve
-    ctx.beginPath();
-    ctx.moveTo(handPos.x, handPos.y);
-    const midX = handPos.x + (faceR ? 6 : -6);
-    const midY = (handPos.y + ropeEndY) / 2;
-    ctx.quadraticCurveTo(midX, midY, gx, ropeEndY);
-    ctx.stroke();
-
-    // Hook at the end
-    ctx.beginPath();
-    ctx.arc(gx, ropeEndY, 2, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
-    ctx.fill();
+    if (rope.state === 'aiming') {
+      // Draw aim line
+      const aimLen = 40;
+      const endX = handPos.x + Math.cos(rope.angle) * aimLen;
+      const endY = handPos.y + Math.sin(rope.angle) * aimLen;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(handPos.x, handPos.y);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Arrowhead
+      ctx.beginPath();
+      ctx.arc(endX, endY, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+      ctx.fill();
+    } else if (rope.state === 'flying') {
+      // Draw rope from hand to flying tip
+      ctx.beginPath();
+      ctx.moveTo(handPos.x, handPos.y);
+      ctx.lineTo(rope.tipX, rope.tipY);
+      ctx.stroke();
+      // Hook
+      ctx.beginPath();
+      ctx.arc(rope.tipX, rope.tipY, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+      ctx.fill();
+    } else if (rope.state === 'climbing') {
+      // Draw rope from hand to attached point
+      ctx.beginPath();
+      ctx.moveTo(handPos.x, handPos.y);
+      const midX = (handPos.x + rope.hitX) / 2 + (faceR ? 4 : -4);
+      const midY = (handPos.y + rope.hitY) / 2;
+      ctx.quadraticCurveTo(midX, midY, rope.hitX, rope.hitY);
+      ctx.stroke();
+      // Hook at attachment point
+      ctx.beginPath();
+      ctx.arc(rope.hitX, rope.hitY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+      ctx.fill();
+    }
 
     ctx.shadowBlur = 0;
   }
