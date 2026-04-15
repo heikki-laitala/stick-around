@@ -127,20 +127,43 @@ function rebuildFromContent(content) {
   const numVisible = lines.length;
   if (numVisible === 0) return;
 
-  // Compute line height from visible area / visible lines
-  lineHeight = textHeight / numVisible;
+  // Terminal cells have a fixed pixel height (integer or near-integer).
+  // Raw textHeight / numLines includes inner padding, causing drift.
+  // Try candidate line heights and pick the best fit.
+  const rawLH = textHeight / numVisible;
+  let bestLH = rawLH, bestPad = 0, bestN = numVisible;
+  const candidates = [Math.floor(rawLH), Math.ceil(rawLH), Math.round(rawLH)];
+  let bestScore = Infinity;
+  for (const lh of candidates) {
+    if (lh < 8) continue;
+    // How many full lines fit at this height?
+    const n = Math.floor(textHeight / lh);
+    const pad = textHeight - n * lh;
+    // Prefer: small padding AND line count close to what AX reported
+    const score = pad + Math.abs(n - numVisible) * 5;
+    if (pad >= 0 && pad < 30 && score < bestScore) {
+      bestScore = score;
+      bestLH = lh;
+      bestPad = pad;
+      bestN = n;
+    }
+  }
+  lineHeight = bestLH;
+  // Split padding evenly between top and bottom
+  const topPad = bestPad / 2;
+  // Use bestN (fitted line count) - may differ from numVisible by 1
+  const fitLines = Math.min(bestN, numVisible);
 
   // Terminal columns = max display width of any line
-  // charWidth = text area width / columns
   const termCols = Math.max(...lines, 1);
   const charWidth = textWidth / termCols;
 
   // Build platforms: each visible line gets a platform
   platforms = [];
-  for (let i = 0; i < numVisible; i++) {
+  for (let i = 0; i < fitLines; i++) {
     const cols = lines[i]; // display width in columns
     if (cols > 0) {
-      const y = textOffsetY + i * lineHeight;
+      const y = textOffsetY + topPad + i * lineHeight;
       platforms.push({ y, x: textOffsetX, w: cols * charWidth, hash: hashes[i] || 0 });
     }
   }
@@ -466,7 +489,8 @@ function render() {
   // Debug: show computed metrics
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   ctx.font = '11px monospace';
-  const dbg = `offX:${textOffsetX.toFixed(0)} offY:${textOffsetY.toFixed(0)} tH:${textHeight.toFixed(0)} tW:${textWidth.toFixed(0)} lH:${lineHeight.toFixed(1)} lines:${platforms.length} real:${gotRealData}`;
+  const pad = textHeight - platforms.length * lineHeight;
+  const dbg = `offY:${textOffsetY.toFixed(0)} tH:${textHeight.toFixed(0)} lH:${lineHeight.toFixed(1)} pad:${(pad/2).toFixed(1)} n:${platforms.length} real:${gotRealData}`;
   ctx.fillText(dbg, 10, 14);
 
   // Debug: draw text area outline
