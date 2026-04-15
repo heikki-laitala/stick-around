@@ -290,6 +290,10 @@ document.addEventListener('keydown', e => {
       ropeAngle = defaultAngle;
       rope = { state: 'aiming', angle: ropeAngle, tipX: 0, tipY: 0,
                hitX: 0, hitY: 0, ropeLen: 0, swingAngle: 0, swingVel: 0 };
+    } else if (rope && (rope.state === 'aiming' || rope.state === 'flying')) {
+      // Cancel rope
+      rope = null;
+      ropeCooldown = ROPE_COOLDOWN;
     } else if (rope && rope.state === 'swinging') {
       // Release: launch with current velocity
       const len = rope.ropeLen;
@@ -381,6 +385,12 @@ function update(now) {
       // Player pumping: left/right adds angular velocity
       if (keys.has('KeyA') || keys.has('ArrowLeft')) rope.swingVel -= SWING_PUMP * dt;
       if (keys.has('KeyD') || keys.has('ArrowRight')) rope.swingVel += SWING_PUMP * dt;
+
+      // Climb: W/up shortens rope, S/down lengthens it
+      const CLIMB_SPEED = 80; // pixels per second
+      const MIN_ROPE_LEN = 20;
+      if (keys.has('KeyW') || keys.has('ArrowUp')) rope.ropeLen = Math.max(MIN_ROPE_LEN, rope.ropeLen - CLIMB_SPEED * dt);
+      if (keys.has('KeyS') || keys.has('ArrowDown')) rope.ropeLen = Math.min(ROPE_MAX_LEN, rope.ropeLen + CLIMB_SPEED * dt);
 
       // Damping
       rope.swingVel *= SWING_DAMPING;
