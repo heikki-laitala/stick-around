@@ -6,6 +6,7 @@
     "core:window:allow-close",
     "core:window:allow-set-ignore-cursor-events",
     "core:event:default",
-    "core:event:allow-listen"
+    "core:event:allow-listen",
+    "core:event:allow-emit"
   ]
 }

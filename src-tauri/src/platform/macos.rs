@@ -165,6 +165,113 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
     run_osascript(&script);
 }
 
+use super::TerminalContent;
+
+/// Read the terminal's text area geometry and visible line content.
+/// Uses AXVisibleCharacterRange to get exactly the visible text.
+/// Returns metadata on first line, visible text on subsequent lines.
+pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
+    // Step 1: get geometry (separate call — fast and reliable)
+    let geo_script = format!(
+        r#"tell application "System Events"
+            tell (first process whose unix id is {})
+                tell front window
+                    set wp to position of it
+                    try
+                        set sa to scroll area 1 of splitter group 1
+                    on error
+                        set sa to scroll area 1
+                    end try
+                    set sp to position of sa
+                    set ss to size of sa
+                    return "" & (item 1 of wp) & "," & (item 2 of wp) & "," & (item 1 of sp) & "," & (item 2 of sp) & "," & (item 1 of ss) & "," & (item 2 of ss)
+                end tell
+            end tell
+        end tell"#,
+        pid
+    );
+    let geo = run_osascript(&geo_script)?;
+    let nums: Vec<f64> = geo.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    if nums.len() < 6 {
+        return None;
+    }
+    let (win_x, win_y) = (nums[0], nums[1]);
+    let (scroll_x, scroll_y) = (nums[2], nums[3]);
+    let (scroll_w, scroll_h) = (nums[4], nums[5]);
+
+    // Step 2: get visible text via AXVisibleCharacterRange
+    let text_script = format!(
+        r#"tell application "System Events"
+            tell (first process whose unix id is {})
+                tell front window
+                    try
+                        set ta to text area 1 of scroll area 1 of splitter group 1
+                    on error
+                        set ta to text area 1 of scroll area 1
+                    end try
+                    set vcr to value of attribute "AXVisibleCharacterRange" of ta
+                    set fullText to value of ta
+                    set vStart to (item 1 of vcr)
+                    set vLen to (item 2 of vcr) - vStart
+                    if vLen > 0 then
+                        return text (vStart + 1) thru (vStart + vLen) of fullText
+                    else
+                        return ""
+                    end if
+                end tell
+            end tell
+        end tell"#,
+        pid
+    );
+    let text = run_osascript(&text_script).unwrap_or_default();
+
+    // Count Unicode display width and compute content hash per line
+    let mut lines: Vec<usize> = Vec::new();
+    let mut hashes: Vec<u32> = Vec::new();
+    for l in text.lines() {
+        let width: usize = l.chars().map(|c| if is_wide_char(c) { 2 } else { 1 }).sum();
+        lines.push(width);
+        // Simple FNV-1a hash for content-based coloring
+        let mut h: u32 = 2166136261;
+        for b in l.bytes() {
+            h ^= b as u32;
+            h = h.wrapping_mul(16777619);
+        }
+        hashes.push(h);
+    }
+
+    Some(TerminalContent {
+        text_offset_y: scroll_y - win_y,
+        text_offset_x: scroll_x - win_x,
+        text_height: scroll_h,
+        text_width: scroll_w,
+        lines,
+        hashes,
+    })
+}
+
+/// Approximate check for wide (2-column) characters in a terminal.
+fn is_wide_char(c: char) -> bool {
+    let cp = c as u32;
+    // CJK Unified Ideographs, CJK Compatibility Ideographs, etc.
+    matches!(cp,
+        0x1100..=0x115F   // Hangul Jamo
+        | 0x2E80..=0x303E // CJK Radicals, Kangxi, Ideographic Description
+        | 0x3040..=0x33BF // Hiragana, Katakana, Bopomofo, CJK Compatibility
+        | 0x3400..=0x4DBF // CJK Extension A
+        | 0x4E00..=0x9FFF // CJK Unified Ideographs
+        | 0xA000..=0xA4CF // Yi
+        | 0xAC00..=0xD7AF // Hangul Syllables
+        | 0xF900..=0xFAFF // CJK Compatibility Ideographs
+        | 0xFE10..=0xFE6F // Vertical forms, CJK Compatibility Forms
+        | 0xFF01..=0xFF60 // Fullwidth Forms
+        | 0xFFE0..=0xFFE6 // Fullwidth Signs
+        | 0x1F000..=0x1FBFF // Mahjong, Dominos, Playing Cards, Emoticons, Misc Symbols
+        | 0x20000..=0x2FFFF // CJK Extension B-F
+        | 0x30000..=0x3FFFF // CJK Extension G-H
+    )
+}
+
 pub fn get_pid_by_name(name: &str) -> Option<u32> {
     let script = format!(
         r#"tell application "System Events" to get unix id of first process whose name is "{}""#,

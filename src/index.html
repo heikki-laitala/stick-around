@@ -25,7 +25,6 @@ window.addEventListener('resize', resize);
 
 const W = () => window.innerWidth;
 const H = () => window.innerHeight;
-const GROUND = () => H() - 40;
 
 // ── Skeleton ────────────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -47,25 +46,25 @@ const IDLE = p(
 );
 
 const WALK = [
-  p( // right stride - head forward, torso leans, arms swing
+  p(
     {x:6,y:-45},{x:5,y:-33},{x:0,y:3},
     {x:-5,y:-30},{x:12,y:-30},{x:6,y:-16},{x:-4,y:-18},
     {x:10,y:-4},{x:-10,y:-6},{x:-4,y:4},{x:5,y:5},
     {x:-14,y:20},{x:16,y:24},{x:-8,y:44},{x:22,y:44}
   ),
-  p( // passing up - body rises
+  p(
     {x:3,y:-50},{x:2,y:-38},{x:0,y:-2},
     {x:-8,y:-35},{x:8,y:-35},{x:-4,y:-20},{x:4,y:-20},
     {x:-2,y:-6},{x:2,y:-6},{x:-3,y:0},{x:3,y:0},
     {x:-2,y:20},{x:2,y:20},{x:-2,y:44},{x:2,y:44}
   ),
-  p( // left stride - mirror of right
+  p(
     {x:6,y:-45},{x:5,y:-33},{x:0,y:3},
     {x:-5,y:-30},{x:12,y:-30},{x:-4,y:-18},{x:6,y:-16},
     {x:-10,y:-6},{x:10,y:-4},{x:-4,y:5},{x:5,y:4},
     {x:16,y:24},{x:-14,y:20},{x:22,y:44},{x:-8,y:44}
   ),
-  p( // passing up
+  p(
     {x:3,y:-50},{x:2,y:-38},{x:0,y:-2},
     {x:-8,y:-35},{x:8,y:-35},{x:4,y:-20},{x:-4,y:-20},
     {x:2,y:-6},{x:-2,y:-6},{x:-3,y:0},{x:3,y:0},
@@ -94,19 +93,130 @@ const LAND = p(
   {x:-16,y:24},{x:16,y:24},{x:-18,y:44},{x:18,y:44}
 );
 
-// ── Game State ──────────────────────────────────────────────────────
-const GRAV = 1400;
-const JUMP_V = 520;
-const ACCEL = 1200;
+// ── Game Constants ──────────────────────────────────────────────────
+const GRAV = 800;
+const JUMP_V = 300;
+const ACCEL = 800;
 const FRIC = 0.88;
-const MAXV = 350;
-const SCALE = 0.8;
+const MAXV = 250;
+const SCALE = 0.35;
+// lineHeight is declared above in terminal metrics section
 
-let gx = 400, gy = 0; // gy: 0=ground, positive=up
-let gvx = 0, gvy = 0;
+let DEBUG_DRAW = true; // show platform bounding boxes (togglable with B key)
+
+// ── Terminal metrics (updated dynamically from backend) ─────────────
+let textOffsetX = 0;   // text area left offset within window (px)
+let textOffsetY = 28;  // text area top offset within window (px) - initial estimate
+let textHeight = 0;    // visible text area height (px)
+let textWidth = 0;     // visible text area width (px)
+let lineHeight = 16;   // computed: textHeight / visibleLines
+
+// ── Platforms ───────────────────────────────────────────────────────
+// Each platform: { y: screenY, x: screenX, w: width in px }
+// One-way: stick man passes through from below, lands from above.
+let platforms = [];
+
+function rebuildFromContent(content) {
+  // content: { text_offset_x, text_offset_y, text_height, text_width, lines: [displayWidth...], hashes: [u32...] }
+  textOffsetX = content.text_offset_x;
+  textOffsetY = content.text_offset_y;
+  textHeight = content.text_height;
+  textWidth = content.text_width;
+  const lines = content.lines;
+  const hashes = content.hashes || [];
+  const numVisible = lines.length;
+  if (numVisible === 0) return;
+
+  // Compute line height from visible area / visible lines
+  lineHeight = textHeight / numVisible;
+
+  // Terminal columns = max display width of any line
+  // charWidth = text area width / columns
+  const termCols = Math.max(...lines, 1);
+  const charWidth = textWidth / termCols;
+
+  // Build platforms: each visible line gets a platform
+  platforms = [];
+  for (let i = 0; i < numVisible; i++) {
+    const cols = lines[i]; // display width in columns
+    if (cols > 0) {
+      const y = textOffsetY + i * lineHeight;
+      platforms.push({ y, x: textOffsetX, w: cols * charWidth, hash: hashes[i] || 0 });
+    }
+  }
+}
+
+// Start with fallback platforms until backend sends real data
+function initFallbackPlatforms() {
+  platforms = [];
+  const numLines = Math.floor(H() / lineHeight);
+  for (let i = 0; i < numLines; i++) {
+    const chars = 20 + Math.floor(Math.random() * 60);
+    platforms.push({ y: i * lineHeight, x: 10, w: chars * 8.4, hash: Math.random() * 0xFFFFFF | 0 });
+  }
+}
+initFallbackPlatforms();
+window.addEventListener('resize', initFallbackPlatforms);
+
+let gotRealData = false;
+
+// Listen for real terminal content from backend
+if (window.__TAURI__) {
+  window.__TAURI__.event.listen('terminal-content', (ev) => {
+    const content = ev.payload;
+    if (content && Array.isArray(content.lines) && content.lines.length > 0) {
+      gotRealData = true;
+      rebuildFromContent(content);
+    }
+  });
+}
+
+// Find the nearest platform at or below feetScreenY that the stick man is horizontally on
+// Always returns the ground floor if nothing else matches
+function findFloor(feetScreenY, xPos) {
+  let best = null;
+  for (const p of platforms) {
+    if (p.y >= feetScreenY - 2 && (best === null || p.y < best.y)) {
+      if (xPos >= p.x && xPos <= p.x + p.w) {
+        best = p;
+      }
+    }
+  }
+  // Ground floor: always present at bottom
+  const groundY = H() - 4;
+  if (groundY >= feetScreenY - 2 && (best === null || groundY < best.y)) {
+    best = { y: groundY, x: 0, w: W() };
+  }
+  return best;
+}
+
+// Find the nearest platform ABOVE the current position (for lasso)
+// Lasso doesn't require horizontal alignment — it can reach any platform above
+function findPlatformAbove(feetScreenY, xPos, maxDist) {
+  let best = null;
+  for (const p of platforms) {
+    if (p.y < feetScreenY - 2 && feetScreenY - p.y <= maxDist) {
+      if (best === null || p.y > best.y) best = p;
+    }
+  }
+  return best;
+}
+
+// ── Game State ──────────────────────────────────────────────────────
+// Using screen-Y for feet position directly (0 = top, H() = bottom)
+let gx = 200;
+let feetY = platforms.length > 0 ? platforms[0].y : H() - lineHeight; // start on lowest platform
+let gvx = 0, gvy = 0; // gvy: positive = moving down on screen
 let grounded = true, faceR = true;
 let walkPh = 0, landT = 0;
+let dropThrough = 0; // timer for dropping through platforms
 let curPose = JSON.parse(JSON.stringify(IDLE));
+
+// ── Lasso State ─────────────────────────────────────────────────────
+let lasso = null; // { targetY, ropeLen, reeling }
+const LASSO_LINES = 8; // can reach 8 lines up
+const LASSO_SPEED = 600; // pixels per second rope travels
+const REEL_SPEED = 200; // pixels per second climbing
 
 const keys = new Set();
 
@@ -122,9 +232,24 @@ document.addEventListener('keydown', e => {
       return;
     }
   }
+  // Toggle platform bounding boxes
+  if (e.code === 'KeyB') { DEBUG_DRAW = !DEBUG_DRAW; return; }
+  // Lasso: press E to throw
+  if (e.code === 'KeyE' && !lasso) {
+    const target = findPlatformAbove(feetY, gx, lineHeight * LASSO_LINES);
+    if (target !== null) {
+      lasso = { targetY: target.y, ropeLen: 0, maxLen: feetY - target.y, reeling: false };
+    }
+  }
   keys.add(e.code);
 });
-document.addEventListener('keyup', e => keys.delete(e.code));
+document.addEventListener('keyup', e => {
+  keys.delete(e.code);
+  // Release lasso when E is released
+  if (e.code === 'KeyE' && lasso && lasso.reeling) {
+    lasso = null;
+  }
+});
 
 let lastTime = performance.now();
 
@@ -135,31 +260,92 @@ function update(now) {
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
   const right = keys.has('KeyD') || keys.has('ArrowRight');
   const jump = keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space');
+  const down = keys.has('KeyS') || keys.has('ArrowDown');
 
-  if (left) { gvx -= ACCEL * dt; faceR = false; }
-  if (right) { gvx += ACCEL * dt; faceR = true; }
-  if (!left && !right) { gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(gvx) < 1) gvx = 0; }
-  gvx = Math.max(-MAXV, Math.min(MAXV, gvx));
+  // Drop-through timer
+  if (down && grounded) { dropThrough = 0.15; grounded = false; gvy = 50; }
+  if (dropThrough > 0) dropThrough -= dt;
 
-  if (jump && grounded) { gvy = JUMP_V; grounded = false; landT = 0; }
-  if (!grounded) gvy -= GRAV * dt;
+  // ── Lasso update ──────────────────────────────────────────────
+  if (lasso) {
+    if (!lasso.reeling) {
+      // Rope extending toward target
+      lasso.ropeLen += LASSO_SPEED * dt;
+      if (lasso.ropeLen >= lasso.maxLen) {
+        lasso.ropeLen = lasso.maxLen;
+        lasso.reeling = true;
+      }
+    } else {
+      // Reeling up: pull stick man toward target platform
+      feetY -= REEL_SPEED * dt;
+      gvy = 0;
+      gvx *= 0.9; // dampen horizontal while climbing
+      grounded = false;
+      if (feetY <= lasso.targetY) {
+        feetY = lasso.targetY;
+        grounded = true;
+        gvy = 0;
+        lasso = null;
+      }
+    }
+  } else {
+    // Normal physics (only when not reeling)
 
-  gx += gvx * dt;
-  gy += gvy * dt;
+    // Horizontal movement
+    if (left) { gvx -= ACCEL * dt; faceR = false; }
+    if (right) { gvx += ACCEL * dt; faceR = true; }
+    if (!left && !right) { gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(gvx) < 1) gvx = 0; }
+    gvx = Math.max(-MAXV, Math.min(MAXV, gvx));
 
-  if (gy <= 0) {
-    if (gvy < -150) landT = 0.15;
-    gy = 0; gvy = 0; grounded = true;
+    // Jump
+    if (jump && grounded) { gvy = -JUMP_V; grounded = false; landT = 0; }
+
+    // Gravity (gvy positive = falling down on screen)
+    if (!grounded) gvy += GRAV * dt;
+
+    // Apply velocity
+    const prevFeetY = feetY;
+    feetY += gvy * dt;
+
+    // Platform collision (one-way, from above only)
+    if (gvy >= 0 && dropThrough <= 0) {
+      const floor = findFloor(prevFeetY - 1, gx);
+      if (floor !== null && feetY >= floor.y && prevFeetY <= floor.y + 4) {
+        if (gvy > 100) landT = 0.15;
+        feetY = floor.y;
+        gvy = 0;
+        grounded = true;
+      }
+    }
+
+    // Absolute floor (never fall off bottom)
+    if (feetY > H()) {
+      feetY = H() - lineHeight;
+      gvy = 0;
+      grounded = true;
+    }
+
+    // If grounded, check platform still exists beneath (walked off edge)
+    if (grounded) {
+      const floor = findFloor(feetY - 1, gx);
+      if (floor === null || Math.abs(feetY - floor.y) > 2) {
+        grounded = false;
+      }
+    }
   }
 
-  // Wrap
-  if (gx < -50) gx = W();
-  if (gx > W() + 50) gx = -50;
+  // Horizontal position
+  gx += gvx * dt;
+  if (gx < -20) gx = W();
+  if (gx > W() + 20) gx = -20;
 
-  // Target pose
+  // ── Pose ──────────────────────────────────────────────────────
   let target;
-  if (!grounded) {
-    const t = Math.max(0, Math.min(1, (gvy + JUMP_V) / (JUMP_V * 2)));
+  if (lasso && lasso.reeling) {
+    // Climbing pose: arms up
+    target = JUMP_RISE;
+  } else if (!grounded) {
+    const t = Math.max(0, Math.min(1, (-gvy + JUMP_V) / (JUMP_V * 2)));
     target = lerpPose(JUMP_FALL, JUMP_RISE, t);
   } else if (landT > 0) {
     target = lerpPose(IDLE, LAND, landT / 0.15);
@@ -189,11 +375,15 @@ function render() {
   ctx.clearRect(0, 0, W(), H());
 
   const ox = gx;
-  const oy = GROUND() - gy;
+  const oy = feetY; // feet position in screen coords
   const s = SCALE;
   const fl = faceR ? 1 : -1;
 
-  const j = (name) => ({ x: ox + curPose[name].x * s * fl, y: oy + curPose[name].y * s });
+  // Joint positions relative to feet (hip is at y=0 in pose, feet at y=44)
+  const j = (name) => ({
+    x: ox + curPose[name].x * s * fl,
+    y: oy + (curPose[name].y - 44) * s  // offset so feet align with feetY
+  });
 
   const head = j('head'), neck = j('neck'), hip = j('hip');
   const lsh = j('lsh'), rsh = j('rsh'), lel = j('lel'), rel = j('rel');
@@ -204,24 +394,51 @@ function render() {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Glow effect
-  ctx.shadowColor = 'rgba(0, 220, 255, 0.4)';
-  ctx.shadowBlur = 8;
+  // ── Lasso rope ────────────────────────────────────────────────
+  if (lasso) {
+    const handPos = faceR ? rh : lh;
+    const ropeEndY = lasso.reeling
+      ? lasso.targetY
+      : feetY - lasso.ropeLen;
+    ctx.strokeStyle = 'rgba(255, 200, 50, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = 'rgba(255, 200, 50, 0.3)';
+    ctx.shadowBlur = 4;
 
-  // Body color
+    // Draw rope as slight curve
+    ctx.beginPath();
+    ctx.moveTo(handPos.x, handPos.y);
+    const midX = handPos.x + (faceR ? 6 : -6);
+    const midY = (handPos.y + ropeEndY) / 2;
+    ctx.quadraticCurveTo(midX, midY, gx, ropeEndY);
+    ctx.stroke();
+
+    // Hook at the end
+    ctx.beginPath();
+    ctx.arc(gx, ropeEndY, 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Stick man ─────────────────────────────────────────────────
+  ctx.shadowColor = 'rgba(0, 220, 255, 0.4)';
+  ctx.shadowBlur = 6;
+
   const color = 'rgba(0, 220, 255, 0.95)';
   ctx.strokeStyle = color;
 
-  // Spine (thick)
-  ctx.lineWidth = 3.5;
+  // Spine
+  ctx.lineWidth = 2;
   drawLimb(neck.x, neck.y, hip.x, hip.y);
 
   // Shoulders
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 1.5;
   drawLimb(lsh.x, lsh.y, rsh.x, rsh.y);
 
   // Limbs
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 1.5;
   drawLimb(lsh.x, lsh.y, lel.x, lel.y);
   drawLimb(lel.x, lel.y, lh.x, lh.y);
   drawLimb(rsh.x, rsh.y, rel.x, rel.y);
@@ -233,7 +450,7 @@ function render() {
   drawLimb(rk.x, rk.y, rf.x, rf.y);
 
   // Head
-  const hr = 7 * s;
+  const hr = 5 * s;
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.arc(head.x, head.y, hr, 0, Math.PI * 2);
@@ -241,10 +458,39 @@ function render() {
 
   ctx.shadowBlur = 0;
 
-  // Debug bounding box
+  // Debug: overlay border
   ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, W() - 2, H() - 2);
+
+  // Debug: show computed metrics
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.font = '11px monospace';
+  const dbg = `offX:${textOffsetX.toFixed(0)} offY:${textOffsetY.toFixed(0)} tH:${textHeight.toFixed(0)} tW:${textWidth.toFixed(0)} lH:${lineHeight.toFixed(1)} lines:${platforms.length} real:${gotRealData}`;
+  ctx.fillText(dbg, 10, 14);
+
+  // Debug: draw text area outline
+  ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(textOffsetX, textOffsetY, textWidth, textHeight);
+
+  // ── Debug: draw platform bounding boxes ───────────────────────
+  if (DEBUG_DRAW) {
+    // Color from content hash: same text content = same color
+    function hashToColor(h) {
+      const r = ((h >> 0) & 0xFF);
+      const g = ((h >> 8) & 0xFF);
+      const b = ((h >> 16) & 0xFF);
+      // Ensure minimum brightness for visibility
+      return [Math.max(r, 100), Math.max(g, 100), Math.max(b, 100)];
+    }
+    for (const p of platforms) {
+      const c = hashToColor(p.hash || 0);
+      ctx.strokeStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, 0.7)`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(p.x, p.y, p.w, lineHeight);
+    }
+  }
 }
 
 function loop(now) {

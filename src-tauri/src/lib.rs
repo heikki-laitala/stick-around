@@ -1,6 +1,6 @@
 mod platform;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -131,6 +131,21 @@ pub fn run(terminal_app: Option<String>) {
                     }
 
                     std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            });
+
+            // Poll terminal text content and emit line data to frontend
+            let win_text = window.clone();
+            std::thread::spawn(move || {
+                let mut last_content: Option<platform::TerminalContent> = None;
+                loop {
+                    if let Some(content) = platform::get_terminal_content(pid) {
+                        if last_content.as_ref() != Some(&content) {
+                            let _ = win_text.emit("terminal-content", &content);
+                            last_content = Some(content);
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                 }
             });
 
