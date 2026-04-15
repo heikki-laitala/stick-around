@@ -1,4 +1,33 @@
 use std::process::Command;
+use objc2::runtime::AnyObject;
+use objc2::ffi::object_setClass;
+use objc2::{msg_send, class};
+
+/// Convert a Tauri window into a non-activating panel.
+/// This lets the overlay receive keyboard events without stealing
+/// active status from the terminal, so it keeps rendering.
+///
+/// # Safety
+/// `ns_window` must be a valid pointer to an NSWindow.
+pub unsafe fn configure_as_panel(ns_window: *mut std::ffi::c_void) {
+    let window = ns_window as *mut AnyObject;
+
+    // Swap the window's class from NSWindow to NSPanel.
+    // NSPanel supports the nonactivatingPanel style mask.
+    let panel_class = class!(NSPanel);
+    object_setClass(window as *mut _, panel_class as *const _ as *const _);
+
+    // Get current style mask and add nonactivatingPanel (1 << 7)
+    let style_mask: usize = msg_send![window, styleMask];
+    let new_mask = style_mask | (1 << 7);
+    let _: () = msg_send![window, setStyleMask: new_mask];
+
+    // Make it a floating panel (stays above normal windows)
+    let _: () = msg_send![window, setFloatingPanel: true];
+
+    // Allow keyboard events even though the app isn't active
+    let _: () = msg_send![window, setWorksWhenModal: true];
+}
 
 fn run_osascript(script: &str) -> Option<String> {
     Command::new("osascript")

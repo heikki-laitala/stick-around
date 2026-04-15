@@ -83,6 +83,15 @@ pub fn run(terminal_app: Option<String>) {
         .setup(move |app| {
             let window = app.get_webview_window("overlay").unwrap();
 
+            // On macOS, convert to a non-activating panel so the terminal
+            // keeps rendering while the overlay receives keyboard events.
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(ns_window) = window.ns_window() {
+                    unsafe { platform::configure_as_panel(ns_window) };
+                }
+            }
+
             if let Some((x, y, w, h)) = initial_bounds {
                 apply_bounds(&window, x, y, w, h);
             }
