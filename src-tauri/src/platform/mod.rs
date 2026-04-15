@@ -9,6 +9,10 @@ pub struct TerminalContent {
     pub text_height: f64,
     /// Width of the visible text area (pixels)
     pub text_width: f64,
+    /// Terminal column count (characters per row)
+    pub term_cols: usize,
+    /// Terminal row count (visible rows)
+    pub term_rows: usize,
     /// Display width per visible line in columns (top to bottom)
     pub lines: Vec<usize>,
     /// Simple hash per line for content-based coloring

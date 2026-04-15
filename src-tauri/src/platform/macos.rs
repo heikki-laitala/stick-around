@@ -225,6 +225,18 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
     );
     let text = run_osascript(&text_script).unwrap_or_default();
 
+    // Step 3: get terminal column count from window title (most terminals show COLSxROWS)
+    let title_script = format!(
+        r#"tell application "System Events"
+            tell (first process whose unix id is {})
+                return name of front window
+            end tell
+        end tell"#,
+        pid
+    );
+    let title = run_osascript(&title_script).unwrap_or_default();
+    let (term_cols, term_rows) = parse_dimensions_from_title(&title).unwrap_or((80, 24));
+
     // Count Unicode display width and compute content hash per line
     let mut lines: Vec<usize> = Vec::new();
     let mut hashes: Vec<u32> = Vec::new();
@@ -245,9 +257,31 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
         text_offset_x: scroll_x - win_x,
         text_height: scroll_h,
         text_width: scroll_w,
+        term_cols,
+        term_rows,
         lines,
         hashes,
     })
+}
+
+/// Parse terminal dimensions (cols, rows) from window title.
+/// Most terminals include "COLSxROWS" or "COLS×ROWS" in the title.
+fn parse_dimensions_from_title(title: &str) -> Option<(usize, usize)> {
+    for sep in &["\u{00d7}", "x", "X"] {
+        for word in title.split(|c: char| c.is_whitespace() || c == '\u{2014}' || c == '-') {
+            let word = word.trim();
+            if let Some(idx) = word.find(sep) {
+                let left = &word[..idx];
+                let right = &word[idx + sep.len()..];
+                if let (Ok(cols), Ok(rows)) = (left.parse::<usize>(), right.parse::<usize>()) {
+                    if cols > 10 && cols < 1000 && rows > 1 && rows < 500 {
+                        return Some((cols, rows));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Approximate check for wide (2-column) characters in a terminal.

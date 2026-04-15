@@ -127,36 +127,14 @@ function rebuildFromContent(content) {
   const numVisible = lines.length;
   if (numVisible === 0) return;
 
-  // Terminal cells have a fixed pixel height (integer or near-integer).
-  // Raw textHeight / numLines includes inner padding, causing drift.
-  // Try candidate line heights and pick the best fit.
-  const rawLH = textHeight / numVisible;
-  let bestLH = rawLH, bestPad = 0, bestN = numVisible;
-  const candidates = [Math.floor(rawLH), Math.ceil(rawLH), Math.round(rawLH)];
-  let bestScore = Infinity;
-  for (const lh of candidates) {
-    if (lh < 8) continue;
-    // How many full lines fit at this height?
-    const n = Math.floor(textHeight / lh);
-    const pad = textHeight - n * lh;
-    // Prefer: small padding AND line count close to what AX reported
-    const score = pad + Math.abs(n - numVisible) * 5;
-    if (pad >= 0 && pad < 30 && score < bestScore) {
-      bestScore = score;
-      bestLH = lh;
-      bestPad = pad;
-      bestN = n;
-    }
-  }
-  lineHeight = bestLH;
-  // Split padding evenly between top and bottom
-  const topPad = bestPad / 2;
-  // Use bestN (fitted line count) - may differ from numVisible by 1
-  const fitLines = Math.min(bestN, numVisible);
-
-  // Terminal columns = max display width of any line
-  const termCols = Math.max(...lines, 1);
+  // Use terminal dimensions from backend for exact pixel metrics.
+  // term_rows from window title is the authoritative row count.
+  const termRows = content.term_rows || numVisible;
+  const termCols = content.term_cols || Math.max(...lines, 1);
+  lineHeight = textHeight / termRows;
   const charWidth = textWidth / termCols;
+  const topPad = 0;
+  const fitLines = Math.min(numVisible, termRows);
 
   // Build platforms: each visible line gets a platform
   platforms = [];
@@ -508,7 +486,10 @@ function render() {
       // Ensure minimum brightness for visibility
       return [Math.max(r, 100), Math.max(g, 100), Math.max(b, 100)];
     }
-    for (const p of platforms) {
+    const step = Math.max(1, Math.floor(platforms.length / 5));
+    for (let i = 0; i < platforms.length; i++) {
+      if (i % step !== 0) continue; // show only ~5 boxes spread evenly
+      const p = platforms[i];
       const c = hashToColor(p.hash || 0);
       ctx.strokeStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, 0.7)`;
       ctx.lineWidth = 1;
