@@ -169,6 +169,21 @@ function rebuildFromContent(content) {
       feetY = nearest.y;
     }
   }
+
+  // Break rope if the anchor platform no longer exists.
+  // Store the anchor platform's hash to detect content changes.
+  if (rope && (rope.state === 'swinging' || rope.state === 'attached')) {
+    // Find platform at exact anchor position (within 2px tolerance)
+    const anchorPlat = platforms.find(p =>
+      rope.hitX >= p.x && rope.hitX <= p.x + p.w &&
+      Math.abs(rope.hitY - p.y) < 2
+    );
+    // Break if platform gone OR its content changed (different text scrolled in)
+    if (!anchorPlat || (rope.anchorHash && anchorPlat.hash !== rope.anchorHash)) {
+      rope = null;
+      grounded = false;
+    }
+  }
 }
 
 // Start with fallback platforms until backend sends real data
@@ -345,6 +360,7 @@ function update(now) {
         rope.state = 'swinging';
         rope.hitX = rope.tipX;
         rope.hitY = hit.y;
+        rope.anchorHash = hit.hash; // track content to detect scroll
         rope.ropeLen = Math.max(20, Math.hypot(gx - rope.hitX, feetY - rope.hitY));
         rope.swingAngle = Math.atan2(gx - rope.hitX, feetY - rope.hitY);
         rope.swingVel = (gvx * Math.cos(rope.swingAngle)) / rope.ropeLen;
