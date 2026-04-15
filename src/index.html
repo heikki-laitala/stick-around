@@ -225,13 +225,17 @@ let dropThrough = 0; // timer for dropping through platforms
 let curPose = JSON.parse(JSON.stringify(IDLE));
 
 // ── Rope State ──────────────────────────────────────────────────────
-let rope = null; // { state, angle, tipX, tipY, hitX, hitY, hitPlatform }
-// state: 'aiming' | 'flying' | 'attached' | 'climbing'
-let ropeAngle = -Math.PI / 4; // default aim: 45° upward
+let rope = null;
+// state: 'aiming' | 'flying' | 'swinging'
+let ropeAngle = -3 * Math.PI / 4; // default aim: 135° (up-left)
 const ROPE_AIM_SPEED = 2.0; // radians per second
-const ROPE_FLY_SPEED = 800; // pixels per second
+const ROPE_FLY_SPEED = 150; // pixels per second (slow for debugging)
 const ROPE_MAX_LEN = 400; // max rope length in pixels
-const ROPE_CLIMB_SPEED = 200; // pixels per second climbing
+const SWING_GRAVITY = 600; // gravity pulling the pendulum
+const SWING_PUMP = 3.0; // angular acceleration when pumping with left/right
+const SWING_DAMPING = 0.98; // slight energy loss per frame
+const ROPE_COOLDOWN = 0.5; // seconds between rope uses
+let ropeCooldown = 0;
 
 const keys = new Set();
 
@@ -249,12 +253,24 @@ document.addEventListener('keydown', e => {
   }
   // Toggle platform bounding boxes
   if (e.code === 'KeyB') { DEBUG_DRAW = !DEBUG_DRAW; return; }
-  // Rope: press E to start aiming, or cancel if climbing
+  // Rope: press E to start aiming, or release while swinging
   if (e.code === 'KeyE') {
-    if (!rope) {
-      rope = { state: 'aiming', angle: ropeAngle, tipX: 0, tipY: 0, hitX: 0, hitY: 0, hitPlatform: null };
-    } else if (rope.state === 'climbing' || rope.state === 'attached') {
-      rope = null; // cancel rope
+    if (!rope && ropeCooldown <= 0) {
+      // Default aim direction based on facing: up-left if facing right, up-right if facing left
+      const defaultAngle = faceR ? -3 * Math.PI / 4 : -Math.PI / 4;
+      ropeAngle = defaultAngle;
+      rope = { state: 'aiming', angle: ropeAngle, tipX: 0, tipY: 0,
+               hitX: 0, hitY: 0, ropeLen: 0, swingAngle: 0, swingVel: 0 };
+    } else if (rope && rope.state === 'swinging') {
+      // Release: launch with current velocity
+      const len = rope.ropeLen;
+      const tangentVx = -rope.swingVel * len * Math.cos(rope.swingAngle);
+      const tangentVy = -rope.swingVel * len * Math.sin(rope.swingAngle);
+      gvx = tangentVx;
+      gvy = tangentVy;
+      grounded = false;
+      rope = null;
+      ropeCooldown = ROPE_COOLDOWN;
     }
   }
   keys.add(e.code);
@@ -265,7 +281,7 @@ document.addEventListener('keyup', e => {
   if (e.code === 'KeyE' && rope && rope.state === 'aiming') {
     rope.state = 'flying';
     rope.tipX = gx;
-    rope.tipY = feetY - 15 * SCALE; // start from hand height
+    rope.tipY = feetY - 15 * SCALE;
   }
 });
 
@@ -286,6 +302,8 @@ function update(now) {
   if (dropThrough > 0) dropThrough -= dt;
 
   // ── Rope update ──────────────────────────────────────────────
+  if (ropeCooldown > 0) ropeCooldown -= dt;
+
   if (rope) {
     if (rope.state === 'aiming') {
       // Adjust angle with up/down while aiming
@@ -296,56 +314,72 @@ function update(now) {
       rope.angle = ropeAngle;
     } else if (rope.state === 'flying') {
       // Move rope tip along angle
-      const dx = Math.cos(rope.angle) * ROPE_FLY_SPEED * dt;
-      const dy = Math.sin(rope.angle) * ROPE_FLY_SPEED * dt;
-      rope.tipX += dx;
-      rope.tipY += dy;
-      // Check if rope hit a platform
+      rope.tipX += Math.cos(rope.angle) * ROPE_FLY_SPEED * dt;
+      rope.tipY += Math.sin(rope.angle) * ROPE_FLY_SPEED * dt;
+
+      // Simple collision: check if tip is inside any platform bounding box
       let hit = null;
       for (const p of platforms) {
-        // Check if tip crossed through a platform (tip is above platform top, within width)
-        if (rope.tipY <= p.y + lineHeight && rope.tipY >= p.y - 2 &&
-            rope.tipX >= p.x && rope.tipX <= p.x + p.w) {
+        if (rope.tipX >= p.x && rope.tipX <= p.x + p.w &&
+            rope.tipY >= p.y && rope.tipY <= p.y + lineHeight) {
           hit = p;
           break;
         }
       }
+
       if (hit) {
-        rope.state = 'attached';
+        rope.state = 'swinging';
         rope.hitX = rope.tipX;
         rope.hitY = hit.y;
-        rope.hitPlatform = hit;
-        // Auto-start climbing
-        rope.state = 'climbing';
-      }
-      // Cancel if rope exceeds max length
-      const ropeDist = Math.hypot(rope.tipX - gx, rope.tipY - feetY);
-      if (ropeDist > ROPE_MAX_LEN) {
-        rope = null;
-      }
-    } else if (rope.state === 'climbing') {
-      // Pull man toward the hit point
-      const targetY = rope.hitY;
-      const targetX = rope.hitX;
-      const dx = targetX - gx;
-      const dy = targetY - feetY;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 3) {
-        // Arrived at platform
-        feetY = targetY;
-        gx = targetX;
-        grounded = true;
-        gvy = 0;
-        gvx = 0;
-        rope = null;
-      } else {
-        // Move toward target
-        const speed = ROPE_CLIMB_SPEED * dt;
-        gx += (dx / dist) * speed;
-        feetY += (dy / dist) * speed;
-        gvy = 0;
-        gvx = 0;
+        rope.ropeLen = Math.max(20, Math.hypot(gx - rope.hitX, feetY - rope.hitY));
+        rope.swingAngle = Math.atan2(gx - rope.hitX, feetY - rope.hitY);
+        rope.swingVel = (gvx * Math.cos(rope.swingAngle)) / rope.ropeLen;
+        rope.swingTime = 0; // grace period before landing check
+        rope.startPlatY = feetY; // remember the platform we launched from
         grounded = false;
+      }
+      // Cancel if rope goes off screen or exceeds max length
+      if (rope.tipX < 0 || rope.tipX > W() || rope.tipY < 0 || rope.tipY > H() ||
+          Math.hypot(rope.tipX - gx, rope.tipY - feetY) > ROPE_MAX_LEN) {
+        rope = null;
+      }
+    } else if (rope.state === 'swinging') {
+      // Pendulum physics: angle measured from vertical (0 = straight down)
+      // Angular acceleration from gravity
+      const gravAcc = -(SWING_GRAVITY / rope.ropeLen) * Math.sin(rope.swingAngle);
+      rope.swingVel += gravAcc * dt;
+
+      // Player pumping: left/right adds angular velocity
+      if (keys.has('KeyA') || keys.has('ArrowLeft')) rope.swingVel -= SWING_PUMP * dt;
+      if (keys.has('KeyD') || keys.has('ArrowRight')) rope.swingVel += SWING_PUMP * dt;
+
+      // Damping
+      rope.swingVel *= SWING_DAMPING;
+
+      // Update angle
+      rope.swingAngle += rope.swingVel * dt;
+
+      // Position man at end of pendulum
+      gx = rope.hitX + Math.sin(rope.swingAngle) * rope.ropeLen;
+      feetY = rope.hitY + Math.cos(rope.swingAngle) * rope.ropeLen;
+      gvy = 0;
+      gvx = 0;
+      rope.swingTime += dt;
+
+      // Only check for landing after grace period, skip launch platform
+      if (rope.swingTime > 0.3) {
+        for (const p of platforms) {
+          if (Math.abs(p.y - rope.startPlatY) < 2) continue;
+          if (feetY >= p.y && feetY <= p.y + lineHeight * 0.5 &&
+              gx >= p.x && gx <= p.x + p.w) {
+            feetY = p.y;
+            grounded = true;
+            gvy = 0;
+            gvx = rope.swingVel * rope.ropeLen * 0.3;
+            rope = null;
+            break;
+          }
+        }
       }
     }
   }
@@ -403,7 +437,7 @@ function update(now) {
 
   // ── Pose ──────────────────────────────────────────────────────
   let target;
-  if (rope && rope.state === 'climbing') {
+  if (rope && rope.state === 'swinging') {
     // Climbing pose: arms up
     target = JUMP_RISE;
   } else if (!grounded) {
@@ -481,25 +515,35 @@ function render() {
       ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
       ctx.fill();
     } else if (rope.state === 'flying') {
+      // Debug: draw ALL platforms with filled boxes
+      for (const p of platforms) {
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+        ctx.fillRect(p.x, p.y, p.w, lineHeight);
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(p.x, p.y, p.w, lineHeight);
+      }
       // Draw rope from hand to flying tip
+      ctx.strokeStyle = 'rgba(255, 200, 50, 0.9)';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(handPos.x, handPos.y);
       ctx.lineTo(rope.tipX, rope.tipY);
       ctx.stroke();
-      // Hook
+      // Hook - big crosshair for visibility
+      ctx.strokeStyle = 'rgba(0, 255, 0, 1)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(rope.tipX, rope.tipY, 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
-      ctx.fill();
-    } else if (rope.state === 'climbing') {
-      // Draw rope from hand to attached point
+      ctx.moveTo(rope.tipX - 8, rope.tipY); ctx.lineTo(rope.tipX + 8, rope.tipY);
+      ctx.moveTo(rope.tipX, rope.tipY - 8); ctx.lineTo(rope.tipX, rope.tipY + 8);
+      ctx.stroke();
+    } else if (rope.state === 'swinging') {
+      // Draw taut rope from hand to anchor point
       ctx.beginPath();
       ctx.moveTo(handPos.x, handPos.y);
-      const midX = (handPos.x + rope.hitX) / 2 + (faceR ? 4 : -4);
-      const midY = (handPos.y + rope.hitY) / 2;
-      ctx.quadraticCurveTo(midX, midY, rope.hitX, rope.hitY);
+      ctx.lineTo(rope.hitX, rope.hitY);
       ctx.stroke();
-      // Hook at attachment point
+      // Hook at anchor
       ctx.beginPath();
       ctx.arc(rope.hitX, rope.hitY, 3, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
@@ -554,8 +598,19 @@ function render() {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   ctx.font = '11px monospace';
   const pad = textHeight - platforms.length * lineHeight;
-  const dbg = `offY:${textOffsetY.toFixed(0)} tH:${textHeight.toFixed(0)} lH:${lineHeight.toFixed(1)} pad:${(pad/2).toFixed(1)} n:${platforms.length} real:${gotRealData}`;
-  ctx.fillText(dbg, 10, 14);
+  // Debug panel - black background for readability
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, 500, 60);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.font = '12px monospace';
+  const p0 = platforms[0];
+  const pLast = platforms[platforms.length - 1];
+  const platInfo = p0 ? `p0: x:${p0.x.toFixed(0)}-${(p0.x+p0.w).toFixed(0)} y:${p0.y.toFixed(0)}` : 'no plats';
+  const platInfo2 = pLast ? `pN: x:${pLast.x.toFixed(0)}-${(pLast.x+pLast.w).toFixed(0)} y:${pLast.y.toFixed(0)}` : '';
+  const ropeDbg = rope ? `rope:${rope.state} tip:${rope.tipX.toFixed(0)},${rope.tipY.toFixed(0)} ang:${(rope.angle * 180 / Math.PI).toFixed(0)}°` : 'rope:none';
+  ctx.fillText(`man:${gx.toFixed(0)},${feetY.toFixed(0)} | plats:${platforms.length} lH:${lineHeight.toFixed(1)}`, 10, 16);
+  ctx.fillText(`${platInfo} | ${platInfo2}`, 10, 32);
+  ctx.fillText(ropeDbg, 10, 48);
 
   // Debug: draw text area outline
   ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
