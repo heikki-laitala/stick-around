@@ -295,11 +295,14 @@ document.addEventListener('keydown', e => {
       rope = null;
       ropeCooldown = ROPE_COOLDOWN;
     } else if (rope && rope.state === 'swinging') {
-      // Release: launch with current velocity
+      // Release: launch with current velocity + minimum horizontal push
       const len = rope.ropeLen;
       const tangentVx = -rope.swingVel * len * Math.cos(rope.swingAngle);
       const tangentVy = -rope.swingVel * len * Math.sin(rope.swingAngle);
-      gvx = tangentVx;
+      // Ensure a minimum horizontal kick in the swing direction
+      const MIN_RELEASE_VX = 120;
+      const dirX = Math.sin(rope.swingAngle) > 0 ? 1 : -1;
+      gvx = Math.abs(tangentVx) > MIN_RELEASE_VX ? tangentVx : dirX * MIN_RELEASE_VX;
       gvy = tangentVy;
       grounded = false;
       rope = null;
