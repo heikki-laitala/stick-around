@@ -426,8 +426,8 @@ function update(now) {
     }
   }
 
-  if (!rope || rope.state === 'aiming') {
-    // Normal physics (only when not reeling)
+  if (!rope || rope.state === 'aiming' || rope.state === 'flying') {
+    // Normal physics (runs during aiming/flying too so gravity continues)
 
     // Horizontal movement
     if (left) { gvx -= ACCEL * dt; faceR = false; }
