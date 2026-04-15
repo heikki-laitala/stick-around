@@ -152,7 +152,7 @@ function rebuildFromContent(content) {
     if (inputIdx != null && inputIdx < fitLines) {
       gx = textOffsetX + textWidth - 20 * SCALE - 2;
       feetY = textOffsetY + inputIdx * lineHeight;
-      faceR = true; // face right at spawn
+      faceR = false; // face left toward terminal text
       hasSpawned = true;
     }
   } else if (hasSpawned && grounded && platforms.length > 0) {
@@ -286,7 +286,7 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyE') {
     if (!rope && ropeCooldown <= 0) {
       // Default aim direction based on facing: up-left if facing right, up-right if facing left
-      const defaultAngle = faceR ? -3 * Math.PI / 4 : -Math.PI / 4;
+      const defaultAngle = faceR ? -Math.PI / 4 : -3 * Math.PI / 4;
       ropeAngle = defaultAngle;
       rope = { state: 'aiming', angle: ropeAngle, tipX: 0, tipY: 0,
                hitX: 0, hitY: 0, ropeLen: 0, swingAngle: 0, swingVel: 0 };
