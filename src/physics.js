@@ -203,9 +203,12 @@ export function updatePosture(state) {
     state.posture = 'standing';
   } else if (clearance >= CROUCH_HEIGHT) {
     state.posture = 'crouching';
+  } else if (clearance >= PRONE_HEIGHT) {
+    // Too tight for crouch — stay/go prone
+    state.posture = 'prone';
   } else {
-    // Too tight even for crouch — force crouch (best automatic option)
-    state.posture = 'crouching';
+    // Extremely tight — prone is the best option
+    state.posture = 'prone';
   }
 }
 

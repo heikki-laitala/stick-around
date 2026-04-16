@@ -111,10 +111,10 @@ describe('updatePosture', () => {
   });
 
   it('auto-crouches when ceiling is too low for standing', () => {
-    // Platform bottom at 200+20=220, feetY at 240
-    // Clearance = 240-220 = 20, standing height ~32 → must crouch
+    // Platform bottom at 200+20=220, feetY at 245
+    // Clearance = 245-220 = 25, standing height ~32 → must crouch, crouch height ~21 → fits
     const s = makeState({
-      feetY: 240, gx: 100,
+      feetY: 245, gx: 100,
       platforms: [{ y: 200, x: 0, w: 400, hash: 1 }],
       lineHeight: 20,
     });
@@ -134,14 +134,15 @@ describe('updatePosture', () => {
     expect(s.posture).toBe('standing');
   });
 
-  it('does not auto-prone (requires button)', () => {
+  it('auto-prones when ceiling too tight for crouch', () => {
+    // Ceiling bottom at 230+20=250, feetY=260, clearance=10 < CROUCH_HEIGHT ~21
     const s = makeState({
       feetY: 260, gx: 100,
       platforms: [{ y: 230, x: 0, w: 400, hash: 1 }],
       lineHeight: 20,
     });
     updatePosture(s);
-    expect(s.posture).toBe('crouching');
+    expect(s.posture).toBe('prone');
   });
 
   it('stays prone when proneRequested is true', () => {
@@ -186,6 +187,32 @@ describe('updatePosture', () => {
     });
     updatePosture(s);
     expect(s.posture).toBe('standing');
+  });
+
+  it('stays prone when ceiling too low for crouch and proneRequested is off', () => {
+    // Ceiling bottom at 250+20=270, feetY=274, clearance=4 < CROUCH_HEIGHT ~21
+    const s = makeState({
+      feetY: 274, gx: 100,
+      platforms: [{ y: 250, x: 0, w: 400, hash: 1 }],
+      lineHeight: 20,
+      posture: 'prone',
+      proneRequested: false,
+    });
+    updatePosture(s);
+    expect(s.posture).toBe('prone');
+  });
+
+  it('rises to crouch when ceiling allows crouch but not standing', () => {
+    // Ceiling bottom at 230+20=250, feetY=274, clearance=24 >= CROUCH_HEIGHT ~21
+    const s = makeState({
+      feetY: 274, gx: 100,
+      platforms: [{ y: 230, x: 0, w: 400, hash: 1 }],
+      lineHeight: 20,
+      posture: 'prone',
+      proneRequested: false,
+    });
+    updatePosture(s);
+    expect(s.posture).toBe('crouching');
   });
 
   it('does not update posture when airborne', () => {
