@@ -115,6 +115,14 @@ let lineHeight = 16;   // computed: textHeight / visibleLines
 // Each platform: { y: screenY, x: screenX, w: width in px }
 // One-way: stick man passes through from below, lands from above.
 let platforms = [];
+let promptArea = null; // { x, y, w, h } bounding box of detected input/prompt field
+let footerArea = null; // { x, y, w, h } bounding box of detected footer
+let lastDebugLines = []; // debug: last few terminal lines from backend
+let lastInputLine = null; // debug: detected input_line value
+let lastFooterLine = null; // debug: detected footer_line value
+// Cached prompt position — used as fallback when detection fails for one poll
+let cachedInputIdx = null;
+let cachedFooterIdx = null;
 
 function rebuildFromContent(content) {
   // content: { text_offset_x, text_offset_y, text_height, text_width, lines: [displayWidth...], hashes: [u32...] }
@@ -125,6 +133,9 @@ function rebuildFromContent(content) {
   const lines = content.lines;
   const hashes = content.hashes || [];
   const numVisible = lines.length;
+  lastDebugLines = content.debug_lines || [];
+  lastInputLine = content.input_line;
+  lastFooterLine = content.footer_line;
   if (numVisible === 0) return;
 
   // Use terminal dimensions from backend for exact pixel metrics.
@@ -134,39 +145,120 @@ function rebuildFromContent(content) {
   lineHeight = textHeight / termRows;
   const charWidth = textWidth / termCols;
   const topPad = 0;
-  const fitLines = Math.min(numVisible, termRows);
+  const fitLines = termRows;
 
-  // Build platforms: each visible line gets a platform
+  // Build platforms: each visible line gets a platform.
+  // Skip lines at or below the prompt area (prompt + footer have no walkable content).
+  // Clamp indices to fitLines since API may return more lines than terminal rows.
+  let inputIdx = content.input_line; // top border of prompt box
+  let footerIdx = content.footer_line; // first line after bottom border
+
+  // Cache prompt position when detected; use as fallback when detection fails
+  if (inputIdx != null && footerIdx != null) {
+    cachedInputIdx = inputIdx;
+    cachedFooterIdx = footerIdx;
+  } else if (cachedInputIdx != null) {
+    // Detection failed — use cached indices
+    if (inputIdx == null) inputIdx = cachedInputIdx;
+    if (footerIdx == null) footerIdx = cachedFooterIdx;
+  }
+
+  if (inputIdx != null && inputIdx >= fitLines) inputIdx = fitLines - 1;
+  if (footerIdx != null && footerIdx >= fitLines) footerIdx = fitLines;
+  if (inputIdx != null && inputIdx < 0) inputIdx = 0;
+  if (footerIdx != null && footerIdx < 0) footerIdx = 0;
+  const lastPlatLine = inputIdx != null ? inputIdx - 1 : fitLines - 1;
   platforms = [];
-  for (let i = 0; i < fitLines; i++) {
+  for (let i = 0; i <= lastPlatLine && i < fitLines; i++) {
     const cols = lines[i]; // display width in columns
     if (cols > 0) {
       const y = textOffsetY + topPad + i * lineHeight;
       platforms.push({ y, x: textOffsetX, w: cols * charWidth, hash: hashes[i] || 0 });
     }
   }
+  // Add prompt top border as a walkable platform (full width)
+  if (inputIdx != null) {
+    const promptPlatY = textOffsetY + topPad + inputIdx * lineHeight + 2;
+    platforms.push({ y: promptPlatY, x: textOffsetX, w: textWidth, hash: 0xFFFF });
+  }
 
-  // Spawn man at terminal right edge, on the input area border line
-  if (!hasSpawned && platforms.length > 0) {
-    const inputIdx = content.input_line;
-    if (inputIdx != null && inputIdx < fitLines) {
-      gx = textOffsetX + textWidth - 20 * SCALE - 2;
-      feetY = textOffsetY + inputIdx * lineHeight;
-      faceR = false; // face left toward terminal text
-      hasSpawned = true;
-    }
+  // Store prompt area bounding box (from top border to bottom border inclusive)
+  // Nudge inward: top border char sits mid-cell (+1px), bottom border similar (-2px)
+  if (inputIdx != null) {
+    const promptY = textOffsetY + topPad + inputIdx * lineHeight + 2;
+    const promptLines = footerIdx != null ? footerIdx - inputIdx : fitLines - inputIdx;
+    promptArea = {
+      x: textOffsetX,
+      y: promptY,
+      w: textWidth,
+      h: promptLines * lineHeight - 9,
+    };
+  } else {
+    promptArea = null;
+  }
+  // Store footer area bounding box — starts where prompt bottom edge ends
+  if (footerIdx != null && promptArea) {
+    const footerY = promptArea.y + promptArea.h;
+    const footerBottom = textOffsetY + topPad + fitLines * lineHeight;
+    footerArea = {
+      x: textOffsetX,
+      y: footerY,
+      w: textWidth,
+      h: footerBottom - footerY,
+    };
+  } else if (footerIdx != null) {
+    const footerY = textOffsetY + topPad + footerIdx * lineHeight;
+    const footerLines = fitLines - footerIdx;
+    footerArea = {
+      x: textOffsetX,
+      y: footerY,
+      w: textWidth,
+      h: footerLines * lineHeight,
+    };
+  } else {
+    footerArea = null;
+  }
+
+  // Spawn man at terminal right edge, standing on top of the prompt box.
+  // Wait for both separators to be detected (prompt + footer) for correct position.
+  if (!hasSpawned && promptArea && footerArea) {
+    gx = textOffsetX + textWidth - 20 * SCALE - 2;
+    feetY = promptArea.y;
+    faceR = false; // face left toward terminal text
+    hasSpawned = true;
   } else if (hasSpawned && grounded && platforms.length > 0) {
-    // When platforms rebuild (terminal text changed), snap to nearest platform
-    let nearest = null, nearestDist = Infinity;
-    for (const p of platforms) {
-      const dist = Math.abs(p.y - feetY);
-      if (dist < nearestDist && gx >= p.x - 10 && gx <= p.x + p.w + 10) {
-        nearest = p;
-        nearestDist = dist;
+    // When platforms rebuild (terminal text changed), follow the platform we're standing on.
+    // First try to find the same platform by content hash — this handles text scrolling
+    // so the man moves with the platform as lines shift up/down.
+    let matched = null;
+    if (standingHash !== 0) {
+      let matchDist = Infinity;
+      for (const p of platforms) {
+        if (p.hash === standingHash && gx >= p.x - 10 && gx <= p.x + p.w + 10) {
+          const dist = Math.abs(p.y - feetY);
+          if (dist < matchDist) {
+            matched = p;
+            matchDist = dist;
+          }
+        }
       }
     }
-    if (nearest && nearestDist < lineHeight * 2) {
-      feetY = nearest.y;
+    if (matched) {
+      feetY = matched.y;
+    } else {
+      // Fallback: snap to nearest platform by distance
+      let nearest = null, nearestDist = Infinity;
+      for (const p of platforms) {
+        const dist = Math.abs(p.y - feetY);
+        if (dist < nearestDist && gx >= p.x - 10 && gx <= p.x + p.w + 10) {
+          nearest = p;
+          nearestDist = dist;
+        }
+      }
+      if (nearest && nearestDist < lineHeight * 2) {
+        feetY = nearest.y;
+        standingHash = nearest.hash || 0;
+      }
     }
   }
 
@@ -182,6 +274,7 @@ function rebuildFromContent(content) {
     if (!anchorPlat || (rope.anchorHash && anchorPlat.hash !== rope.anchorHash)) {
       rope = null;
       grounded = false;
+      standingHash = 0;
     }
   }
 }
@@ -249,6 +342,7 @@ let feetY = H() - lineHeight;
 let hasSpawned = false; // true after first real terminal data positions the man
 let gvx = 0, gvy = 0; // gvy: positive = moving down on screen
 let grounded = true, faceR = true;
+let standingHash = 0; // hash of the platform we're standing on (for scroll tracking)
 let walkPh = 0, landT = 0;
 let dropThrough = 0; // timer for dropping through platforms
 let curPose = JSON.parse(JSON.stringify(IDLE));
@@ -305,6 +399,7 @@ document.addEventListener('keydown', e => {
       gvx = Math.abs(tangentVx) > MIN_RELEASE_VX ? tangentVx : dirX * MIN_RELEASE_VX;
       gvy = tangentVy;
       grounded = false;
+      standingHash = 0;
       rope = null;
       ropeCooldown = ROPE_COOLDOWN;
     }
@@ -373,6 +468,7 @@ function update(now) {
         rope.swingTime = 0; // grace period before landing check
         rope.startPlatY = feetY; // remember the platform we launched from
         grounded = false;
+        standingHash = 0;
       }
       // Cancel if rope goes off screen or exceeds max length
       if (rope.tipX < 0 || rope.tipX > W() || rope.tipY < 0 || rope.tipY > H() ||
@@ -436,7 +532,7 @@ function update(now) {
     gvx = Math.max(-MAXV, Math.min(MAXV, gvx));
 
     // Jump
-    if (jump && grounded) { gvy = -JUMP_V; grounded = false; landT = 0; }
+    if (jump && grounded) { gvy = -JUMP_V; grounded = false; standingHash = 0; landT = 0; }
 
     // Gravity (gvy positive = falling down on screen)
     if (!grounded) gvy += GRAV * dt;
@@ -453,6 +549,7 @@ function update(now) {
         feetY = floor.y;
         gvy = 0;
         grounded = true;
+        standingHash = floor.hash || 0;
       }
     }
 
@@ -460,6 +557,7 @@ function update(now) {
     if (feetY > H()) {
       feetY = H() - lineHeight;
       gvy = 0;
+      standingHash = 0;
       grounded = true;
     }
 
@@ -468,6 +566,9 @@ function update(now) {
       const floor = findFloor(feetY - 1, gx);
       if (floor === null || Math.abs(feetY - floor.y) > 2) {
         grounded = false;
+        standingHash = 0;
+      } else {
+        standingHash = floor.hash || 0;
       }
     }
   }
@@ -511,6 +612,12 @@ function drawLimb(ax, ay, bx, by) {
 
 function render() {
   ctx.clearRect(0, 0, W(), H());
+
+  if (!hasSpawned) {
+    // Only draw debug overlays before spawn
+    renderDebugOverlays();
+    return;
+  }
 
   const ox = gx;
   const oy = feetY; // feet position in screen coords
@@ -628,53 +735,54 @@ function render() {
 
   ctx.shadowBlur = 0;
 
-  // ── Debug visuals (toggle with B key) ───────────────────────
-  if (DEBUG_DRAW) {
-    // Overlay border
-    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+  renderDebugOverlays();
+}
+
+function renderDebugOverlays() {
+  // ── Footer area (drawn in green) ───────────────────────────
+  if (footerArea) {
+    ctx.fillStyle = 'rgba(0, 200, 50, 0.15)';
+    ctx.fillRect(footerArea.x, footerArea.y, footerArea.w, footerArea.h);
+    ctx.strokeStyle = 'rgba(0, 200, 50, 0.6)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, W() - 2, H() - 2);
-
-    // Debug panel
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(0, 0, 500, 60);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeRect(footerArea.x, footerArea.y, footerArea.w, footerArea.h);
+    ctx.fillStyle = 'rgba(0, 200, 50, 0.9)';
+    ctx.font = '10px monospace';
+    ctx.fillText('FOOTER', footerArea.x + 4, footerArea.y + 12);
+  }
+  // ── Prompt area (drawn in blue) ───────────────────────────
+  if (promptArea) {
+    ctx.fillStyle = 'rgba(0, 100, 255, 0.15)';
+    ctx.fillRect(promptArea.x, promptArea.y, promptArea.w, promptArea.h);
+    ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(promptArea.x, promptArea.y, promptArea.w, promptArea.h);
+    ctx.fillStyle = 'rgba(0, 100, 255, 0.9)';
+    ctx.font = '10px monospace';
+    ctx.fillText('PROMPT', promptArea.x + 4, promptArea.y + 12);
+  }
+  if (!footerArea && !promptArea) {
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
     ctx.font = '12px monospace';
-    const p0 = platforms[0];
-    const pLast = platforms[platforms.length - 1];
-    const platInfo = p0 ? `p0: x:${p0.x.toFixed(0)}-${(p0.x+p0.w).toFixed(0)} y:${p0.y.toFixed(0)}` : 'no plats';
-    const platInfo2 = pLast ? `pN: x:${pLast.x.toFixed(0)}-${(pLast.x+pLast.w).toFixed(0)} y:${pLast.y.toFixed(0)}` : '';
-    const ropeDbg = rope ? `rope:${rope.state} tip:${rope.tipX.toFixed(0)},${rope.tipY.toFixed(0)} ang:${(rope.angle * 180 / Math.PI).toFixed(0)}°` : 'rope:none';
-    ctx.fillText(`man:${gx.toFixed(0)},${feetY.toFixed(0)} | plats:${platforms.length} lH:${lineHeight.toFixed(1)}`, 10, 16);
-    ctx.fillText(`${platInfo} | ${platInfo2}`, 10, 32);
-    ctx.fillText(ropeDbg, 10, 48);
-
-    // Text area outline
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(textOffsetX, textOffsetY, textWidth, textHeight);
-
-    // Platform bounding boxes
-    function hashToColor(h) {
-      const r = ((h >> 0) & 0xFF);
-      const g = ((h >> 8) & 0xFF);
-      const b = ((h >> 16) & 0xFF);
-      return [Math.max(r, 100), Math.max(g, 100), Math.max(b, 100)];
-    }
-    const step = Math.max(1, Math.floor(platforms.length / 5));
-    for (let i = 0; i < platforms.length; i++) {
-      if (i % step !== 0) continue;
-      const p = platforms[i];
-      const c = hashToColor(p.hash || 0);
-      ctx.strokeStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, 0.7)`;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(p.x, p.y, p.w, lineHeight);
+    ctx.fillText('NO PROMPT DETECTED', 10, H() - 10);
+  }
+  // Always show debug lines from backend
+  if (lastDebugLines && lastDebugLines.length > 0) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    const dbgH = lastDebugLines.length * 14 + 20;
+    ctx.fillRect(0, 0, 600, dbgH);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.font = '11px monospace';
+    ctx.fillText(`footer: ${lastFooterLine}  input: ${lastInputLine}`, 10, 14);
+    for (let i = 0; i < lastDebugLines.length; i++) {
+      ctx.fillText(lastDebugLines[i], 10, 28 + i * 14);
     }
   }
 }
 
 function loop(now) {
-  update(now);
+  if (hasSpawned) update(now);
+  else lastTime = now; // keep time current so first dt isn't huge
   render();
   requestAnimationFrame(loop);
 }

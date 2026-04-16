@@ -240,9 +240,8 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
     // Count Unicode display width, compute content hash, and detect input area
     let mut lines: Vec<usize> = Vec::new();
     let mut hashes: Vec<u32> = Vec::new();
-    let mut input_line: Option<usize> = None;
     let text_lines: Vec<&str> = text.lines().collect();
-    for (i, l) in text_lines.iter().enumerate() {
+    for l in text_lines.iter() {
         // Measure trimmed content width (exclude padding spaces).
         // This prevents UI chrome (borders, status bars) padded to full
         // terminal width from creating full-width platforms.
@@ -258,20 +257,25 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
             h = h.wrapping_mul(16777619);
         }
         hashes.push(h);
-
-        // Detect input area: find the ❯ prompt line (U+276F) or a line
-        // of ─ (U+2500) box drawing chars just before it.
-        // We want the border line above the prompt, so track both.
-        let trimmed = l.trim_start();
-        if trimmed.starts_with('\u{276F}') {
-            // The border line is one line above the prompt
-            if i > 0 {
-                input_line = Some(i - 1);
-            } else {
-                input_line = Some(i);
-            }
-        }
     }
+
+    // Detect terminal regions: prompt (between separators) and footer (below).
+    let (input_line, footer_line) = detect_terminal_regions(&text_lines);
+
+    // Debug: capture last 8 lines for frontend display
+    let total = text_lines.len();
+    let start = if total > 8 { total - 8 } else { 0 };
+    let debug_lines: Vec<String> = text_lines[start..].iter().enumerate().map(|(i, l)| {
+        let idx = start + i;
+        let escaped: String = l.chars().take(60).map(|c| {
+            if c.is_ascii_graphic() || c == ' ' {
+                c.to_string()
+            } else {
+                format!("U+{:04X}", c as u32)
+            }
+        }).collect();
+        format!("[{}] {}", idx, escaped)
+    }).collect();
 
     Some(TerminalContent {
         text_offset_y: scroll_y - win_y,
@@ -280,9 +284,11 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
         text_width: scroll_w,
         term_cols,
         term_rows,
+        footer_line,
         input_line,
         lines,
         hashes,
+        debug_lines,
     })
 }
 
@@ -304,6 +310,145 @@ fn parse_dimensions_from_title(title: &str) -> Option<(usize, usize)> {
         }
     }
     None
+}
+
+/// Detect terminal regions by finding separator lines (U+2500 box drawing).
+/// Returns (input_line, footer_line):
+///   - input_line: first line of the prompt/input box (top separator)
+///   - footer_line: first line below the prompt box (bottom separator + 1)
+///
+/// Claude Code layout:
+///   content...
+///   ─────────── (top border)    ← input_line
+///   ❯ input     (prompt area)
+///   ─────────── (bottom border)
+///   footer/status               ← footer_line
+fn detect_terminal_regions(text_lines: &[&str]) -> (Option<usize>, Option<usize>) {
+    let len = text_lines.len();
+    if len == 0 {
+        return (None, None);
+    }
+
+    // Scan bottom-up collecting all separator line indices
+    let mut separators: Vec<usize> = Vec::new();
+    for i in (0..len).rev() {
+        let trimmed = text_lines[i].trim();
+        if is_separator_line(trimmed) {
+            separators.push(i);
+        }
+        // Stop after finding 2 separators (we only need the bottom pair)
+        if separators.len() >= 2 {
+            break;
+        }
+    }
+
+    match separators.len() {
+        0 => {
+            // No separators — fall back to prompt character detection
+            let mut prompt_idx = None;
+            for i in (0..len).rev() {
+                let trimmed = text_lines[i].trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if is_prompt_line(trimmed) {
+                    prompt_idx = Some(i);
+                    break;
+                }
+            }
+            (prompt_idx, None)
+        }
+        1 => {
+            // Only one separator found — can't reliably determine prompt area
+            (None, None)
+        }
+        _ => {
+            // Two separators — top and bottom borders of the prompt box
+            // separators[0] is the bottom one (found first scanning up)
+            // separators[1] is the top one
+            let bottom_border = separators[0];
+            let top_border = separators[1];
+            let footer = if bottom_border + 1 < len { Some(bottom_border + 1) } else { None };
+            (Some(top_border), footer)
+        }
+    }
+}
+
+/// Check if a trimmed line looks like a shell prompt.
+fn is_prompt_line(trimmed: &str) -> bool {
+    // Common prompt indicators (checked at start of trimmed line)
+    const PROMPT_CHARS: &[char] = &[
+        '\u{276F}', // ❯ — starship, some zsh themes
+        '\u{279C}', // ➜ — oh-my-zsh robbyrussell
+        '\u{03BB}', // λ — lambda prompts
+        '\u{2192}', // → — arrow prompts
+    ];
+
+    // Check Unicode prompt characters
+    if let Some(first) = trimmed.chars().next() {
+        if PROMPT_CHARS.contains(&first) {
+            return true;
+        }
+    }
+
+    // Check common ASCII prompt endings: "$ ", "% ", "> ", "# "
+    // These need context — a lone $ or % at the start suggests a prompt.
+    // We look for patterns like "user@host:path$ " or just "$ "
+    let bytes = trimmed.as_bytes();
+    let last_meaningful = trimmed.trim_end();
+    if let Some(last) = last_meaningful.chars().last() {
+        if matches!(last, '$' | '%' | '#' | '>') {
+            // Single prompt char or ends with prompt char after a path/user string
+            let non_prompt: &str = &last_meaningful[..last_meaningful.len() - last.len_utf8()];
+            let non_prompt = non_prompt.trim_end();
+            // Accept if the line is just the prompt char, or has typical prompt prefix
+            if non_prompt.is_empty()
+                || non_prompt.ends_with(':')
+                || non_prompt.ends_with(')')
+                || non_prompt.contains('@')
+            {
+                return true;
+            }
+        }
+    }
+
+    // "PS1"-style: line starts with [ and contains ] followed by prompt char
+    if bytes.first() == Some(&b'[') && trimmed.contains(']') {
+        if let Some(after_bracket) = trimmed.rsplit(']').next() {
+            let after = after_bracket.trim();
+            if after.is_empty()
+                || after == "$"
+                || after == "%"
+                || after == "#"
+                || after == ">"
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if a line is a separator/border (horizontal rules, box-drawing).
+fn is_separator_line(trimmed: &str) -> bool {
+    if trimmed.is_empty() {
+        return false;
+    }
+    // A separator is a line made mostly of repeating border/rule characters
+    let total = trimmed.chars().count();
+    if total < 3 {
+        return false;
+    }
+    let border_count = trimmed.chars().filter(|c| {
+        matches!(*c,
+            '\u{2500}'..='\u{257F}' // Box Drawing
+            | '\u{2580}'..='\u{259F}' // Block Elements
+            | '-' | '=' | '_' | '─' | '━' | '═' | '╌' | '╍'
+        )
+    }).count();
+    // At least 80% border characters
+    border_count * 5 >= total * 4
 }
 
 /// Approximate check for wide (2-column) characters in a terminal.

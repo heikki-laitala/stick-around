@@ -13,12 +13,16 @@ pub struct TerminalContent {
     pub term_cols: usize,
     /// Terminal row count (visible rows)
     pub term_rows: usize,
-    /// Line index of the input area border (if detected), 0-based
+    /// Line index of the footer/status bar (if detected), 0-based
+    pub footer_line: Option<usize>,
+    /// Line index of the input/prompt area (if detected), 0-based
     pub input_line: Option<usize>,
     /// Display width per visible line in columns (top to bottom)
     pub lines: Vec<usize>,
     /// Simple hash per line for content-based coloring
     pub hashes: Vec<u32>,
+    /// Debug: last few lines of raw text for prompt detection debugging
+    pub debug_lines: Vec<String>,
 }
 
 #[cfg(target_os = "macos")]
