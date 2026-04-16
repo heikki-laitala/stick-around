@@ -359,8 +359,13 @@ fn detect_terminal_regions(text_lines: &[&str]) -> (Option<usize>, Option<usize>
             (prompt_idx, None)
         }
         1 => {
-            // Only one separator found — can't reliably determine prompt area
-            (None, None)
+            // One separator found — treat it as the top border of the prompt box
+            // The bottom border might be styled differently or missing
+            let top_border = separators[0];
+            // Look for a footer line below: scan down for the next non-empty line
+            // that isn't a prompt line, or infer footer from remaining lines
+            let footer = if top_border + 2 < len { Some(top_border + 2) } else { None };
+            (Some(top_border), footer)
         }
         _ => {
             // Two separators — top and bottom borders of the prompt box
@@ -442,13 +447,17 @@ fn is_separator_line(trimmed: &str) -> bool {
     }
     let border_count = trimmed.chars().filter(|c| {
         matches!(*c,
-            '\u{2500}'..='\u{257F}' // Box Drawing
-            | '\u{2580}'..='\u{259F}' // Block Elements
-            | '-' | '=' | '_' | '─' | '━' | '═' | '╌' | '╍'
+            '\u{2500}'..='\u{257F}' // Box Drawing (includes ─ ━ │ ┃ corners etc.)
+            | '\u{2580}'..='\u{259F}' // Block Elements (▀ ▄ █ etc.)
+            | '-' | '=' | '_'
+            | '\u{23AF}' // Horizontal line extension
+            | '\u{2015}' // Horizontal bar
+            | '\u{2014}' // Em dash
+            | '\u{2013}' // En dash
         )
     }).count();
-    // At least 80% border characters
-    border_count * 5 >= total * 4
+    // At least 60% border characters (allow corners, spaces, decorative elements)
+    border_count * 5 >= total * 3
 }
 
 /// Approximate check for wide (2-column) characters in a terminal.
