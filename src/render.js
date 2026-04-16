@@ -120,6 +120,42 @@ export function render(ctx, state, screenW, screenH) {
 
   ctx.shadowBlur = 0;
 
+  // Collectibles — glowing orbs with pulse
+  if (state.collectibles) {
+    for (const c of state.collectibles) {
+      const fadeIn = Math.min(1, c.age * 2);
+      const fadeOut = c.age > 7 ? Math.max(0, 1 - (c.age - 7) / 3) : 1;
+      const alpha = fadeIn * fadeOut;
+      const pulse = 1 + 0.2 * Math.sin(c.age * (c.age > 7 ? 12 : 4)); // faster pulse when expiring
+      const r = 4 * pulse;
+
+      ctx.shadowColor = `rgba(255, 220, 50, ${0.6 * alpha})`;
+      ctx.shadowBlur = 10;
+      const orbY = c.y - r - 2; // sit on top of platform surface
+      ctx.fillStyle = `rgba(255, 220, 50, ${0.9 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(c.x, orbY, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.fillStyle = `rgba(255, 255, 200, ${0.8 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(c.x, orbY, r * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Score counter
+  if (state.score > 0) {
+    ctx.fillStyle = 'rgba(255, 220, 50, 0.9)';
+    ctx.shadowColor = 'rgba(255, 220, 50, 0.4)';
+    ctx.shadowBlur = 4;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`★ ${state.score}`, screenW - 60, 20);
+    ctx.shadowBlur = 0;
+  }
+
   // Holes — glowing gap edges
   if (state.holes) {
     for (const h of state.holes) {
