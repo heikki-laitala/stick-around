@@ -1,6 +1,6 @@
-import { IDLE, SCALE, lerpPose } from './poses.js';
+import { IDLE, SCALE } from './poses.js';
 import { ROPE_COOLDOWN } from './constants.js';
-import { buildPlatforms, findFloor } from './platforms.js';
+import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose } from './physics.js';
 import { render } from './render.js';
 
@@ -75,11 +75,8 @@ initFallbackPlatforms();
 window.addEventListener('resize', initFallbackPlatforms);
 
 // ── Terminal Content from Backend ────────────────────────────────────
-let gotRealData = false;
-
 function handleTerminalContent(content) {
   if (!content || !Array.isArray(content.lines) || content.lines.length === 0) return;
-  gotRealData = true;
 
   const result = buildPlatforms(content, {
     cachedInputIdx: state.cachedInputIdx,

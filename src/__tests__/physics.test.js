@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { updateMovement, updateRope, updatePose } from '../physics.js';
-import { IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND } from '../poses.js';
-import { GRAV, JUMP_V, MAXV, ROPE_MAX_LEN } from '../constants.js';
+import { IDLE } from '../poses.js';
+import { JUMP_V, MAXV } from '../constants.js';
 
 function makeState(overrides = {}) {
   return {

@@ -1,5 +1,5 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING } from './constants.js';
-import { lerp, lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND } from './poses.js';
+import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND } from './poses.js';
 import { findFloor } from './platforms.js';
 
 /**
@@ -101,7 +101,6 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   const left = !aiming && (keys.has('KeyA') || keys.has('ArrowLeft'));
   const right = !aiming && (keys.has('KeyD') || keys.has('ArrowRight'));
   const jump = !aiming && (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space'));
-  const down = !aiming && (keys.has('KeyS') || keys.has('ArrowDown'));
 
   if (state.dropThrough > 0) state.dropThrough -= dt;
 

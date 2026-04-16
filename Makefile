@@ -2,7 +2,7 @@ PLUGIN_CACHE := $(HOME)/.claude/plugins/cache/stick-around/stick-around/1.0.0
 BINARY_SRC   := stick-around
 BINARY_DST   := $(PLUGIN_CACHE)/stick-around
 
-.PHONY: build install dev clean
+.PHONY: build install dev clean test lint
 
 ## Build the Tauri overlay binary (release mode)
 build:
@@ -22,6 +22,14 @@ install: $(BINARY_SRC)
 
 ## Build and install in one step
 dev: build install
+
+## Run unit tests
+test:
+	npx vitest run
+
+## Run linter
+lint:
+	npx eslint src/
 
 ## Remove the release build artifacts
 clean:

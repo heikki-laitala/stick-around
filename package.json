@@ -1,14 +1,17 @@
 {
   "name": "stick-around-overlay",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint src/"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "eslint": "^10.2.0",
     "vitest": "^3"
   },
   "dependencies": {
