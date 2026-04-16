@@ -17,6 +17,7 @@ function makeState(overrides = {}) {
       { y: 100, x: 0, w: 400, hash: 3 },
     ],
     lineHeight: 20,
+    posture: 'standing',
     ...overrides,
   };
 }

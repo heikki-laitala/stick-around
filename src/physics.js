@@ -1,6 +1,6 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING } from './constants.js';
-import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND } from './poses.js';
-import { findFloor } from './platforms.js';
+import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
+import { findFloor, findCeiling } from './platforms.js';
 
 /**
  * Update rope state (aiming, flying, swinging).
@@ -110,8 +110,13 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (!left && !right) { state.gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(state.gvx) < 1) state.gvx = 0; }
   state.gvx = Math.max(-MAXV, Math.min(MAXV, state.gvx));
 
-  // Jump
-  if (jump && state.grounded) { state.gvy = -JUMP_V; state.grounded = false; state.standingHash = 0; state.landT = 0; }
+  // Jump (blocked when crouching/prone under a ceiling)
+  // If in prompt/footer area, give an extra-strong jump to escape
+  const inFooterArea = state.promptArea && state.feetY >= state.promptArea.y;
+  if (jump && state.grounded && (state.posture === 'standing' || inFooterArea)) {
+    state.gvy = inFooterArea ? -JUMP_V * 1.15 : -JUMP_V;
+    state.grounded = false; state.standingHash = 0; state.landT = 0;
+  }
 
   // Gravity
   if (!state.grounded) state.gvy += GRAV * dt;
@@ -152,13 +157,56 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   }
 
   // Horizontal position + wrap
+  // Check if destination has enough clearance for current posture
+  if (state.grounded && state.gvx !== 0) {
+    const nextX = state.gx + state.gvx * dt;
+    const ceiling = findCeiling(state.platforms, state.feetY, nextX, state.lineHeight);
+    if (ceiling) {
+      const clearance = state.feetY - (ceiling.y + state.lineHeight);
+      const minHeight = state.posture === 'prone' ? PRONE_HEIGHT : CROUCH_HEIGHT;
+      if (clearance < minHeight) {
+        state.gvx = 0; // Block movement — too tight
+      }
+    }
+  }
   state.gx += state.gvx * dt;
   if (state.gx < -20) state.gx = screenW;
   if (state.gx > screenW + 20) state.gx = -20;
 }
 
 /**
- * Update current pose based on state (grounded, velocity, rope, etc.).
+ * Update posture based on ceiling clearance.
+ * Auto-crouches when standing won't fit. Keeps prone if already prone.
+ * Mutates state.posture.
+ */
+export function updatePosture(state) {
+  if (!state.grounded) return;
+
+  const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
+  if (!ceiling) {
+    // No ceiling — return to standing (unless prone was intentional and ceiling returns)
+    state.posture = 'standing';
+    return;
+  }
+
+  const clearance = state.feetY - (ceiling.y + state.lineHeight);
+
+  if (clearance >= STANDING_HEIGHT) {
+    state.posture = 'standing';
+  } else if (clearance >= CROUCH_HEIGHT) {
+    // Auto-crouch
+    state.posture = 'crouching';
+  } else if (state.posture === 'prone' && clearance >= PRONE_HEIGHT) {
+    // Keep prone (was set by button press)
+    state.posture = 'prone';
+  } else {
+    // Too tight for standing, auto-crouch is the best we can do automatically
+    state.posture = 'crouching';
+  }
+}
+
+/**
+ * Update current pose based on state (grounded, velocity, rope, posture, etc.).
  * Mutates state.curPose, state.walkPh, state.landT.
  */
 export function updatePose(state, dt) {
@@ -171,6 +219,26 @@ export function updatePose(state, dt) {
   } else if (state.landT > 0) {
     target = lerpPose(IDLE, LAND, state.landT / 0.15);
     state.landT -= dt;
+  } else if (state.posture === 'prone') {
+    if (Math.abs(state.gvx) > 5) {
+      state.walkPh += Math.abs(state.gvx) * dt * 0.006;
+      if (state.walkPh >= 1) state.walkPh -= 1;
+      const n = PRONE_CRAWL.length, raw = state.walkPh * n;
+      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
+      target = lerpPose(PRONE_CRAWL[i], PRONE_CRAWL[(i + 1) % n], f);
+    } else {
+      target = PRONE;
+    }
+  } else if (state.posture === 'crouching') {
+    if (Math.abs(state.gvx) > 5) {
+      state.walkPh += Math.abs(state.gvx) * dt * 0.008;
+      if (state.walkPh >= 1) state.walkPh -= 1;
+      const n = CROUCH_WALK.length, raw = state.walkPh * n;
+      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
+      target = lerpPose(CROUCH_WALK[i], CROUCH_WALK[(i + 1) % n], f);
+    } else {
+      target = CROUCH;
+    }
   } else if (Math.abs(state.gvx) > 5) {
     state.walkPh += Math.abs(state.gvx) * dt * 0.008;
     if (state.walkPh >= 1) state.walkPh -= 1;

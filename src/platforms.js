@@ -32,6 +32,22 @@ export function findPlatformAbove(platforms, feetScreenY, xPos, maxDist) {
 }
 
 /**
+ * Find the nearest platform directly above feetScreenY that the man is horizontally on.
+ * Returns the platform whose bottom edge (y + lineHeight) is closest above feetY, or null.
+ */
+export function findCeiling(platforms, feetScreenY, xPos, lineHeight) {
+  let best = null;
+  for (const p of platforms) {
+    const bottom = p.y + lineHeight;
+    // Platform bottom must be above feet (with small tolerance)
+    if (bottom < feetScreenY + 2 && xPos >= p.x && xPos <= p.x + p.w) {
+      if (best === null || p.y > best.y) best = p;
+    }
+  }
+  return best;
+}
+
+/**
  * Build platforms and region boxes from terminal content.
  * Pure function — returns new state rather than mutating globals.
  *

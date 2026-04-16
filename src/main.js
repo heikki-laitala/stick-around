@@ -1,7 +1,7 @@
 import { IDLE, SCALE } from './poses.js';
 import { ROPE_COOLDOWN } from './constants.js';
 import { buildPlatforms } from './platforms.js';
-import { updateMovement, updateRope, updatePose } from './physics.js';
+import { updateMovement, updateRope, updatePose, updatePosture } from './physics.js';
 import { render } from './render.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ const state = {
   dropThrough: 0,
   curPose: JSON.parse(JSON.stringify(IDLE)),
   hasSpawned: false,
+  posture: 'standing', // 'standing' | 'crouching' | 'prone'
 
   // Rope
   rope: null,
@@ -174,6 +175,12 @@ document.addEventListener('keydown', e => {
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
 
+  // Prone toggle: C key
+  if (e.code === 'KeyC' && state.grounded) {
+    state.posture = state.posture === 'prone' ? 'standing' : 'prone';
+    return;
+  }
+
   if (e.code === 'KeyE') {
     if (!state.rope && state.ropeCooldown <= 0) {
       const defaultAngle = state.faceR ? -Math.PI / 4 : -3 * Math.PI / 4;
@@ -190,10 +197,12 @@ document.addEventListener('keydown', e => {
       const len = state.rope.ropeLen;
       const tangentVx = -state.rope.swingVel * len * Math.cos(state.rope.swingAngle);
       const tangentVy = -state.rope.swingVel * len * Math.sin(state.rope.swingAngle);
-      const MIN_RELEASE_VX = 120;
+      const MIN_RELEASE_VX = 180;
       const dirX = Math.sin(state.rope.swingAngle) > 0 ? 1 : -1;
       state.gvx = Math.abs(tangentVx) > MIN_RELEASE_VX ? tangentVx : dirX * MIN_RELEASE_VX;
-      state.gvy = tangentVy;
+      // Add upward boost when releasing rope
+      const MIN_RELEASE_VY = -150;
+      state.gvy = Math.min(tangentVy, MIN_RELEASE_VY);
       state.grounded = false;
       state.standingHash = 0;
       state.rope = null;
@@ -225,6 +234,7 @@ function loop(now) {
     state.screenH = H();
     updateRope(state, dt, keys);
     updateMovement(state, dt, keys, W(), H());
+    updatePosture(state);
     updatePose(state, dt);
   }
 
