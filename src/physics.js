@@ -56,14 +56,20 @@ export function updateRope(state, dt, keys) {
     const gravAcc = -(SWING_GRAVITY / state.rope.ropeLen) * Math.sin(state.rope.swingAngle);
     state.rope.swingVel += gravAcc * dt;
 
-    if (keys.has('KeyA') || keys.has('ArrowLeft')) state.rope.swingVel -= SWING_PUMP * dt;
-    if (keys.has('KeyD') || keys.has('ArrowRight')) state.rope.swingVel += SWING_PUMP * dt;
+    // Pump strength scales inversely with rope length (longer rope = harder to pump)
+    const pumpScale = Math.min(1, 120 / state.rope.ropeLen);
+    const pump = SWING_PUMP * pumpScale;
+    if (keys.has('KeyA') || keys.has('ArrowLeft')) state.rope.swingVel -= pump * dt;
+    if (keys.has('KeyD') || keys.has('ArrowRight')) state.rope.swingVel += pump * dt;
 
     const CLIMB_SPEED = 80;
     const MIN_ROPE_LEN = 20;
     if (keys.has('KeyW') || keys.has('ArrowUp')) state.rope.ropeLen = Math.max(MIN_ROPE_LEN, state.rope.ropeLen - CLIMB_SPEED * dt);
     if (keys.has('KeyS') || keys.has('ArrowDown')) state.rope.ropeLen = Math.min(ROPE_MAX_LEN, state.rope.ropeLen + CLIMB_SPEED * dt);
 
+    // Cap swing velocity to prevent unrealistic spinning
+    const MAX_SWING_VEL = 3.0;
+    state.rope.swingVel = Math.max(-MAX_SWING_VEL, Math.min(MAX_SWING_VEL, state.rope.swingVel));
     state.rope.swingVel *= SWING_DAMPING;
     state.rope.swingAngle += state.rope.swingVel * dt;
 
