@@ -99,6 +99,7 @@ describe('updatePosture', () => {
       platforms: [],
       lineHeight: 20,
       posture: 'standing', // 'standing' | 'crouching' | 'prone'
+      proneRequested: false,
       ...overrides,
     };
   }
@@ -134,37 +135,43 @@ describe('updatePosture', () => {
   });
 
   it('does not auto-prone (requires button)', () => {
-    // Clearance too tight even for crouch, but no prone button
-    // Platform bottom at 230+20=250, feetY at 260
-    // Clearance = 260-250 = 10, crouch height ~21 → too tight
     const s = makeState({
       feetY: 260, gx: 100,
       platforms: [{ y: 230, x: 0, w: 400, hash: 1 }],
       lineHeight: 20,
     });
     updatePosture(s);
-    // Should crouch (best it can do automatically), not prone
     expect(s.posture).toBe('crouching');
   });
 
-  it('allows prone when posture is already prone', () => {
-    // Already prone (set by button), tight space
+  it('stays prone when proneRequested is true', () => {
     const s = makeState({
       feetY: 260, gx: 100,
       platforms: [{ y: 230, x: 0, w: 400, hash: 1 }],
       lineHeight: 20,
-      posture: 'prone',
+      proneRequested: true,
     });
     updatePosture(s);
     expect(s.posture).toBe('prone');
   });
 
-  it('returns to standing when ceiling clears while prone', () => {
+  it('stays prone with no ceiling when proneRequested', () => {
+    const s = makeState({
+      feetY: 300, gx: 100,
+      platforms: [],
+      proneRequested: true,
+    });
+    updatePosture(s);
+    expect(s.posture).toBe('prone');
+  });
+
+  it('returns to standing when ceiling clears and not proneRequested', () => {
     const s = makeState({
       feetY: 300, gx: 100,
       platforms: [{ y: 100, x: 0, w: 400, hash: 1 }],
       lineHeight: 20,
       posture: 'prone',
+      proneRequested: false,
     });
     updatePosture(s);
     expect(s.posture).toBe('standing');

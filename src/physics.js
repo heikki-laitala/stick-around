@@ -104,11 +104,14 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
 
   if (state.dropThrough > 0) state.dropThrough -= dt;
 
-  // Horizontal movement
-  if (left) { state.gvx -= ACCEL * dt; state.faceR = false; }
-  if (right) { state.gvx += ACCEL * dt; state.faceR = true; }
+  // Horizontal movement — slower when crouching, much slower when prone
+  const speedMul = state.posture === 'prone' ? 0.25 : state.posture === 'crouching' ? 0.6 : 1;
+  const accel = ACCEL * speedMul;
+  const maxv = MAXV * speedMul;
+  if (left) { state.gvx -= accel * dt; state.faceR = false; }
+  if (right) { state.gvx += accel * dt; state.faceR = true; }
   if (!left && !right) { state.gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(state.gvx) < 1) state.gvx = 0; }
-  state.gvx = Math.max(-MAXV, Math.min(MAXV, state.gvx));
+  state.gvx = Math.max(-maxv, Math.min(maxv, state.gvx));
 
   // Jump (blocked when crouching/prone under a ceiling)
   // If in prompt/footer area, give an extra-strong jump to escape
@@ -176,15 +179,20 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
 
 /**
  * Update posture based on ceiling clearance.
- * Auto-crouches when standing won't fit. Keeps prone if already prone.
+ * Auto-crouches when standing won't fit. Respects manual prone (proneRequested).
  * Mutates state.posture.
  */
 export function updatePosture(state) {
   if (!state.grounded) return;
 
+  // If user manually requested prone, stay prone
+  if (state.proneRequested) {
+    state.posture = 'prone';
+    return;
+  }
+
   const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
   if (!ceiling) {
-    // No ceiling — return to standing (unless prone was intentional and ceiling returns)
     state.posture = 'standing';
     return;
   }
@@ -194,13 +202,9 @@ export function updatePosture(state) {
   if (clearance >= STANDING_HEIGHT) {
     state.posture = 'standing';
   } else if (clearance >= CROUCH_HEIGHT) {
-    // Auto-crouch
     state.posture = 'crouching';
-  } else if (state.posture === 'prone' && clearance >= PRONE_HEIGHT) {
-    // Keep prone (was set by button press)
-    state.posture = 'prone';
   } else {
-    // Too tight for standing, auto-crouch is the best we can do automatically
+    // Too tight even for crouch — force crouch (best automatic option)
     state.posture = 'crouching';
   }
 }

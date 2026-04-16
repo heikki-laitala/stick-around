@@ -34,6 +34,7 @@ const state = {
   curPose: JSON.parse(JSON.stringify(IDLE)),
   hasSpawned: false,
   posture: 'standing', // 'standing' | 'crouching' | 'prone'
+  proneRequested: false, // true when user manually toggles prone with C
 
   // Rope
   rope: null,
@@ -177,9 +178,12 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
   if (e.code === 'KeyV') { state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS; return; }
 
-  // Prone toggle: C key
-  if (e.code === 'KeyC' && state.grounded) {
-    state.posture = state.posture === 'prone' ? 'standing' : 'prone';
+  // Prone toggle: C key (works anytime on ground)
+  if (e.code === 'KeyC') {
+    state.proneRequested = !state.proneRequested;
+    if (state.proneRequested) {
+      state.posture = 'prone';
+    }
     return;
   }
 

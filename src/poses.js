@@ -100,39 +100,44 @@ export const CROUCH_WALK = [
   ),
 ];
 
-// Prone: lying flat face-down, arms forward, legs back
+// Prone: lying flat face-down, head in facing direction
+// Positive x = forward (head), negative x = behind (feet)
 export const PRONE = p(
-  { x: -30, y: 36 }, { x: -22, y: 38 }, { x: 0, y: 40 },
-  { x: -18, y: 36 }, { x: -14, y: 36 }, { x: -28, y: 34 }, { x: -24, y: 34 },
-  { x: -36, y: 32 }, { x: -34, y: 36 }, { x: 6, y: 40 }, { x: 10, y: 40 },
-  { x: 18, y: 42 }, { x: 22, y: 42 }, { x: 30, y: 44 }, { x: 34, y: 44 }
+  { x: 32, y: 32 }, { x: 24, y: 36 }, { x: 0, y: 38 },         // head, neck, hip
+  { x: 20, y: 34 }, { x: 16, y: 38 }, { x: 10, y: 42 }, { x: 8, y: 42 },  // shoulders, elbows
+  { x: 18, y: 44 }, { x: 14, y: 44 }, { x: -4, y: 38 }, { x: -8, y: 38 },  // hands, hips
+  { x: -16, y: 36 }, { x: -20, y: 36 }, { x: -28, y: 40 }, { x: -32, y: 40 } // knees, feet
 );
 
-// Prone crawl: army crawl animation — alternating arms and legs
+// Prone crawl: alternating elbow-knee army crawl
 export const PRONE_CRAWL = [
+  // Frame 1: left arm forward, right knee up
   p(
-    { x: -28, y: 34 }, { x: -20, y: 36 }, { x: 0, y: 40 },
-    { x: -16, y: 34 }, { x: -12, y: 36 }, { x: -30, y: 30 }, { x: -20, y: 36 },
-    { x: -38, y: 28 }, { x: -28, y: 38 }, { x: 6, y: 40 }, { x: 10, y: 40 },
-    { x: 20, y: 38 }, { x: 16, y: 42 }, { x: 32, y: 40 }, { x: 26, y: 44 }
+    { x: 32, y: 30 }, { x: 24, y: 34 }, { x: 0, y: 38 },
+    { x: 20, y: 32 }, { x: 16, y: 36 }, { x: 14, y: 38 }, { x: 6, y: 42 },
+    { x: 22, y: 42 }, { x: 10, y: 44 }, { x: -4, y: 38 }, { x: -8, y: 38 },
+    { x: -14, y: 34 }, { x: -22, y: 38 }, { x: -24, y: 40 }, { x: -34, y: 42 }
   ),
+  // Frame 2: neutral
   p(
-    { x: -30, y: 36 }, { x: -22, y: 38 }, { x: 0, y: 40 },
-    { x: -18, y: 36 }, { x: -14, y: 36 }, { x: -28, y: 34 }, { x: -24, y: 34 },
-    { x: -36, y: 32 }, { x: -34, y: 36 }, { x: 6, y: 40 }, { x: 10, y: 40 },
-    { x: 18, y: 42 }, { x: 22, y: 42 }, { x: 30, y: 44 }, { x: 34, y: 44 }
+    { x: 32, y: 32 }, { x: 24, y: 36 }, { x: 0, y: 38 },
+    { x: 20, y: 34 }, { x: 16, y: 38 }, { x: 10, y: 42 }, { x: 8, y: 42 },
+    { x: 18, y: 44 }, { x: 14, y: 44 }, { x: -4, y: 38 }, { x: -8, y: 38 },
+    { x: -16, y: 36 }, { x: -20, y: 36 }, { x: -28, y: 40 }, { x: -32, y: 40 }
   ),
+  // Frame 3: right arm forward, left knee up
   p(
-    { x: -28, y: 34 }, { x: -20, y: 36 }, { x: 0, y: 40 },
-    { x: -16, y: 36 }, { x: -12, y: 34 }, { x: -20, y: 36 }, { x: -30, y: 30 },
-    { x: -28, y: 38 }, { x: -38, y: 28 }, { x: 6, y: 40 }, { x: 10, y: 40 },
-    { x: 16, y: 42 }, { x: 20, y: 38 }, { x: 26, y: 44 }, { x: 32, y: 40 }
+    { x: 32, y: 30 }, { x: 24, y: 34 }, { x: 0, y: 38 },
+    { x: 20, y: 36 }, { x: 16, y: 32 }, { x: 6, y: 42 }, { x: 14, y: 38 },
+    { x: 10, y: 44 }, { x: 22, y: 42 }, { x: -4, y: 38 }, { x: -8, y: 38 },
+    { x: -22, y: 38 }, { x: -14, y: 34 }, { x: -34, y: 42 }, { x: -24, y: 40 }
   ),
+  // Frame 4: neutral
   p(
-    { x: -30, y: 36 }, { x: -22, y: 38 }, { x: 0, y: 40 },
-    { x: -18, y: 36 }, { x: -14, y: 36 }, { x: -24, y: 34 }, { x: -28, y: 34 },
-    { x: -34, y: 36 }, { x: -36, y: 32 }, { x: 6, y: 40 }, { x: 10, y: 40 },
-    { x: 22, y: 42 }, { x: 18, y: 42 }, { x: 34, y: 44 }, { x: 30, y: 44 }
+    { x: 32, y: 32 }, { x: 24, y: 36 }, { x: 0, y: 38 },
+    { x: 20, y: 34 }, { x: 16, y: 38 }, { x: 10, y: 42 }, { x: 8, y: 42 },
+    { x: 18, y: 44 }, { x: 14, y: 44 }, { x: -4, y: 38 }, { x: -8, y: 38 },
+    { x: -16, y: 36 }, { x: -20, y: 36 }, { x: -28, y: 40 }, { x: -32, y: 40 }
   ),
 ];
 
@@ -143,5 +148,5 @@ export const SCALE = 0.35;
 export const STANDING_HEIGHT = (44 - (-48)) * SCALE; // ~32px
 // Crouch: head y=-15 → (44-(-15)) * SCALE
 export const CROUCH_HEIGHT = (44 - (-15)) * SCALE; // ~21px
-// Prone: head y=34 → (44-34) * SCALE
-export const PRONE_HEIGHT = (44 - 34) * SCALE; // ~3.5px
+// Prone: head y=32 → (44-30) * SCALE (use lowest crawl head y for safety)
+export const PRONE_HEIGHT = (44 - 30) * SCALE; // ~5px
