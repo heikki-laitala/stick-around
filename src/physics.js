@@ -1,5 +1,5 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING } from './constants.js';
-import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
+import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findFloor, findCeiling } from './platforms.js';
 
 /**
@@ -40,6 +40,7 @@ export function updateRope(state, dt, keys) {
       state.rope.swingVel = (state.gvx * Math.cos(state.rope.swingAngle)) / state.rope.ropeLen;
       state.rope.swingTime = 0;
       state.rope.startPlatY = state.feetY;
+      state.rope.startPlatHash = state.standingHash;
       state.grounded = false;
       state.standingHash = 0;
     }
@@ -66,18 +67,40 @@ export function updateRope(state, dt, keys) {
     state.rope.swingVel *= SWING_DAMPING;
     state.rope.swingAngle += state.rope.swingVel * dt;
 
+    const prevY = state.feetY;
+    const prevX = state.gx;
     state.gx = state.rope.hitX + Math.sin(state.rope.swingAngle) * state.rope.ropeLen;
     state.feetY = state.rope.hitY + Math.cos(state.rope.swingAngle) * state.rope.ropeLen;
     state.gvy = 0;
     state.gvx = 0;
     state.rope.swingTime += dt;
 
-    if (state.rope.swingTime > 0.3) {
+    // Check if swing crossed through or ended inside any platform
+    // Skip only the anchor and the platform the man was standing on
+    {
+      const minY = Math.min(prevY, state.feetY);
+      const maxY = Math.max(prevY, state.feetY);
+      const minX = Math.min(prevX, state.gx);
+      const maxX = Math.max(prevX, state.gx);
+
       for (const p of state.platforms) {
-        if (Math.abs(p.y - state.rope.startPlatY) < 2) continue;
-        if (state.feetY >= p.y && state.feetY <= p.y + state.lineHeight * 0.5 &&
-            state.gx >= p.x && state.gx <= p.x + p.w) {
-          state.feetY = p.y;
+        if (p.hash === state.rope.anchorHash) continue;
+        if (p.hash === state.rope.startPlatHash) continue;
+
+        // Check horizontal overlap with swing path
+        if (maxX < p.x || minX > p.x + p.w) continue;
+
+        const platTop = p.y;
+
+        // Swing path crossed this platform's top edge (either direction)
+        if (minY <= platTop && maxY >= platTop) {
+          // Check if there's enough clearance to land here
+          const ceiling = findCeiling(state.platforms, platTop, state.gx, state.lineHeight);
+          if (ceiling) {
+            const clearance = platTop - (ceiling.y + state.lineHeight);
+            if (clearance < PRONE_HEIGHT) continue; // too tight, skip
+          }
+          state.feetY = platTop;
           state.grounded = true;
           state.gvy = 0;
           state.gvx = state.rope.swingVel * state.rope.ropeLen * 0.3;
@@ -132,11 +155,16 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (state.gvy >= 0 && state.dropThrough <= 0) {
     const floor = findFloor(state.platforms, prevFeetY - 1, state.gx, screenH);
     if (floor !== null && state.feetY >= floor.y && prevFeetY <= floor.y + 4) {
-      if (state.gvy > 100) state.landT = 0.15;
-      state.feetY = floor.y;
-      state.gvy = 0;
-      state.grounded = true;
-      state.standingHash = floor.hash || 0;
+      // Don't land if ceiling makes the gap too tight even for prone
+      const ceiling = findCeiling(state.platforms, floor.y, state.gx, state.lineHeight);
+      const clearance = ceiling ? floor.y - (ceiling.y + state.lineHeight) : Infinity;
+      if (clearance >= PRONE_HEIGHT) {
+        if (state.gvy > 100) state.landT = 0.15;
+        state.feetY = floor.y;
+        state.gvy = 0;
+        state.grounded = true;
+        state.standingHash = floor.hash || 0;
+      }
     }
   }
 
@@ -257,4 +285,28 @@ export function updatePose(state, dt) {
   }
 
   state.curPose = lerpPose(state.curPose, target, Math.min(1, dt * 12));
+}
+
+/**
+ * Reset player to spawn position.
+ * Mutates state: clears velocity, rope, posture, and moves to prompt area.
+ */
+export function resetPlayer(state) {
+  state.gvx = 0;
+  state.gvy = 0;
+  state.grounded = true;
+  state.standingHash = 0;
+  state.rope = null;
+  state.ropeCooldown = 0;
+  state.posture = 'standing';
+  state.proneRequested = false;
+  state.landT = 0;
+  state.walkPh = 0;
+  state.curPose = JSON.parse(JSON.stringify(IDLE));
+
+  if (state.promptArea) {
+    state.gx = state.textOffsetX + state.textWidth - 20 * SCALE - 20;
+    state.feetY = state.promptArea.y;
+    state.faceR = false;
+  }
 }

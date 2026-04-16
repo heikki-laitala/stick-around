@@ -1,7 +1,7 @@
 import { IDLE, SCALE } from './poses.js';
 import { ROPE_COOLDOWN } from './constants.js';
 import { buildPlatforms } from './platforms.js';
-import { updateMovement, updateRope, updatePose, updatePosture } from './physics.js';
+import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer } from './physics.js';
 import { render } from './render.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -177,6 +177,7 @@ document.addEventListener('keydown', e => {
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
   if (e.code === 'KeyV') { state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS; return; }
+  if (e.code === 'KeyR') { resetPlayer(state); return; }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {
@@ -188,7 +189,7 @@ document.addEventListener('keydown', e => {
   }
 
   if (e.code === 'KeyE') {
-    if (!state.rope && state.ropeCooldown <= 0) {
+    if (!state.rope && state.ropeCooldown <= 0 && state.posture === 'standing') {
       const defaultAngle = state.faceR ? -Math.PI / 4 : -3 * Math.PI / 4;
       state.ropeAngle = defaultAngle;
       state.rope = {

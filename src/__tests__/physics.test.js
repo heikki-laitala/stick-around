@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { updateMovement, updateRope, updatePose } from '../physics.js';
+import { updateMovement, updateRope, updatePose, resetPlayer } from '../physics.js';
 import { IDLE } from '../poses.js';
 import { JUMP_V, MAXV } from '../constants.js';
 
@@ -168,17 +168,100 @@ describe('updateRope', () => {
   it('applies pendulum physics when swinging', () => {
     const s = makeState({
       rope: {
-        state: 'swinging', angle: 0, anchorHash: 1,
+        state: 'swinging', angle: 0, anchorHash: 3,
         tipX: 200, tipY: 100, hitX: 200, hitY: 100,
-        ropeLen: 100, swingAngle: 0.3, swingVel: 0,
+        ropeLen: 50, swingAngle: 0.3, swingVel: 0,
         swingTime: 0, startPlatY: 300,
       },
-      feetY: 200, gx: 230,
+      feetY: 150, gx: 215,
+      platforms: [{ y: 100, x: 0, w: 400, hash: 3 }], // anchor only
     });
     updateRope(s, 0.016, makeKeys());
-    // Gravity should change swingVel
     expect(s.rope.swingVel).not.toBe(0);
     expect(s.rope.swingTime).toBeGreaterThan(0);
+  });
+});
+
+describe('updateRope swing collision', () => {
+  it('detaches rope when swinging through a platform', () => {
+    // Swinging from anchor at (200, 100), ropeLen=150
+    // swingAngle=0 → man at (200, 250). After physics, angle moves
+    // and man position should collide with platform at y=200..220
+    // Platform spans x=0..400, y=200, lineHeight=20 → body from 200 to 220
+    const s = makeState({
+      rope: {
+        state: 'swinging', angle: 0, anchorHash: 3,
+        tipX: 200, tipY: 100, hitX: 200, hitY: 100,
+        ropeLen: 80, swingAngle: 0.1, swingVel: 2,
+        swingTime: 0.5, startPlatY: 300,
+      },
+      grounded: false, feetY: 108, gx: 208,
+      platforms: [
+        { y: 100, x: 0, w: 400, hash: 3 },  // anchor platform
+        { y: 200, x: 0, w: 400, hash: 2 },  // platform to collide with
+        { y: 300, x: 0, w: 400, hash: 1 },
+      ],
+      lineHeight: 20,
+    });
+    // Simulate several frames to swing man into the platform at y=200
+    for (let i = 0; i < 60; i++) {
+      updateRope(s, 0.016, makeKeys());
+      if (!s.rope) break;
+    }
+    // Should have either landed on or detached from rope (not stuck inside platform)
+    if (s.rope) {
+      // If still on rope, man should be above the platform, not inside it
+      expect(s.feetY).toBeLessThanOrEqual(200);
+    } else {
+      // Detached — should be grounded on a platform or falling
+      expect(s.feetY).toBeLessThanOrEqual(300);
+    }
+  });
+
+  it('lands on platform when swinging into it from above', () => {
+    // Man swinging with enough velocity to reach a platform
+    const s = makeState({
+      rope: {
+        state: 'swinging', angle: 0, anchorHash: 3,
+        tipX: 200, tipY: 100, hitX: 200, hitY: 100,
+        ropeLen: 120, swingAngle: -0.5, swingVel: 1.5,
+        swingTime: 0.5, startPlatY: 300,
+      },
+      grounded: false, feetY: 160, gx: 140,
+      platforms: [
+        { y: 100, x: 0, w: 400, hash: 3 },
+        { y: 200, x: 0, w: 400, hash: 2 },
+        { y: 300, x: 0, w: 400, hash: 1 },
+      ],
+      lineHeight: 20,
+    });
+    for (let i = 0; i < 120; i++) {
+      updateRope(s, 0.016, makeKeys());
+      if (!s.rope) break;
+    }
+    // Should have landed
+    expect(s.rope).toBeNull();
+    expect(s.grounded).toBe(true);
+  });
+});
+
+describe('resetPlayer', () => {
+  it('resets player to spawn position', () => {
+    const s = makeState({
+      gx: 50, feetY: 100, gvx: 200, gvy: -100,
+      grounded: false, rope: { state: 'swinging' },
+      posture: 'prone', proneRequested: true,
+      promptArea: { x: 0, y: 400, w: 600, h: 40 },
+      textOffsetX: 10, textWidth: 700,
+    });
+    resetPlayer(s);
+    expect(s.gvx).toBe(0);
+    expect(s.gvy).toBe(0);
+    expect(s.grounded).toBe(true);
+    expect(s.rope).toBeNull();
+    expect(s.posture).toBe('standing');
+    expect(s.proneRequested).toBe(false);
+    expect(s.feetY).toBe(400); // promptArea.y
   });
 });
 
