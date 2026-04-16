@@ -58,6 +58,7 @@ const state = {
 
   // Debug
   DEBUG_DRAW: false,
+  DEBUG_PLATFORMS: false,
   lastDebugLines: [],
   lastInputLine: null,
   lastFooterLine: null,
@@ -174,6 +175,7 @@ document.addEventListener('keydown', e => {
   }
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
+  if (e.code === 'KeyV') { state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS; return; }
 
   // Prone toggle: C key
   if (e.code === 'KeyC' && state.grounded) {

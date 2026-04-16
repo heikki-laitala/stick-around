@@ -1,4 +1,4 @@
-import { SCALE } from './poses.js';
+import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 
 function drawLimb(ctx, ax, ay, bx, by) {
   ctx.beginPath();
@@ -64,13 +64,6 @@ export function render(ctx, state, screenW, screenH) {
       ctx.fillStyle = 'rgba(255, 200, 50, 0.9)';
       ctx.fill();
     } else if (state.rope.state === 'flying') {
-      if (state.DEBUG_DRAW) {
-        for (let i = 0; i < state.platforms.length; i += 4) {
-          const p = state.platforms[i];
-          ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
-          ctx.fillRect(p.x, p.y, p.w, state.lineHeight);
-        }
-      }
       ctx.strokeStyle = 'rgba(255, 200, 50, 0.9)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -127,7 +120,53 @@ export function render(ctx, state, screenW, screenH) {
 
   ctx.shadowBlur = 0;
 
+  if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
   if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
+}
+
+/**
+ * Render all platforms as visible rectangles with posture/clearance info.
+ */
+function renderPlatformOverlay(ctx, state) {
+  const lh = state.lineHeight;
+
+  // Draw every platform
+  for (let i = 0; i < state.platforms.length; i++) {
+    const p = state.platforms[i];
+    // Fill
+    ctx.fillStyle = 'rgba(255, 100, 50, 0.2)';
+    ctx.fillRect(p.x, p.y, p.w, lh);
+    // Border
+    ctx.strokeStyle = 'rgba(255, 100, 50, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(p.x, p.y, p.w, lh);
+    // Index label
+    ctx.fillStyle = 'rgba(255, 100, 50, 0.7)';
+    ctx.font = '8px monospace';
+    ctx.fillText(`${i}`, p.x + 2, p.y + lh - 2);
+  }
+
+  // Draw man's posture bounding box
+  if (state.hasSpawned) {
+    const posture = state.posture || 'standing';
+    const heights = { standing: STANDING_HEIGHT, crouching: CROUCH_HEIGHT, prone: PRONE_HEIGHT };
+    const h = heights[posture] || STANDING_HEIGHT;
+    const boxTop = state.feetY - h;
+    const boxW = 12;
+
+    // Posture box
+    ctx.fillStyle = 'rgba(0, 220, 255, 0.15)';
+    ctx.fillRect(state.gx - boxW / 2, boxTop, boxW, h);
+    ctx.strokeStyle = 'rgba(0, 220, 255, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(state.gx - boxW / 2, boxTop, boxW, h);
+
+    // Label
+    ctx.fillStyle = 'rgba(0, 220, 255, 0.9)';
+    ctx.font = '8px monospace';
+    ctx.fillText(posture, state.gx + 8, boxTop + 8);
+    ctx.fillText(`h=${h.toFixed(1)}`, state.gx + 8, boxTop + 18);
+  }
 }
 
 /**
