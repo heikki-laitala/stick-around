@@ -277,17 +277,21 @@ describe('movement blocked when space too tight', () => {
     };
   }
 
-  it('does not block jump when crouching under ceiling', () => {
-    // Crouching but has some clearance — should still not be able to jump
-    // (can't stand up, so jump is blocked)
+  it('crouch jump bursts hole in ceiling and jumps through', () => {
     const s = makeState({
       feetY: 240, gx: 100, posture: 'crouching',
       platforms: [{ y: 200, x: 0, w: 400, hash: 1 }],
+      holes: [],
+      particles: [],
       promptArea: null,
     });
     updateMovement(s, 0.016, new Set(['Space']), 800, 600);
-    // Should not jump when crouching under a ceiling
-    expect(s.gvy).toBe(0);
+    // Should burst hole and jump
+    expect(s.gvy).toBeLessThan(0);
+    expect(s.grounded).toBe(false);
+    expect(s.holes.length).toBe(1);
+    expect(s.holes[0].y).toBe(200);
+    expect(s.particles.length).toBeGreaterThan(0);
   });
 
   it('allows escape jump from footer/prompt area even when crouching', () => {

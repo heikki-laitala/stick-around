@@ -157,18 +157,31 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (!left && !right) { state.gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(state.gvx) < 1) state.gvx = 0; }
   state.gvx = Math.max(-maxv, Math.min(maxv, state.gvx));
 
-  // Jump (blocked when crouching/prone under a ceiling)
+  // Jump
   // If in prompt/footer area, give a strong jump to escape back to prompt top
+  // If crouching/prone under ceiling, burst a hole and jump through
   const inFooterArea = state.promptArea && state.feetY >= state.promptArea.y;
-  if (jump && state.grounded && (state.posture === 'standing' || inFooterArea)) {
+  if (jump && state.grounded) {
     if (inFooterArea) {
-      // Calculate velocity needed to reach prompt top (v = sqrt(2 * g * distance))
       const dist = state.feetY - state.promptArea.y + 40;
       state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
-    } else {
+      state.grounded = false; state.standingHash = 0; state.landT = 0;
+    } else if (state.posture === 'standing') {
       state.gvy = -JUMP_V;
+      state.grounded = false; state.standingHash = 0; state.landT = 0;
+    } else if (state.posture === 'crouching' && state.holes && state.particles) {
+      // Burst through ceiling platform
+      const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
+      if (ceiling) {
+        const HOLE_W = 30;
+        state.holes.push({ x: state.gx - HOLE_W / 2, y: ceiling.y, w: HOLE_W, age: 0 });
+        spawnBurstParticles(state.particles, state.gx, ceiling.y + state.lineHeight, 12);
+        // Jump through — enough velocity to clear the platform above
+        const dist = state.feetY - ceiling.y + 20;
+        state.gvy = -Math.sqrt(2 * GRAV * dist);
+        state.grounded = false; state.standingHash = 0; state.landT = 0;
+      }
     }
-    state.grounded = false; state.standingHash = 0; state.landT = 0;
   }
 
   // Gravity
