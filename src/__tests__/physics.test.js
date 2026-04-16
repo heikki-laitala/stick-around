@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { updateMovement, updateRope, updatePose, resetPlayer } from '../physics.js';
+import { updateMovement, updateRope, updatePose, resetPlayer, updateParticles, isInHole } from '../physics.js';
 import { IDLE } from '../poses.js';
 import { JUMP_V, MAXV } from '../constants.js';
 
@@ -300,5 +300,108 @@ describe('updatePose', () => {
     updatePose(s, 0.016);
     // Should target JUMP_RISE pose
     expect(s.curPose.head.y).toBeLessThan(-40);
+  });
+});
+
+describe('isInHole', () => {
+  it('returns true when x is inside a hole on the same platform y', () => {
+    const holes = [{ x: 100, y: 200, w: 30, age: 0 }];
+    expect(isInHole(holes, 115, 200)).toBe(true);
+  });
+
+  it('returns false when x is outside hole', () => {
+    const holes = [{ x: 100, y: 200, w: 30, age: 0 }];
+    expect(isInHole(holes, 50, 200)).toBe(false);
+  });
+
+  it('returns false when y does not match', () => {
+    const holes = [{ x: 100, y: 200, w: 30, age: 0 }];
+    expect(isInHole(holes, 115, 300)).toBe(false);
+  });
+
+  it('returns false with empty holes', () => {
+    expect(isInHole([], 115, 200)).toBe(false);
+  });
+});
+
+describe('platform burst', () => {
+  it('creates hole when Space held during rope swing collision', () => {
+    const s = makeState({
+      rope: {
+        state: 'swinging', angle: 0, anchorHash: 3,
+        tipX: 200, tipY: 50, hitX: 200, hitY: 50,
+        ropeLen: 120, swingAngle: 0.3, swingVel: 1.0,
+        swingTime: 0.5, startPlatY: 300, startPlatHash: 1,
+      },
+      grounded: false, feetY: 140, gx: 236,
+      platforms: [
+        { y: 50, x: 0, w: 400, hash: 3 },   // anchor
+        { y: 150, x: 0, w: 400, hash: 2 },   // target to burst
+        { y: 300, x: 0, w: 400, hash: 1 },   // start
+      ],
+      holes: [],
+      particles: [],
+      lineHeight: 20,
+    });
+    // Simulate frames — burst is automatic
+    for (let i = 0; i < 60; i++) {
+      updateRope(s, 0.016, makeKeys());
+      if (!s.rope) break;
+    }
+    // Should have created a hole and stayed on rope (not landed)
+    expect(s.holes.length).toBeGreaterThan(0);
+    expect(s.holes[0].y).toBe(150);
+  });
+
+  it('auto-bursts through platform without needing Space', () => {
+    const s = makeState({
+      rope: {
+        state: 'swinging', angle: 0, anchorHash: 3,
+        tipX: 200, tipY: 50, hitX: 200, hitY: 50,
+        ropeLen: 120, swingAngle: 0.3, swingVel: 1.0,
+        swingTime: 0.5, startPlatY: 300, startPlatHash: 1,
+      },
+      grounded: false, feetY: 140, gx: 236,
+      platforms: [
+        { y: 50, x: 0, w: 400, hash: 3 },
+        { y: 150, x: 0, w: 400, hash: 2 },
+        { y: 300, x: 0, w: 400, hash: 1 },
+      ],
+      holes: [],
+      particles: [],
+      lineHeight: 20,
+    });
+    for (let i = 0; i < 60; i++) {
+      updateRope(s, 0.016, makeKeys());
+      if (!s.rope) break;
+    }
+    // Should have burst through automatically
+    expect(s.holes.length).toBeGreaterThan(0);
+  });
+
+  it('man falls through holes in platforms', () => {
+    const s = makeState({
+      grounded: false, gvy: 200, feetY: 148,
+      platforms: [{ y: 150, x: 0, w: 400, hash: 2 }],
+      holes: [{ x: 185, y: 150, w: 30, age: 0 }],
+      gx: 200,
+    });
+    updateMovement(s, 0.016, makeKeys(), 800, 600);
+    // Man should fall through the hole, not land on the platform
+    expect(s.feetY).toBeGreaterThan(150);
+    expect(s.grounded).toBe(false);
+  });
+});
+
+describe('updateParticles', () => {
+  it('ages and removes expired particles', () => {
+    const particles = [
+      { x: 0, y: 0, vx: 10, vy: 10, life: 0.5, maxLife: 0.5 },
+      { x: 0, y: 0, vx: 10, vy: 10, life: 0.01, maxLife: 0.5 },
+    ];
+    updateParticles(particles, 0.016);
+    expect(particles.length).toBe(1); // second one expired
+    expect(particles[0].life).toBeLessThan(0.5);
+    expect(particles[0].x).toBeGreaterThan(0); // moved
   });
 });

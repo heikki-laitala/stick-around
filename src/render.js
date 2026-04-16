@@ -120,6 +120,41 @@ export function render(ctx, state, screenW, screenH) {
 
   ctx.shadowBlur = 0;
 
+  // Holes — glowing gap edges
+  if (state.holes) {
+    for (const h of state.holes) {
+      const fade = Math.max(0, 1 - h.age / 8);
+      // Dark gap
+      ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * fade})`;
+      ctx.fillRect(h.x, h.y, h.w, state.lineHeight);
+      // Glowing edges
+      ctx.shadowColor = `rgba(255, 150, 50, ${0.6 * fade})`;
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = `rgba(255, 150, 50, ${0.8 * fade})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(h.x, h.y);
+      ctx.lineTo(h.x, h.y + state.lineHeight);
+      ctx.moveTo(h.x + h.w, h.y);
+      ctx.lineTo(h.x + h.w, h.y + state.lineHeight);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // Burst particles
+  if (state.particles) {
+    for (const p of state.particles) {
+      const alpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = `rgba(255, ${100 + Math.floor(Math.random() * 100)}, 50, ${alpha})`;
+      ctx.shadowColor = `rgba(255, 150, 50, ${alpha * 0.5})`;
+      ctx.shadowBlur = 3;
+      const size = 1 + alpha * 2;
+      ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+    }
+    ctx.shadowBlur = 0;
+  }
+
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
   if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
 }

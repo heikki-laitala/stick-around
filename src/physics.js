@@ -83,6 +83,7 @@ export function updateRope(state, dt, keys) {
 
     // Check if swing crossed through or ended inside any platform
     // Skip only the anchor and the platform the man was standing on
+    const bursting = true; // always burst through platforms while swinging
     {
       const minY = Math.min(prevY, state.feetY);
       const maxY = Math.max(prevY, state.feetY);
@@ -90,9 +91,6 @@ export function updateRope(state, dt, keys) {
       const maxX = Math.max(prevX, state.gx);
 
       for (const p of state.platforms) {
-        if (p.hash === state.rope.anchorHash) continue;
-        if (p.hash === state.rope.startPlatHash) continue;
-
         // Check horizontal overlap with swing path
         if (maxX < p.x || minX > p.x + p.w) continue;
 
@@ -100,11 +98,28 @@ export function updateRope(state, dt, keys) {
 
         // Swing path crossed this platform's top edge (either direction)
         if (minY <= platTop && maxY >= platTop) {
-          // Check if there's enough clearance to land here
+          // Check if already passing through a hole
+          if (state.holes && isInHole(state.holes, state.gx, platTop)) continue;
+
+          if (bursting && state.holes && state.particles) {
+            // Don't burst the platform the man was standing on
+            if (p.hash === state.rope.startPlatHash) continue;
+            // Burst through: create hole + particles, keep swinging
+            const HOLE_W = 30;
+            state.holes.push({ x: state.gx - HOLE_W / 2, y: platTop, w: HOLE_W, age: 0 });
+            spawnBurstParticles(state.particles, state.gx, platTop, 12);
+            continue;
+          }
+
+          // Skip anchor/start platforms for normal landing (not burst)
+          if (p.hash === state.rope.anchorHash) continue;
+          if (p.hash === state.rope.startPlatHash) continue;
+
+          // Normal landing
           const ceiling = findCeiling(state.platforms, platTop, state.gx, state.lineHeight);
           if (ceiling) {
             const clearance = platTop - (ceiling.y + state.lineHeight);
-            if (clearance < PRONE_HEIGHT) continue; // too tight, skip
+            if (clearance < PRONE_HEIGHT) continue;
           }
           state.feetY = platTop;
           state.grounded = true;
@@ -143,10 +158,16 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   state.gvx = Math.max(-maxv, Math.min(maxv, state.gvx));
 
   // Jump (blocked when crouching/prone under a ceiling)
-  // If in prompt/footer area, give an extra-strong jump to escape
+  // If in prompt/footer area, give a strong jump to escape back to prompt top
   const inFooterArea = state.promptArea && state.feetY >= state.promptArea.y;
   if (jump && state.grounded && (state.posture === 'standing' || inFooterArea)) {
-    state.gvy = inFooterArea ? -JUMP_V * 1.15 : -JUMP_V;
+    if (inFooterArea) {
+      // Calculate velocity needed to reach prompt top (v = sqrt(2 * g * distance))
+      const dist = state.feetY - state.promptArea.y + 40;
+      state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
+    } else {
+      state.gvy = -JUMP_V;
+    }
     state.grounded = false; state.standingHash = 0; state.landT = 0;
   }
 
@@ -161,15 +182,20 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (state.gvy >= 0 && state.dropThrough <= 0) {
     const floor = findFloor(state.platforms, prevFeetY - 1, state.gx, screenH);
     if (floor !== null && state.feetY >= floor.y && prevFeetY <= floor.y + 4) {
-      // Don't land if ceiling makes the gap too tight even for prone
-      const ceiling = findCeiling(state.platforms, floor.y, state.gx, state.lineHeight);
-      const clearance = ceiling ? floor.y - (ceiling.y + state.lineHeight) : Infinity;
-      if (clearance >= PRONE_HEIGHT) {
-        if (state.gvy > 100) state.landT = 0.15;
-        state.feetY = floor.y;
-        state.gvy = 0;
-        state.grounded = true;
-        state.standingHash = floor.hash || 0;
+      // Fall through holes
+      if (state.holes && isInHole(state.holes, state.gx, floor.y)) {
+        // don't land — fall through the hole
+      } else {
+        // Don't land if ceiling makes the gap too tight even for prone
+        const ceiling = findCeiling(state.platforms, floor.y, state.gx, state.lineHeight);
+        const clearance = ceiling ? floor.y - (ceiling.y + state.lineHeight) : Infinity;
+        if (clearance >= PRONE_HEIGHT) {
+          if (state.gvy > 100) state.landT = 0.15;
+          state.feetY = floor.y;
+          state.gvy = 0;
+          state.grounded = true;
+          state.standingHash = floor.hash || 0;
+        }
       }
     }
   }
@@ -314,5 +340,47 @@ export function resetPlayer(state) {
     state.gx = state.textOffsetX + state.textWidth - 20 * SCALE - 20;
     state.feetY = state.promptArea.y;
     state.faceR = false;
+  }
+}
+
+/**
+ * Check if a position falls inside a hole on a given platform y.
+ */
+export function isInHole(holes, x, platY) {
+  for (const h of holes) {
+    if (Math.abs(h.y - platY) < 2 && x >= h.x && x <= h.x + h.w) return true;
+  }
+  return false;
+}
+
+/**
+ * Spawn burst debris particles at a position.
+ */
+export function spawnBurstParticles(particles, x, y, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 120;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 60, // bias upward
+      life: 0.4 + Math.random() * 0.4,
+      maxLife: 0.8,
+    });
+  }
+}
+
+/**
+ * Update particle positions and remove expired ones.
+ * Mutates the array in place.
+ */
+export function updateParticles(particles, dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 300 * dt; // gravity on particles
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
   }
 }

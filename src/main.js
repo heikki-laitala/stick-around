@@ -1,7 +1,7 @@
 import { IDLE, SCALE } from './poses.js';
 import { ROPE_COOLDOWN } from './constants.js';
 import { buildPlatforms } from './platforms.js';
-import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer } from './physics.js';
+import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles } from './physics.js';
 import { render } from './render.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ const state = {
 
   // Platforms & regions
   platforms: [],
+  holes: [],      // { x, y, w, age } — gaps punched through platforms
+  particles: [],  // { x, y, vx, vy, life, maxLife } — burst debris
   promptArea: null,
   footerArea: null,
 
@@ -243,6 +245,12 @@ function loop(now) {
     updateMovement(state, dt, keys, W(), H());
     updatePosture(state);
     updatePose(state, dt);
+    updateParticles(state.particles, dt);
+    // Age holes and remove old ones
+    for (let i = state.holes.length - 1; i >= 0; i--) {
+      state.holes[i].age += dt;
+      if (state.holes[i].age > 8) state.holes.splice(i, 1);
+    }
   }
 
   render(ctx, state, W(), H());
