@@ -222,7 +222,7 @@ function rebuildFromContent(content) {
   // Spawn man at terminal right edge, standing on top of the prompt box.
   // Wait for both separators to be detected (prompt + footer) for correct position.
   if (!hasSpawned && promptArea && footerArea) {
-    gx = textOffsetX + textWidth - 20 * SCALE - 2;
+    gx = textOffsetX + textWidth - 20 * SCALE - 20;
     feetY = promptArea.y;
     faceR = false; // face left toward terminal text
     hasSpawned = true;
@@ -665,8 +665,9 @@ function render() {
       ctx.fill();
     } else if (rope.state === 'flying') {
       if (DEBUG_DRAW) {
-        // Debug: draw ALL platforms with filled boxes
-        for (const p of platforms) {
+        // Debug: draw every 4th platform bounding box
+        for (let i = 0; i < platforms.length; i += 4) {
+          const p = platforms[i];
           ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
           ctx.fillRect(p.x, p.y, p.w, lineHeight);
         }
@@ -735,7 +736,7 @@ function render() {
 
   ctx.shadowBlur = 0;
 
-  renderDebugOverlays();
+  if (DEBUG_DRAW) renderDebugOverlays();
 }
 
 function renderDebugOverlays() {
