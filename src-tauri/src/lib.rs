@@ -130,7 +130,7 @@ pub fn run(terminal_app: Option<String>) {
                         }
                     }
 
-                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             });
 
@@ -145,7 +145,7 @@ pub fn run(terminal_app: Option<String>) {
                             last_content = Some(content);
                         }
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    std::thread::sleep(std::time::Duration::from_millis(150));
                 }
             });
 

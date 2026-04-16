@@ -19,6 +19,8 @@ pub struct TerminalContent {
     pub input_line: Option<usize>,
     /// Display width per visible line in columns (top to bottom)
     pub lines: Vec<usize>,
+    /// Leading whitespace offset per line in columns (where content starts)
+    pub line_offsets: Vec<usize>,
     /// Simple hash per line for content-based coloring
     pub hashes: Vec<u32>,
     /// Debug: last few lines of raw text for prompt detection debugging

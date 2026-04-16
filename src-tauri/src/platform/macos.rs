@@ -169,10 +169,11 @@ use super::TerminalContent;
 
 /// Read the terminal's text area geometry and visible line content.
 /// Uses AXVisibleCharacterRange to get exactly the visible text.
-/// Returns metadata on first line, visible text on subsequent lines.
+/// Combines geometry, text, and title into a single AppleScript call for speed.
 pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
-    // Step 1: get geometry (separate call — fast and reliable)
-    let geo_script = format!(
+    // Single combined AppleScript: geometry + visible text + window title
+    // Results separated by a unique delimiter to parse apart
+    let combined_script = format!(
         r#"tell application "System Events"
             tell (first process whose unix id is {})
                 tell front window
@@ -184,26 +185,7 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
                     end try
                     set sp to position of sa
                     set ss to size of sa
-                    return "" & (item 1 of wp) & "," & (item 2 of wp) & "," & (item 1 of sp) & "," & (item 2 of sp) & "," & (item 1 of ss) & "," & (item 2 of ss)
-                end tell
-            end tell
-        end tell"#,
-        pid
-    );
-    let geo = run_osascript(&geo_script)?;
-    let nums: Vec<f64> = geo.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if nums.len() < 6 {
-        return None;
-    }
-    let (win_x, win_y) = (nums[0], nums[1]);
-    let (scroll_x, scroll_y) = (nums[2], nums[3]);
-    let (scroll_w, scroll_h) = (nums[4], nums[5]);
-
-    // Step 2: get visible text via AXVisibleCharacterRange
-    let text_script = format!(
-        r#"tell application "System Events"
-            tell (first process whose unix id is {})
-                tell front window
+                    set geo to "" & (item 1 of wp) & "," & (item 2 of wp) & "," & (item 1 of sp) & "," & (item 2 of sp) & "," & (item 1 of ss) & "," & (item 2 of ss)
                     try
                         set ta to text area 1 of scroll area 1 of splitter group 1
                     on error
@@ -214,34 +196,50 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
                     set vStart to (item 1 of vcr)
                     set vLen to (item 2 of vcr) - vStart
                     if vLen > 0 then
-                        return text (vStart + 1) thru (vStart + vLen) of fullText
+                        set visText to text (vStart + 1) thru (vStart + vLen) of fullText
                     else
-                        return ""
+                        set visText to ""
                     end if
+                    set winTitle to name of it
+                    return geo & linefeed & "---SPLIT---" & linefeed & visText & linefeed & "---SPLIT---" & linefeed & winTitle
                 end tell
             end tell
         end tell"#,
         pid
     );
-    let text = run_osascript(&text_script).unwrap_or_default();
+    let raw = run_osascript(&combined_script)?;
 
-    // Step 3: get terminal column count from window title (most terminals show COLSxROWS)
-    let title_script = format!(
-        r#"tell application "System Events"
-            tell (first process whose unix id is {})
-                return name of front window
-            end tell
-        end tell"#,
-        pid
-    );
-    let title = run_osascript(&title_script).unwrap_or_default();
-    let (term_cols, term_rows) = parse_dimensions_from_title(&title).unwrap_or((80, 24));
+    // Parse the combined result: geo \n ---SPLIT--- \n text \n ---SPLIT--- \n title
+    let parts: Vec<&str> = raw.splitn(3, "---SPLIT---").collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let geo = parts[0].trim();
+    let text = parts[1].trim_start_matches('\n').trim_end_matches('\n');
+    let title = parts[2].trim();
+
+    let nums: Vec<f64> = geo.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    if nums.len() < 6 {
+        return None;
+    }
+    let (win_x, win_y) = (nums[0], nums[1]);
+    let (scroll_x, scroll_y) = (nums[2], nums[3]);
+    let (scroll_w, scroll_h) = (nums[4], nums[5]);
+
+    let (term_cols, term_rows) = parse_dimensions_from_title(title).unwrap_or((80, 24));
 
     // Count Unicode display width, compute content hash, and detect input area
     let mut lines: Vec<usize> = Vec::new();
+    let mut line_offsets: Vec<usize> = Vec::new();
     let mut hashes: Vec<u32> = Vec::new();
     let text_lines: Vec<&str> = text.lines().collect();
     for l in text_lines.iter() {
+        // Measure leading whitespace offset (in display columns)
+        let leading: usize = l.chars()
+            .take_while(|c| c.is_whitespace())
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
+        line_offsets.push(leading);
         // Measure trimmed content width (exclude padding spaces).
         // This prevents UI chrome (borders, status bars) padded to full
         // terminal width from creating full-width platforms.
@@ -287,6 +285,7 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
         footer_line,
         input_line,
         lines,
+        line_offsets,
         hashes,
         debug_lines,
     })

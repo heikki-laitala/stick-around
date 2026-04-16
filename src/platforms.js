@@ -61,6 +61,7 @@ export function buildPlatforms(content, cached) {
   const textHeight = content.text_height;
   const textWidth = content.text_width;
   const lines = content.lines;
+  const lineOffsets = content.line_offsets || [];
   const hashes = content.hashes || [];
   const numVisible = lines.length;
   const lastDebugLines = content.debug_lines || [];
@@ -105,11 +106,13 @@ export function buildPlatforms(content, cached) {
   const lastPlatLine = inputIdx != null ? inputIdx - 1 : fitLines - 1;
   const platforms = [];
 
+  const MIN_PLATFORM_COLS = 3; // Ignore very short lines (noise)
   for (let i = 0; i <= lastPlatLine && i < fitLines; i++) {
     const cols = lines[i];
-    if (cols > 0) {
+    if (cols >= MIN_PLATFORM_COLS) {
       const y = textOffsetY + i * lineHeight;
-      platforms.push({ y, x: textOffsetX, w: cols * charWidth, hash: hashes[i] || 0 });
+      const offset = (lineOffsets[i] || 0) * charWidth;
+      platforms.push({ y, x: textOffsetX + offset, w: cols * charWidth, hash: hashes[i] || 0 });
     }
   }
 
