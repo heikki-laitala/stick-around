@@ -169,14 +169,16 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
     const crouchCeiling = (state.posture === 'crouching' && state.holes && state.particles)
       ? findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight)
       : null;
+    // Just enough overshoot to clear the top edge of a ceiling platform.
+    const CEIL_CLEAR_OVERSHOOT = 6;
     if (crouchCeiling) {
       const HOLE_W = 30;
       state.holes.push({ x: state.gx - HOLE_W / 2, y: crouchCeiling.y, w: HOLE_W, age: 0 });
       spawnBurstParticles(state.particles, state.gx, crouchCeiling.y + state.lineHeight, 12);
-      const dist = state.feetY - crouchCeiling.y + 20;
+      const dist = state.feetY - crouchCeiling.y + CEIL_CLEAR_OVERSHOOT;
       state.gvy = -Math.sqrt(2 * GRAV * dist);
       state.grounded = false; state.standingHash = 0; state.landT = 0;
-    } else if (inFooterArea) {
+    } else if (inFooterArea && state.posture !== 'prone') {
       const dist = state.feetY - state.promptArea.y + 40;
       state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
       state.grounded = false; state.standingHash = 0; state.landT = 0;
@@ -184,7 +186,7 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
       // Check for ceiling platform to burst through — boost jump to clear it
       const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
       if (ceiling && state.holes && state.particles) {
-        const dist = state.feetY - ceiling.y + 20;
+        const dist = state.feetY - ceiling.y + CEIL_CLEAR_OVERSHOOT;
         state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
       } else {
         state.gvy = -JUMP_V;

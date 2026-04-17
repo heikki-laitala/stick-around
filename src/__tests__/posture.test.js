@@ -306,6 +306,29 @@ describe('movement blocked when space too tight', () => {
     expect(s.grounded).toBe(false);
   });
 
+  it('blocks jump from prone outside footer area', () => {
+    // Prone and no ceiling/footer to escape — jump input produces no upward velocity.
+    const s = makeState({
+      feetY: 300, gx: 100, posture: 'prone',
+      platforms: [{ y: 300, x: 0, w: 400, hash: 1 }],
+      promptArea: null,
+    });
+    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    expect(s.gvy).toBe(0);
+  });
+
+  it('blocks jump from prone even inside footer/prompt area', () => {
+    // Prone in footer — previously the footer-escape branch fired regardless of
+    // posture. Prone should not be able to jump.
+    const s = makeState({
+      feetY: 500, gx: 100, posture: 'prone',
+      platforms: [{ y: 500, x: 0, w: 600, hash: 1 }],
+      promptArea: { x: 0, y: 480, w: 600, h: 40 },
+    });
+    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    expect(s.gvy).toBe(0);
+  });
+
   it('crouch burst takes priority over footer escape when ceiling is above', () => {
     // Man on prompt top at feetY=500, ceiling platform just above (crouch-height clearance).
     // feetY >= promptArea.y would normally trigger inFooterArea escape,

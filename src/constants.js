@@ -1,6 +1,6 @@
 // Game physics
 export const GRAV = 800;
-export const JUMP_V = 240;
+export const JUMP_V = 180;
 export const ACCEL = 800;
 export const FRIC = 0.88;
 export const MAXV = 250;
