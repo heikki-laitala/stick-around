@@ -306,6 +306,26 @@ describe('movement blocked when space too tight', () => {
     expect(s.grounded).toBe(false);
   });
 
+  it('crouch burst takes priority over footer escape when ceiling is above', () => {
+    // Man on prompt top at feetY=500, ceiling platform just above (crouch-height clearance).
+    // feetY >= promptArea.y would normally trigger inFooterArea escape,
+    // but crouching under a ceiling should burst through instead.
+    const s = makeState({
+      feetY: 500, gx: 100, posture: 'crouching',
+      platforms: [{ y: 475, x: 0, w: 400, hash: 1 }], // ceiling: bottom=495, clearance=5
+      holes: [],
+      particles: [],
+      lineHeight: 20,
+      promptArea: { x: 0, y: 500, w: 600, h: 40 },
+    });
+    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    expect(s.holes.length).toBe(1);
+    expect(s.holes[0].y).toBe(475);
+    expect(s.particles.length).toBeGreaterThan(0);
+    expect(s.gvy).toBeLessThan(0);
+    expect(s.grounded).toBe(false);
+  });
+
   it('blocks horizontal movement into space too tight for crouch', () => {
     // Man at x=195, moving right. Platform ahead (x=200..400) has tight ceiling.
     // Current position (x=195) has no ceiling, destination does.
@@ -326,6 +346,35 @@ describe('movement blocked when space too tight', () => {
     updateMovement(s, 0.016, new Set(['KeyD']), 800, 600);
     // gvx should be zeroed — can't enter the tight space
     expect(s.gvx).toBe(0);
+  });
+
+  it('standing jump bursts through ceiling platform', () => {
+    // Man standing at feetY=300, platform at y=275 to burst through.
+    // Jump max height = JUMP_V²/(2*GRAV) = 240²/1600 = 36px → feet reach 264.
+    // So platform at 275 is within reach (300-275=25 < 36).
+    const s = makeState({
+      feetY: 300, gx: 100, posture: 'standing', gvy: 0,
+      platforms: [
+        { y: 275, x: 0, w: 400, hash: 1 }, // platform to burst
+        { y: 300, x: 0, w: 400, hash: 2 }, // floor
+      ],
+      holes: [],
+      particles: [],
+      lineHeight: 20,
+      promptArea: null,
+    });
+    // First tick: jump
+    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    expect(s.gvy).toBeLessThan(0);
+    expect(s.grounded).toBe(false);
+    // Keep ticking until feet cross the platform (y=275)
+    for (let i = 0; i < 60; i++) {
+      updateMovement(s, 0.016, new Set(), 800, 600);
+      if (s.holes.length > 0) break;
+    }
+    expect(s.holes.length).toBe(1);
+    expect(s.holes[0].y).toBe(275);
+    expect(s.particles.length).toBeGreaterThan(0);
   });
 
   it('gives extra jump boost in footer area', () => {

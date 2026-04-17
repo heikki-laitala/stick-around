@@ -162,25 +162,34 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   // If crouching/prone under ceiling, burst a hole and jump through
   const inFooterArea = state.promptArea && state.feetY >= state.promptArea.y;
   if (jump && state.grounded) {
-    if (inFooterArea) {
+    // Remember launch platform so we don't burst through it
+    state._launchPlatY = state.feetY;
+    // Crouch burst takes priority over footer escape: when crouching under a ceiling,
+    // we must punch through it before any footer-escape jump can clear the prompt area.
+    const crouchCeiling = (state.posture === 'crouching' && state.holes && state.particles)
+      ? findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight)
+      : null;
+    if (crouchCeiling) {
+      const HOLE_W = 30;
+      state.holes.push({ x: state.gx - HOLE_W / 2, y: crouchCeiling.y, w: HOLE_W, age: 0 });
+      spawnBurstParticles(state.particles, state.gx, crouchCeiling.y + state.lineHeight, 12);
+      const dist = state.feetY - crouchCeiling.y + 20;
+      state.gvy = -Math.sqrt(2 * GRAV * dist);
+      state.grounded = false; state.standingHash = 0; state.landT = 0;
+    } else if (inFooterArea) {
       const dist = state.feetY - state.promptArea.y + 40;
       state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
       state.grounded = false; state.standingHash = 0; state.landT = 0;
     } else if (state.posture === 'standing') {
-      state.gvy = -JUMP_V;
-      state.grounded = false; state.standingHash = 0; state.landT = 0;
-    } else if (state.posture === 'crouching' && state.holes && state.particles) {
-      // Burst through ceiling platform
+      // Check for ceiling platform to burst through — boost jump to clear it
       const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
-      if (ceiling) {
-        const HOLE_W = 30;
-        state.holes.push({ x: state.gx - HOLE_W / 2, y: ceiling.y, w: HOLE_W, age: 0 });
-        spawnBurstParticles(state.particles, state.gx, ceiling.y + state.lineHeight, 12);
-        // Jump through — enough velocity to clear the platform above
+      if (ceiling && state.holes && state.particles) {
         const dist = state.feetY - ceiling.y + 20;
-        state.gvy = -Math.sqrt(2 * GRAV * dist);
-        state.grounded = false; state.standingHash = 0; state.landT = 0;
+        state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
+      } else {
+        state.gvy = -JUMP_V;
       }
+      state.grounded = false; state.standingHash = 0; state.landT = 0;
     }
   }
 
@@ -190,6 +199,27 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   // Apply velocity
   const prevFeetY = state.feetY;
   state.feetY += state.gvy * dt;
+
+  // Burst through platforms when jumping upward (standing or crouching)
+  if (state.gvy < 0 && state.holes && state.particles && state.posture !== 'prone') {
+    for (const p of state.platforms) {
+      if (state.gx < p.x || state.gx > p.x + p.w) continue;
+      // Skip the platform we launched from
+      if (state._launchPlatY != null && Math.abs(p.y - state._launchPlatY) < 2) continue;
+      const platTop = p.y;
+      // Feet crossed upward through a platform top
+      if (prevFeetY >= platTop && state.feetY < platTop) {
+        if (isInHole(state.holes, state.gx, platTop)) continue;
+        const HOLE_W = 30;
+        state.holes.push({ x: state.gx - HOLE_W / 2, y: platTop, w: HOLE_W, age: 0 });
+        spawnBurstParticles(state.particles, state.gx, platTop + state.lineHeight, 12);
+        break; // Only burst one platform per frame
+      }
+    }
+  }
+
+  // Clear launch platform tracking on landing
+  if (state.grounded) state._launchPlatY = null;
 
   // Platform collision (one-way, from above)
   if (state.gvy >= 0 && state.dropThrough <= 0) {
