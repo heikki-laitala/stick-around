@@ -3,6 +3,7 @@ mod platform;
 use tauri::{Emitter, Manager};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Find the window closest to a known position (by center point distance).
 fn find_closest_window(
@@ -38,14 +39,36 @@ struct TerminalState {
 
 #[tauri::command]
 fn focus_terminal(window: tauri::WebviewWindow, state: tauri::State<'_, TerminalState>) {
-    // Resign key window so the overlay stops capturing keyboard events
+    deactivate_overlay_impl(&window, &state);
+}
+
+#[tauri::command]
+fn activate_overlay(window: tauri::WebviewWindow) {
+    activate_overlay_impl(&window);
+}
+
+#[tauri::command]
+fn deactivate_overlay(window: tauri::WebviewWindow, state: tauri::State<'_, TerminalState>) {
+    deactivate_overlay_impl(&window, &state);
+}
+
+fn activate_overlay_impl(window: &tauri::WebviewWindow) {
+    let _ = window.set_ignore_cursor_events(false);
     #[cfg(target_os = "macos")]
     {
         if let Ok(ns_window) = window.ns_window() {
-            unsafe {
-                let w = ns_window as *mut objc2::runtime::AnyObject;
-                let _: () = objc2::msg_send![w, resignKeyWindow];
-            }
+            unsafe { platform::make_key_window(ns_window) };
+        }
+    }
+    let _ = window.set_focus();
+}
+
+fn deactivate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState) {
+    let _ = window.set_ignore_cursor_events(true);
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(ns_window) = window.ns_window() {
+            unsafe { platform::resign_key_window(ns_window) };
         }
     }
     let (x, y, _, _) = *state.bounds.lock().unwrap();
@@ -89,6 +112,7 @@ pub fn run(terminal_app: Option<String>) {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(state)
         .setup(move |app| {
             let window = app.get_webview_window("overlay").unwrap();
@@ -104,6 +128,52 @@ pub fn run(terminal_app: Option<String>) {
 
             if let Some((x, y, w, h)) = initial_bounds {
                 apply_bounds(&window, x, y, w, h);
+            }
+
+            // Start in passive mode: clicks pass through to whatever is underneath,
+            // and the overlay doesn't capture keyboard input. Users activate via
+            // Cmd+Shift+G or Ctrl+click.
+            let _ = window.set_ignore_cursor_events(true);
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(ns_window) = window.ns_window() {
+                    unsafe { platform::resign_key_window(ns_window) };
+                }
+            }
+
+            // Cmd+Shift+G: global shortcut that activates the overlay.
+            let activation_window = window.clone();
+            let shortcut = Shortcut::new(
+                Some(Modifiers::META | Modifiers::SHIFT),
+                Code::KeyG,
+            );
+            let shortcut_match = shortcut;
+            app.handle()
+                .global_shortcut()
+                .on_shortcut(shortcut, move |_app, triggered, event| {
+                    if triggered == &shortcut_match && event.state() == ShortcutState::Pressed {
+                        let handler_window = activation_window.clone();
+                        let _ = activation_window.run_on_main_thread(move || {
+                            activate_overlay_impl(&handler_window);
+                        });
+                    }
+                })?;
+
+            // Shift+left-click on the overlay area: activate without first clicking
+            // through via the mouse (which would normally require the overlay to
+            // already have focus).
+            #[cfg(target_os = "macos")]
+            {
+                let click_window = window.clone();
+                let click_bounds = poll_bounds.clone();
+                unsafe {
+                    platform::install_shift_click_monitor(click_bounds, move || {
+                        let handler_window = click_window.clone();
+                        let _ = click_window.run_on_main_thread(move || {
+                            activate_overlay_impl(&handler_window);
+                        });
+                    });
+                }
             }
 
             // Poll: track window by position, toggle alwaysOnTop when terminal is active
@@ -178,7 +248,7 @@ pub fn run(terminal_app: Option<String>) {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![focus_terminal, quit_app])
+        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 

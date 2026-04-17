@@ -175,7 +175,7 @@ document.addEventListener('keydown', e => {
       return;
     }
     if (e.code === 'Escape') {
-      window.__TAURI__.core.invoke('focus_terminal').catch(() => {});
+      window.__TAURI__.core.invoke('deactivate_overlay').catch(() => {});
       return;
     }
   }
