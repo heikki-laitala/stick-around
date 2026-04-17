@@ -215,7 +215,7 @@ pub fn run(terminal_app: Option<String>) {
                             last_content = Some(content);
                         }
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             });
 
