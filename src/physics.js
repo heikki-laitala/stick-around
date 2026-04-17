@@ -1,4 +1,4 @@
-import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR } from './constants.js';
+import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
 import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findFloor, findCeiling } from './platforms.js';
 
@@ -418,6 +418,73 @@ export function spawnBurstParticles(particles, x, y, count) {
       life: 0.4 + Math.random() * 0.4,
       maxLife: 0.8,
     });
+  }
+}
+
+/**
+ * Begin an axe swing. No-op if already swinging, airborne, on a rope, or
+ * not upright (crouched/prone). Returns true if the swing was started.
+ */
+export function startAxeSwing(state) {
+  if (state.axeSwing) return false;
+  if (!state.grounded) return false;
+  if (state.rope) return false;
+  if (state.posture && state.posture !== 'standing') return false;
+  state.axeSwing = { t: 0, hit: false };
+  return true;
+}
+
+/**
+ * Advance the active axe swing. At the apex frame (AXE_HIT_FRAME * duration)
+ * resolve a single hit against the nearest mana mine within reach: decrement
+ * its hits, emit chip particles, and if the mine is depleted award
+ * MANA_PER_MINE to state.mana and remove the mine. Swing clears itself when
+ * the full duration elapses.
+ */
+export function updateAxeSwing(state, dt) {
+  if (!state.axeSwing) return;
+  state.axeSwing.t += dt;
+
+  const apex = AXE_SWING_DURATION * AXE_HIT_FRAME;
+  if (!state.axeSwing.hit && state.axeSwing.t >= apex) {
+    state.axeSwing.hit = true;
+    resolveAxeHit(state);
+  }
+
+  if (state.axeSwing.t >= AXE_SWING_DURATION) {
+    state.axeSwing = null;
+  }
+}
+
+function resolveAxeHit(state) {
+  if (!state.manaMines || state.manaMines.length === 0) return;
+  const dir = state.faceR ? 1 : -1;
+  const hx = state.gx + dir * AXE_REACH;
+  const hy = state.feetY - 10;
+
+  for (let i = state.manaMines.length - 1; i >= 0; i--) {
+    const m = state.manaMines[i];
+    if (Math.hypot(m.x - hx, m.y - hy) < AXE_HIT_RADIUS) {
+      m.hits -= 1;
+      if (state.particles) {
+        for (let j = 0; j < 5; j++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 30 + Math.random() * 60;
+          state.particles.push({
+            x: m.x, y: m.y,
+            vx: Math.cos(a) * sp,
+            vy: Math.sin(a) * sp - 30,
+            life: 0.3,
+            maxLife: 0.3,
+          });
+        }
+      }
+      if (m.hits <= 0) {
+        state.mana = (state.mana || 0) + MANA_PER_MINE;
+        state.manaMines.splice(i, 1);
+      }
+      return; // one hit per swing
+    }
   }
 }
 

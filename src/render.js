@@ -1,6 +1,6 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findCeiling } from './platforms.js';
-import { HUD_HEIGHT } from './constants.js';
+import { HUD_HEIGHT, AXE_SWING_DURATION, MANA_MINE_HITS } from './constants.js';
 import { displayClass } from './progression.js';
 
 function drawLimb(ctx, ax, ay, bx, by) {
@@ -116,6 +116,40 @@ export function render(ctx, state, screenW, screenH) {
   drawLimb(ctx, rhip.x, rhip.y, rk.x, rk.y);
   drawLimb(ctx, rk.x, rk.y, rf.x, rf.y);
 
+  // Axe swing — drawn as a rotated handle + blade attached to the lead hand
+  if (state.axeSwing) {
+    const handPos = state.faceR ? rh : lh;
+    const progress = Math.min(1, state.axeSwing.t / AXE_SWING_DURATION);
+    const angle = -Math.PI * 3 / 4 + progress * Math.PI; // -135° → +45° in local frame
+    ctx.save();
+    ctx.shadowBlur = 0;
+    ctx.translate(handPos.x, handPos.y);
+    if (!state.faceR) ctx.scale(-1, 1);
+    ctx.rotate(angle);
+    // Handle (wood)
+    ctx.strokeStyle = 'rgb(120, 85, 50)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(18, 0);
+    ctx.stroke();
+    // Blade (steel triangle)
+    ctx.fillStyle = 'rgba(210, 220, 230, 0.95)';
+    ctx.strokeStyle = 'rgba(90, 100, 115, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(15, -5);
+    ctx.lineTo(15, 5);
+    ctx.lineTo(22, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    // Restore shadow for subsequent draws
+    ctx.shadowColor = 'rgba(0, 220, 255, 0.4)';
+    ctx.shadowBlur = 6;
+  }
+
   const hr = 5 * s;
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -123,6 +157,13 @@ export function render(ctx, state, screenW, screenH) {
   ctx.fill();
 
   ctx.shadowBlur = 0;
+
+  // Mana mines — blue crystal outcrops on platforms
+  if (state.manaMines) {
+    for (const m of state.manaMines) {
+      drawManaMine(ctx, m);
+    }
+  }
 
   // Collectibles — glowing orbs with pulse
   if (state.collectibles) {
@@ -275,6 +316,40 @@ function renderHUD(ctx, state, screenW) {
   // Close button
   const hover = isInCloseButton(state.mouseX || -1, state.mouseY || -1, screenW);
   drawCloseButton(ctx, closeBtn, hover);
+}
+
+function drawManaMine(ctx, m) {
+  const fadeIn = Math.min(1, m.age * 2);
+  const alpha = fadeIn;
+  const healthScale = Math.max(0.55, m.hits / MANA_MINE_HITS);
+  const b = 8 * healthScale;
+
+  ctx.save();
+  ctx.shadowColor = `rgba(120, 130, 255, ${0.6 * alpha})`;
+  ctx.shadowBlur = 10;
+
+  // Crystal cluster (polygon sitting on the platform at m.y)
+  ctx.fillStyle = `rgba(130, 120, 235, ${0.92 * alpha})`;
+  ctx.beginPath();
+  ctx.moveTo(m.x - b,         m.y);
+  ctx.lineTo(m.x - b * 0.5,   m.y - b * 1.6);
+  ctx.lineTo(m.x + b * 0.15,  m.y - b * 2.0);
+  ctx.lineTo(m.x + b * 0.7,   m.y - b * 1.3);
+  ctx.lineTo(m.x + b,         m.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner highlight facet
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = `rgba(200, 200, 255, ${0.7 * alpha})`;
+  ctx.beginPath();
+  ctx.moveTo(m.x - b * 0.2, m.y - b * 0.2);
+  ctx.lineTo(m.x + b * 0.05, m.y - b * 1.5);
+  ctx.lineTo(m.x + b * 0.3, m.y - b * 0.3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function drawSeparator(ctx, x) {

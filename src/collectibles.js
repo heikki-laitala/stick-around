@@ -53,8 +53,8 @@ export function updateCollectibles(state, dt) {
     const c = state.collectibles[i];
     c.age += dt;
 
-    // Expire old collectibles
-    if (c.age >= LIFETIME) {
+    // Expire old collectibles — debug pins are exempt so they persist.
+    if (!c.debug && c.age >= LIFETIME) {
       state.collectibles.splice(i, 1);
       continue;
     }
@@ -107,6 +107,20 @@ export function updateCollectibles(state, dt) {
           });
         }
       }
+    }
+  }
+
+  // Debug: while DEBUG_PLATFORMS is on, keep one pinned glowing ball next
+  // to the man's position at the moment debug was toggled on.
+  if (state.DEBUG_PLATFORMS && state.debugAnchorX != null) {
+    const hasDebug = state.collectibles.some((c) => c.debug);
+    if (!hasDebug) {
+      state.collectibles.push({
+        x: state.debugAnchorX - 20,
+        y: state.debugAnchorY,
+        vy: 0, grounded: true, age: 0,
+        debug: true,
+      });
     }
   }
 

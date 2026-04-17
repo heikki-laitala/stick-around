@@ -1,8 +1,9 @@
 import { IDLE, SCALE } from './poses.js';
 import { ROPE_COOLDOWN, HUD_HEIGHT } from './constants.js';
 import { buildPlatforms } from './platforms.js';
-import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles } from './physics.js';
+import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles, startAxeSwing, updateAxeSwing } from './physics.js';
 import { updateCollectibles } from './collectibles.js';
+import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
 import { INITIAL_RANK, MISSIONS } from './progression.js';
 
@@ -61,6 +62,8 @@ const state = {
   holes: [],         // { x, y, w, age } — gaps punched through platforms
   particles: [],     // { x, y, vx, vy, life, maxLife } — burst debris
   collectibles: [],  // { x, y, age } — items to collect
+  manaMines: [],     // { x, y, hits, age, debug? } — mineable crystal nodes
+  axeSwing: null,    // { t, hit } while a swing is in progress
   score: 0,
   promptArea: null,
   footerArea: null,
@@ -79,6 +82,8 @@ const state = {
   // Debug
   DEBUG_DRAW: false,
   DEBUG_PLATFORMS: false,
+  debugAnchorX: null, // captured when DEBUG_PLATFORMS turns on — anchor for pinned mine/ball
+  debugAnchorY: null,
   lastDebugLines: [],
   lastInputLine: null,
   lastFooterLine: null,
@@ -225,7 +230,20 @@ document.addEventListener('keydown', e => {
   }
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
-  if (e.code === 'KeyV') { state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS; return; }
+  if (e.code === 'KeyV') {
+    state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS;
+    if (state.DEBUG_PLATFORMS) {
+      state.debugAnchorX = state.gx;
+      state.debugAnchorY = state.feetY;
+    } else {
+      state.debugAnchorX = null;
+      state.debugAnchorY = null;
+      state.collectibles = state.collectibles.filter((c) => !c.debug);
+      state.manaMines = state.manaMines.filter((m) => !m.debug);
+    }
+    return;
+  }
+  if (e.code === 'KeyF') { startAxeSwing(state); return; }
   if (e.code === 'KeyR') { resetPlayer(state); return; }
   if (e.code === 'Tab') {
     if (state.inventory.length > 0) {
@@ -299,7 +317,9 @@ function loop(now) {
     updateMovement(state, dt, keys, W(), H());
     updatePosture(state);
     updatePose(state, dt);
+    updateAxeSwing(state, dt);
     updateCollectibles(state, dt);
+    updateManaMines(state, dt);
     updateParticles(state.particles, dt);
     // Age holes and remove old ones
     for (let i = state.holes.length - 1; i >= 0; i--) {

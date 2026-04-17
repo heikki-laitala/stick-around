@@ -21,3 +21,17 @@ export const SWING_DAMPING_END = 0.93;
 export const SWING_ANCHOR_DECAY_TIME = 24.0;
 export const SWING_PUMP_FLOOR = 0.25;
 export const ROPE_COOLDOWN = 0.3;
+
+// Mana mines
+export const MANA_MINE_HITS = 3;
+export const MANA_MINE_LIFETIME = 30;
+export const MANA_MINE_MAX = 2;
+export const MANA_MINE_SPAWN_INTERVAL = 8;
+export const MANA_MINE_MIN_DIST = 80;
+export const MANA_PER_MINE = 1;
+
+// Axe swing
+export const AXE_SWING_DURATION = 0.35;
+export const AXE_HIT_FRAME = 0.5;
+export const AXE_REACH = 28;
+export const AXE_HIT_RADIUS = 22;
