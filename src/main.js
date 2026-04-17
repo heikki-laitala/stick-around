@@ -44,6 +44,7 @@ const state = {
 
   // Platforms & regions
   platforms: [],
+  lastContent: null, // last TerminalContent payload — used to rebuild on resize
   holes: [],         // { x, y, w, age } — gaps punched through platforms
   particles: [],     // { x, y, vx, vy, life, maxLife } — burst debris
   collectibles: [],  // { x, y, age } — items to collect
@@ -80,11 +81,19 @@ function initFallbackPlatforms() {
   }
 }
 initFallbackPlatforms();
-window.addEventListener('resize', initFallbackPlatforms);
+window.addEventListener('resize', () => {
+  // On resize, rebuild from the last known terminal content if we have any;
+  // otherwise fall back to random platforms (pre-spawn only). The Rust poll
+  // will push fresh geometry within ~50 ms to replace stale numbers.
+  if (state.lastContent) handleTerminalContent(state.lastContent);
+  else initFallbackPlatforms();
+});
 
 // ── Terminal Content from Backend ────────────────────────────────────
 function handleTerminalContent(content) {
   if (!content || !Array.isArray(content.lines) || content.lines.length === 0) return;
+
+  state.lastContent = content;
 
   const result = buildPlatforms(content, {
     cachedInputIdx: state.cachedInputIdx,
