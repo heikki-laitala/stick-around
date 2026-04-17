@@ -1,4 +1,4 @@
-import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING } from './constants.js';
+import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR } from './constants.js';
 import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findFloor, findCeiling } from './platforms.js';
 
@@ -56,9 +56,15 @@ export function updateRope(state, dt, keys) {
     const gravAcc = -(SWING_GRAVITY / state.rope.ropeLen) * Math.sin(state.rope.swingAngle);
     state.rope.swingVel += gravAcc * dt;
 
+    // Anchor fatigue: the longer the player stays on one anchor, the more the
+    // swing decays and the less the pump can feed energy back in.
+    const decayT = Math.min(1, state.rope.swingTime / SWING_ANCHOR_DECAY_TIME);
+    const effectiveDamping = SWING_DAMPING + (SWING_DAMPING_END - SWING_DAMPING) * decayT;
+    const pumpFade = 1 + (SWING_PUMP_FLOOR - 1) * decayT;
+
     // Pump strength scales inversely with rope length (longer rope = harder to pump)
     const pumpScale = Math.min(1, 120 / state.rope.ropeLen);
-    const pump = SWING_PUMP * pumpScale;
+    const pump = SWING_PUMP * pumpScale * pumpFade;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) state.rope.swingVel -= pump * dt;
     if (keys.has('KeyD') || keys.has('ArrowRight')) state.rope.swingVel += pump * dt;
 
@@ -70,7 +76,7 @@ export function updateRope(state, dt, keys) {
     // Cap swing velocity to prevent unrealistic spinning
     const MAX_SWING_VEL = 3.0;
     state.rope.swingVel = Math.max(-MAX_SWING_VEL, Math.min(MAX_SWING_VEL, state.rope.swingVel));
-    state.rope.swingVel *= SWING_DAMPING;
+    state.rope.swingVel *= effectiveDamping;
     state.rope.swingAngle += state.rope.swingVel * dt;
 
     const prevY = state.feetY;

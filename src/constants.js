@@ -12,4 +12,7 @@ export const ROPE_MAX_LEN = 400;
 export const SWING_GRAVITY = 800;
 export const SWING_PUMP = 6.0;
 export const SWING_DAMPING = 0.99;
+export const SWING_DAMPING_END = 0.93;
+export const SWING_ANCHOR_DECAY_TIME = 24.0;
+export const SWING_PUMP_FLOOR = 0.25;
 export const ROPE_COOLDOWN = 0.3;

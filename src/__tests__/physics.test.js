@@ -180,6 +180,54 @@ describe('updateRope', () => {
     expect(s.rope.swingVel).not.toBe(0);
     expect(s.rope.swingTime).toBeGreaterThan(0);
   });
+
+  it('damps swing velocity more after anchor decay window', () => {
+    const base = () => ({
+      state: 'swinging', angle: 0, anchorHash: 3,
+      tipX: 200, tipY: 100, hitX: 200, hitY: 100,
+      ropeLen: 80, swingAngle: 0, swingVel: 2,
+      startPlatY: 300, startPlatHash: 1,
+    });
+    const fresh = makeState({
+      rope: { ...base(), swingTime: 0 },
+      grounded: false, feetY: 180, gx: 200,
+      platforms: [{ y: 100, x: 0, w: 400, hash: 3 }],
+    });
+    const decayed = makeState({
+      rope: { ...base(), swingTime: 30 },
+      grounded: false, feetY: 180, gx: 200,
+      platforms: [{ y: 100, x: 0, w: 400, hash: 3 }],
+    });
+    updateRope(fresh, 0.016, makeKeys());
+    updateRope(decayed, 0.016, makeKeys());
+    expect(decayed.rope.swingVel).toBeLessThan(fresh.rope.swingVel);
+  });
+
+  it('fades pump effectiveness after anchor decay window but keeps a floor', () => {
+    const base = () => ({
+      state: 'swinging', angle: 0, anchorHash: 3,
+      tipX: 200, tipY: 100, hitX: 200, hitY: 100,
+      ropeLen: 80, swingAngle: 0, swingVel: 0,
+      startPlatY: 300, startPlatHash: 1,
+    });
+    const fresh = makeState({
+      rope: { ...base(), swingTime: 0 },
+      grounded: false, feetY: 180, gx: 200,
+      platforms: [{ y: 100, x: 0, w: 400, hash: 3 }],
+    });
+    const decayed = makeState({
+      rope: { ...base(), swingTime: 30 },
+      grounded: false, feetY: 180, gx: 200,
+      platforms: [{ y: 100, x: 0, w: 400, hash: 3 }],
+    });
+    updateRope(fresh, 0.016, makeKeys('KeyD'));
+    updateRope(decayed, 0.016, makeKeys('KeyD'));
+    expect(decayed.rope.swingVel).toBeGreaterThan(0);
+    expect(decayed.rope.swingVel).toBeLessThan(fresh.rope.swingVel);
+    // Floor is 25% → decayed impulse ≈ 0.25x fresh impulse (allow some slack for damping).
+    expect(decayed.rope.swingVel).toBeGreaterThan(fresh.rope.swingVel * 0.2);
+    expect(decayed.rope.swingVel).toBeLessThan(fresh.rope.swingVel * 0.3);
+  });
 });
 
 describe('updateRope swing collision', () => {
