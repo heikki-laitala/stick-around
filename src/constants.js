@@ -5,6 +5,11 @@ export const ACCEL = 800;
 export const FRIC = 0.88;
 export const MAXV = 250;
 
+// Overlay layout
+// Extra strip above the terminal window reserved for the HUD. Must stay in
+// sync with HUD_HEIGHT in src-tauri/src/lib.rs.
+export const HUD_HEIGHT = 32;
+
 // Rope
 export const ROPE_AIM_SPEED = 2.0;
 export const ROPE_FLY_SPEED = 400;

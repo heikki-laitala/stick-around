@@ -22,12 +22,16 @@ fn find_closest_window(
         .copied()
 }
 
+/// Extra strip above the terminal window reserved for the HUD.
+/// Must stay in sync with HUD_HEIGHT in src/constants.js.
+const HUD_HEIGHT: u32 = 32;
+
 fn apply_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
     let _ = window.set_position(tauri::Position::Logical(
-        tauri::LogicalPosition::new(x as f64, y as f64),
+        tauri::LogicalPosition::new(x as f64, (y - HUD_HEIGHT as i32) as f64),
     ));
     let _ = window.set_size(tauri::Size::Logical(
-        tauri::LogicalSize::new(w as f64, h as f64),
+        tauri::LogicalSize::new(w as f64, (h + HUD_HEIGHT) as f64),
     ));
 }
 

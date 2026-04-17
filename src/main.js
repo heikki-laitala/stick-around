@@ -1,9 +1,10 @@
 import { IDLE, SCALE } from './poses.js';
-import { ROPE_COOLDOWN } from './constants.js';
+import { ROPE_COOLDOWN, HUD_HEIGHT } from './constants.js';
 import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles } from './physics.js';
 import { updateCollectibles } from './collectibles.js';
-import { render } from './render.js';
+import { render, isInCloseButton } from './render.js';
+import { INITIAL_RANK, MISSIONS } from './progression.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -34,7 +35,19 @@ const state = {
   dropThrough: 0,
   curPose: JSON.parse(JSON.stringify(IDLE)),
   hasSpawned: false,
+  overlayActive: false, // true while the overlay is key/focused (user can drive the man)
   posture: 'standing', // 'standing' | 'crouching' | 'prone'
+
+  // HUD
+  mana: 0,
+  inventory: ['bottle', 'key', 'map'],
+  inventoryIdx: 0,
+  rank: INITIAL_RANK,
+  titles: [],
+  missionIdx: 0,
+  mission: MISSIONS[0].text,
+  mouseX: -1,
+  mouseY: -1,
   proneRequested: false, // true when user manually toggles prone with C
 
   // Rope
@@ -95,7 +108,10 @@ function handleTerminalContent(content) {
 
   state.lastContent = content;
 
-  const result = buildPlatforms(content, {
+  // The overlay window extends HUD_HEIGHT pixels above the terminal to host
+  // the HUD strip. Shift text_offset_y so platforms render below the strip.
+  const adjusted = { ...content, text_offset_y: content.text_offset_y + HUD_HEIGHT };
+  const result = buildPlatforms(adjusted, {
     cachedInputIdx: state.cachedInputIdx,
     cachedFooterIdx: state.cachedFooterIdx,
   });
@@ -174,6 +190,25 @@ if (window.__TAURI__) {
   });
 }
 
+// Track overlay focus so the HUD can be hidden when the user can't drive
+// the man. Tauri's non-activating panel translates NSWindow key state into
+// DOM focus/blur events on the webview window.
+state.overlayActive = typeof document !== 'undefined' && document.hasFocus && document.hasFocus();
+window.addEventListener('focus', () => { state.overlayActive = true; });
+window.addEventListener('blur', () => { state.overlayActive = false; });
+
+// HUD close button — only reachable when the overlay is active (otherwise
+// mouse events pass through to the terminal beneath).
+window.addEventListener('click', (e) => {
+  if (!state.overlayActive) return;
+  if (!isInCloseButton(e.clientX, e.clientY, W())) return;
+  if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
+});
+window.addEventListener('mousemove', (e) => {
+  state.mouseX = e.clientX;
+  state.mouseY = e.clientY;
+});
+
 // ── Input ────────────────────────────────────────────────────────────
 const keys = new Set();
 
@@ -192,6 +227,13 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
   if (e.code === 'KeyV') { state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS; return; }
   if (e.code === 'KeyR') { resetPlayer(state); return; }
+  if (e.code === 'Tab') {
+    if (state.inventory.length > 0) {
+      state.inventoryIdx = (state.inventoryIdx + 1) % state.inventory.length;
+    }
+    e.preventDefault();
+    return;
+  }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {

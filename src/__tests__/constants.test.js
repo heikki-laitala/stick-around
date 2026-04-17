@@ -3,6 +3,7 @@ import {
   GRAV, JUMP_V, ACCEL, FRIC, MAXV,
   ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN,
   SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, ROPE_COOLDOWN,
+  HUD_HEIGHT,
 } from '../constants.js';
 
 describe('game constants', () => {
@@ -42,5 +43,12 @@ describe('rope constants', () => {
 
   it('SWING_DAMPING is between 0 and 1', () => {
     expect(SWING_DAMPING).toBeLessThan(1);
+  });
+});
+
+describe('overlay layout', () => {
+  it('HUD_HEIGHT is a positive integer number of pixels', () => {
+    expect(HUD_HEIGHT).toBeGreaterThan(0);
+    expect(Number.isInteger(HUD_HEIGHT)).toBe(true);
   });
 });
