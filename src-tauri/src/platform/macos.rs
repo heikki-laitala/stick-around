@@ -195,10 +195,19 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
                     end try
                     set vcr to value of attribute "AXVisibleCharacterRange" of ta
                     set fullText to value of ta
+                    -- AX reports the range in UTF-16 units, but AppleScript's `text`
+                    -- counts composed characters. With large scrollback containing
+                    -- multi-unit glyphs (emoji, box drawing, etc.) the AX end index
+                    -- drifts past AppleScript's character count, so clamp to avoid
+                    -- "Can't get text X thru Y" errors.
+                    set ftLen to count of fullText
                     set vStart to (item 1 of vcr)
-                    set vLen to (item 2 of vcr) - vStart
-                    if vLen > 0 then
-                        set visText to text (vStart + 1) thru (vStart + vLen) of fullText
+                    if vStart < 0 then set vStart to 0
+                    if vStart > ftLen then set vStart to ftLen
+                    set vEnd to (item 2 of vcr)
+                    if vEnd > ftLen then set vEnd to ftLen
+                    if vStart < vEnd then
+                        set visText to text (vStart + 1) thru vEnd of fullText
                     else
                         set visText to ""
                     end if
