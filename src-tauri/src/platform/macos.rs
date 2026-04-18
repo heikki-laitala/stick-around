@@ -172,13 +172,43 @@ use super::TerminalContent;
 /// Read the terminal's text area geometry and visible line content.
 /// Uses AXVisibleCharacterRange to get exactly the visible text.
 /// Combines geometry, text, and title into a single AppleScript call for speed.
-pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
+///
+/// `target_xy` pins the query to the specific launch-time window by matching
+/// its current position. Without this, the script would target `front window`
+/// of the process — which swaps if the user clicks another window of the same
+/// terminal app, polluting prompt/footer detection with the wrong content.
+pub fn get_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
+    let window_lookup = match target_xy {
+        Some((tx, ty)) => format!(
+            r#"set targetWin to missing value
+                repeat with w in windows
+                    try
+                        set p to position of w
+                        if (item 1 of p) is {tx} and (item 2 of p) is {ty} then
+                            set targetWin to w
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+                if targetWin is missing value then
+                    if (count of windows) is 0 then return ""
+                    set targetWin to front window
+                end if"#,
+            tx = tx,
+            ty = ty
+        ),
+        None => r#"if (count of windows) is 0 then return ""
+                set targetWin to front window"#
+            .to_string(),
+    };
+
     // Single combined AppleScript: geometry + visible text + window title
     // Results separated by a unique delimiter to parse apart
     let combined_script = format!(
         r#"tell application "System Events"
-            tell (first process whose unix id is {})
-                tell front window
+            tell (first process whose unix id is {pid})
+                {window_lookup}
+                tell targetWin
                     set wp to position of it
                     try
                         set sa to scroll area 1 of splitter group 1
@@ -216,7 +246,8 @@ pub fn get_terminal_content(pid: u32) -> Option<TerminalContent> {
                 end tell
             end tell
         end tell"#,
-        pid
+        pid = pid,
+        window_lookup = window_lookup
     );
     let raw = run_osascript(&combined_script)?;
 

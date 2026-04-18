@@ -124,7 +124,10 @@ pub fn get_pid_by_name(name: &str) -> Option<u32> {
     None
 }
 
-pub fn get_terminal_content(_pid: u32) -> Option<super::TerminalContent> {
+pub fn get_terminal_content(
+    _pid: u32,
+    _target_xy: Option<(i32, i32)>,
+) -> Option<super::TerminalContent> {
     // TODO: implement terminal text reading for Windows
     None
 }

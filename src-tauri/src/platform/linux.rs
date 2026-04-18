@@ -84,7 +84,10 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
     }
 }
 
-pub fn get_terminal_content(_pid: u32) -> Option<super::TerminalContent> {
+pub fn get_terminal_content(
+    _pid: u32,
+    _target_xy: Option<(i32, i32)>,
+) -> Option<super::TerminalContent> {
     // TODO: implement terminal text reading for Linux
     None
 }

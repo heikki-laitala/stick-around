@@ -180,6 +180,11 @@ pub fn run(terminal_app: Option<String>) {
                 }
             }
 
+            // Second handle to the shared bounds for the content-poll thread
+            // below; the position-tracker thread moves `poll_bounds` into
+            // its closure, so clone it here before that move happens.
+            let text_bounds = poll_bounds.clone();
+
             // Poll: track window by position, toggle alwaysOnTop when terminal is active
             let win_track = window.clone();
             std::thread::spawn(move || {
@@ -208,12 +213,17 @@ pub fn run(terminal_app: Option<String>) {
                 }
             });
 
-            // Poll terminal text content and emit line data to frontend
+            // Poll terminal text content and emit line data to frontend.
+            // The content query is pinned to the launch-time window by its
+            // current position (tracked in shared_bounds), so clicking
+            // another window of the same terminal app doesn't pollute the
+            // overlay with content from the wrong window.
             let win_text = window.clone();
             std::thread::spawn(move || {
                 let mut last_content: Option<platform::TerminalContent> = None;
                 loop {
-                    if let Some(content) = platform::get_terminal_content(pid) {
+                    let (tx, ty, _, _) = *text_bounds.lock().unwrap();
+                    if let Some(content) = platform::get_terminal_content(pid, Some((tx, ty))) {
                         if last_content.as_ref() != Some(&content) {
                             let _ = win_text.emit("terminal-content", &content);
                             last_content = Some(content);
