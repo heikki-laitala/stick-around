@@ -218,86 +218,109 @@ export function render(ctx, state, screenW, screenH) {
     if (!state.faceR) ctx.scale(-1, 1);
     ctx.rotate(angle);
 
-    const scale = isProne ? 0.8 : 1;
-    const handleLen = 9 * scale;
+    const scale = isProne ? 0.85 : 1;
+    const handleLen = 12 * scale;
 
-    // Wooden handle with a small pommel behind the grip.
+    // Wooden handle — slightly thicker so it reads as a haft, not a twig.
     ctx.strokeStyle = '#6b4a2e';
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 2 * scale;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(-1.5, 0);
+    ctx.moveTo(-2 * scale, 0);
     ctx.lineTo(handleLen, 0);
     ctx.stroke();
     ctx.lineCap = 'butt';
+
+    // Pommel knob at the butt of the handle.
     ctx.fillStyle = '#4a3320';
     ctx.beginPath();
-    ctx.arc(-1.5, 0, 1.1, 0, Math.PI * 2);
+    ctx.arc(-2 * scale, 0, 1.3 * scale, 0, Math.PI * 2);
     ctx.fill();
 
-    // Axe head — chunky blade with a flat poll (back), a short top edge,
-    // and a wide curved cutting edge that flares forward into a beard.
     const hx = handleLen;
-    const hs = scale;
-    ctx.beginPath();
-    ctx.moveTo(hx - 1.8 * hs, -3 * hs);            // back-top (poll corner)
-    ctx.lineTo(hx + 1.5 * hs, -3.4 * hs);          // top of blade
-    ctx.quadraticCurveTo(hx + 5.5 * hs, -2.2 * hs, hx + 5.8 * hs, 0);  // cutting edge top arc
-    ctx.quadraticCurveTo(hx + 5.5 * hs, 3 * hs, hx + 2 * hs, 4 * hs);  // arc into beard
-    ctx.lineTo(hx - 1.8 * hs, 3.4 * hs);           // back-bottom (poll corner)
-    ctx.closePath();
+    // Head slightly larger than the handle's reference scale — big enough
+    // to read as the dominant element without ballooning into a blocky
+    // shape that looks like a small building.
+    const hs = scale * 1.15;
+
+    // Viking bearded axe: deliberately asymmetric around the handle. A
+    // symmetric head reads as a shovel/spade — the long beard drooping
+    // below the handle axis is what unmistakably says "axe".
+    //
+    //   handle ──┬──╮
+    //            │   ╲___
+    //            │       ╲  cutting edge
+    //            │       ╱
+    //            │      ╱   beard (deep hook below the handle)
+    //            │    ╱
+    //            │  ╱
+    //             ╲╱
     ctx.fillStyle = '#b8bec5';
-    ctx.fill();
     ctx.strokeStyle = '#2e343c';
     ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(hx - 2 * hs, -2.2 * hs);                                     // top-back (small upper lobe)
+    ctx.lineTo(hx + 1.5 * hs, -3 * hs);                                     // top-front
+    ctx.quadraticCurveTo(hx + 4.5 * hs, -1.8 * hs, hx + 5.8 * hs, 0.3 * hs);// cutting edge upper tip
+    ctx.quadraticCurveTo(hx + 5.2 * hs, 4 * hs, hx + 2.5 * hs, 6.8 * hs);   // cutting edge sweeps down
+    ctx.quadraticCurveTo(hx - 0.5 * hs, 8 * hs, hx - 2.5 * hs, 6 * hs);     // beard hook curving under
+    ctx.quadraticCurveTo(hx - 2.8 * hs, 3 * hs, hx - 2 * hs, -2.2 * hs);    // back edge up to top
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
 
-    // Inner highlight suggesting a beveled face on the blade body.
-    ctx.fillStyle = 'rgba(240, 243, 247, 0.45)';
+    // Beveled inner face — lighter wedge along the cutting edge arc, from
+    // the neck out to the edge. Gives the blade depth and suggests a
+    // forged edge bevel.
+    ctx.fillStyle = 'rgba(240, 243, 247, 0.5)';
     ctx.beginPath();
-    ctx.moveTo(hx - 1.2 * hs, -2.2 * hs);
-    ctx.lineTo(hx + 1.5 * hs, -2.5 * hs);
-    ctx.quadraticCurveTo(hx + 4.2 * hs, -1.4 * hs, hx + 4.4 * hs, 0);
-    ctx.quadraticCurveTo(hx + 4 * hs, 1.8 * hs, hx + 1.5 * hs, 2.6 * hs);
-    ctx.lineTo(hx - 1.2 * hs, 2.4 * hs);
+    ctx.moveTo(hx + 1.2 * hs, -2 * hs);
+    ctx.quadraticCurveTo(hx + 3.6 * hs, -0.8 * hs, hx + 4.6 * hs, 0.5 * hs);
+    ctx.quadraticCurveTo(hx + 4.2 * hs, 3.3 * hs, hx + 2 * hs, 5.5 * hs);
+    ctx.quadraticCurveTo(hx + 0 * hs, 5 * hs, hx - 0.5 * hs, 3 * hs);
+    ctx.quadraticCurveTo(hx - 0.2 * hs, 0.5 * hs, hx + 1.2 * hs, -2 * hs);
     ctx.closePath();
     ctx.fill();
 
-    // Polished cutting edge highlight — same outer arc, brighter stroke.
+    // Polished cutting edge highlight — bright stroke along the outer arc.
     ctx.strokeStyle = '#f4f6f9';
     ctx.lineWidth = 1.1;
     ctx.beginPath();
-    ctx.moveTo(hx + 1.5 * hs, -3.4 * hs);
-    ctx.quadraticCurveTo(hx + 5.5 * hs, -2.2 * hs, hx + 5.8 * hs, 0);
-    ctx.quadraticCurveTo(hx + 5.5 * hs, 3 * hs, hx + 2 * hs, 4 * hs);
+    ctx.moveTo(hx + 1.5 * hs, -3 * hs);
+    ctx.quadraticCurveTo(hx + 4.5 * hs, -1.8 * hs, hx + 5.8 * hs, 0.3 * hs);
+    ctx.quadraticCurveTo(hx + 5.2 * hs, 4 * hs, hx + 2.5 * hs, 6.8 * hs);
+    ctx.quadraticCurveTo(hx - 0.5 * hs, 8 * hs, hx - 2.5 * hs, 6 * hs);
     ctx.stroke();
 
-    // Socket shading where the handle passes through the head.
-    ctx.strokeStyle = '#4a3320';
-    ctx.lineWidth = 1.2;
+    // Dark eye where the handle passes through the head.
+    ctx.fillStyle = '#2a1f14';
     ctx.beginPath();
-    ctx.moveTo(hx - 0.3, -3 * hs);
-    ctx.lineTo(hx - 0.3, 3.4 * hs);
-    ctx.stroke();
+    ctx.ellipse(hx - 1 * hs, 0, 0.9 * hs, 1.3 * hs, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
 
-    // Brief impact flash just after the apex.
-    const flashT = (progress - AXE_HIT_FRAME) / 0.08;
+    // Brief impact flash just after the apex. A soft radial glow at the
+    // cutting edge — earlier versions used two diverging spark lines, but
+    // those read as pitchfork tines, so we go with a ring+burst instead.
+    const flashT = (progress - AXE_HIT_FRAME) / 0.12;
     if (flashT >= 0 && flashT <= 1) {
-      const alpha = 0.6 * (1 - flashT);
+      const alpha = 0.7 * (1 - flashT);
+      const growR = 2.5 + 4 * flashT;
       ctx.save();
       ctx.shadowBlur = 0;
       ctx.translate(swingHandX, swingHandY);
       if (!state.faceR) ctx.scale(-1, 1);
       ctx.rotate(endAngle);
-      ctx.strokeStyle = `rgba(255, 245, 200, ${alpha})`;
-      ctx.lineWidth = 1.2;
+      const tipX = handleLen + 5.5 * hs;
+      ctx.fillStyle = `rgba(255, 245, 200, ${alpha * 0.6})`;
       ctx.beginPath();
-      ctx.moveTo(handleLen + 5.5 * hs, 0);
-      ctx.lineTo(handleLen + 9 * hs, -2 * hs);
-      ctx.moveTo(handleLen + 5.5 * hs, 0);
-      ctx.lineTo(handleLen + 9 * hs, 2 * hs);
+      ctx.arc(tipX, 0, growR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 245, 200, ${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(tipX, 0, growR * 0.7, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
