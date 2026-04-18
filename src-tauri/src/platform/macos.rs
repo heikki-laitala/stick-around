@@ -1,3 +1,5 @@
+use std::ffi::{c_void, CString};
+use std::os::raw::c_char;
 use std::process::Command;
 use std::sync::{Arc, Mutex, Once};
 use objc2::runtime::{AnyClass, AnyObject, Imp};
@@ -5,6 +7,186 @@ use objc2::ffi::object_setClass;
 use objc2::msg_send;
 use objc2::encode::{Encode, Encoding, RefEncode};
 use block2::RcBlock;
+
+// ─── CoreGraphics / CoreFoundation FFI for stable window tracking ──────────
+// We need a way to pin the overlay to *this specific terminal window*, not
+// just "some window belonging to this terminal app." Among same-PID windows
+// (multiple iTerm2 tabs-in-windows, multiple Ghostty windows, etc.) AX and
+// AppleScript don't give us a stable identifier — the window index shifts
+// with z-order, `position of w` is ambiguous if two windows overlap, and
+// AppleScript references don't survive across osascript invocations.
+// `CGWindowID` is stable for the window's lifetime, so we capture it at
+// launch and look up bounds by that ID on every poll.
+
+type CFTypeRef = *const c_void;
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct CGRectRaw {
+    origin_x: f64,
+    origin_y: f64,
+    size_width: f64,
+    size_height: f64,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+    fn CGWindowListCreateDescriptionFromArray(array: CFTypeRef) -> CFTypeRef;
+    fn CGRectMakeWithDictionaryRepresentation(dict: CFTypeRef, rect: *mut CGRectRaw) -> bool;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFArrayGetCount(array: CFTypeRef) -> isize;
+    fn CFArrayGetValueAtIndex(array: CFTypeRef, idx: isize) -> CFTypeRef;
+    fn CFArrayCreate(
+        allocator: CFTypeRef,
+        values: *const CFTypeRef,
+        count: isize,
+        callbacks: CFTypeRef,
+    ) -> CFTypeRef;
+    fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+    fn CFNumberGetValue(num: CFTypeRef, typ: i32, value_ptr: *mut c_void) -> bool;
+    fn CFNumberCreate(alloc: CFTypeRef, typ: i32, value_ptr: *const c_void) -> CFTypeRef;
+    fn CFRelease(cf: CFTypeRef);
+    fn CFStringCreateWithCString(
+        alloc: CFTypeRef,
+        cstr: *const c_char,
+        encoding: u32,
+    ) -> CFTypeRef;
+}
+
+const CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
+const CF_NUMBER_SINT32_TYPE: i32 = 3;
+const CF_NUMBER_SINT64_TYPE: i32 = 4;
+const CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
+
+unsafe fn cfstr(s: &str) -> CFTypeRef {
+    let c = CString::new(s).unwrap();
+    CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), CF_STRING_ENCODING_UTF8)
+}
+
+unsafe fn dict_number_i64(dict: CFTypeRef, key: &str) -> Option<i64> {
+    let k = cfstr(key);
+    if k.is_null() {
+        return None;
+    }
+    let num = CFDictionaryGetValue(dict, k);
+    CFRelease(k);
+    if num.is_null() {
+        return None;
+    }
+    let mut out: i64 = 0;
+    if CFNumberGetValue(num, CF_NUMBER_SINT64_TYPE, &mut out as *mut _ as *mut c_void) {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// Find the CGWindowID of the on-screen window owned by `pid` whose bounds
+/// match `want` (within a small tolerance to absorb AX vs CG rounding).
+///
+/// Returns `None` if no match is found; the caller should fall back to a
+/// position/size heuristic in that case.
+pub fn get_window_id_for_bounds(pid: u32, want: (i32, i32, u32, u32)) -> Option<u32> {
+    unsafe {
+        let list = CGWindowListCopyWindowInfo(CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY, 0);
+        if list.is_null() {
+            return None;
+        }
+        let count = CFArrayGetCount(list);
+        let bounds_key = cfstr("kCGWindowBounds");
+        let mut result: Option<u32> = None;
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(list, i);
+            if dict.is_null() {
+                continue;
+            }
+            if dict_number_i64(dict, "kCGWindowOwnerPID") != Some(pid as i64) {
+                continue;
+            }
+            // Layer 0 is the normal window layer — skip menubar, dock, etc.
+            if dict_number_i64(dict, "kCGWindowLayer").unwrap_or(0) != 0 {
+                continue;
+            }
+            let bd = CFDictionaryGetValue(dict, bounds_key);
+            if bd.is_null() {
+                continue;
+            }
+            let mut r = CGRectRaw::default();
+            if !CGRectMakeWithDictionaryRepresentation(bd, &mut r) {
+                continue;
+            }
+            if (r.origin_x as i32 - want.0).abs() <= 10
+                && (r.origin_y as i32 - want.1).abs() <= 10
+                && (r.size_width as i32 - want.2 as i32).abs() <= 10
+                && (r.size_height as i32 - want.3 as i32).abs() <= 10
+            {
+                if let Some(wid) = dict_number_i64(dict, "kCGWindowNumber") {
+                    result = Some(wid as u32);
+                    break;
+                }
+            }
+        }
+        CFRelease(bounds_key);
+        CFRelease(list);
+        result
+    }
+}
+
+/// Look up current bounds of a specific `CGWindowID`. Returns `None` if the
+/// window has been closed or is no longer reported (e.g., minimized into
+/// the Dock, off-screen on a disconnected display).
+pub fn get_window_bounds_by_id(window_id: u32) -> Option<(i32, i32, u32, u32)> {
+    unsafe {
+        let id_val: i32 = window_id as i32;
+        let num = CFNumberCreate(
+            std::ptr::null(),
+            CF_NUMBER_SINT32_TYPE,
+            &id_val as *const _ as *const c_void,
+        );
+        if num.is_null() {
+            return None;
+        }
+        let vals: [CFTypeRef; 1] = [num];
+        let arr = CFArrayCreate(std::ptr::null(), vals.as_ptr(), 1, std::ptr::null());
+        CFRelease(num);
+        if arr.is_null() {
+            return None;
+        }
+
+        let desc = CGWindowListCreateDescriptionFromArray(arr);
+        CFRelease(arr);
+        if desc.is_null() {
+            return None;
+        }
+
+        let mut result = None;
+        if CFArrayGetCount(desc) > 0 {
+            let dict = CFArrayGetValueAtIndex(desc, 0);
+            if !dict.is_null() {
+                let bounds_key = cfstr("kCGWindowBounds");
+                let bd = CFDictionaryGetValue(dict, bounds_key);
+                CFRelease(bounds_key);
+                if !bd.is_null() {
+                    let mut r = CGRectRaw::default();
+                    if CGRectMakeWithDictionaryRepresentation(bd, &mut r) {
+                        result = Some((
+                            r.origin_x as i32,
+                            r.origin_y as i32,
+                            r.size_width as u32,
+                            r.size_height as u32,
+                        ));
+                    }
+                }
+            }
+        }
+        CFRelease(desc);
+        result
+    }
+}
 
 /// Create a custom NSPanel subclass that always returns YES for canBecomeKeyWindow.
 /// NSPanel without decorations returns NO by default, blocking keyboard events.

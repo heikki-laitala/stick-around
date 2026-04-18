@@ -117,6 +117,15 @@ pub fn run(terminal_app: Option<String>) {
     let shared_bounds = Arc::new(Mutex::new(initial_bounds.unwrap_or((0, 0, 800, 600))));
     let poll_bounds = shared_bounds.clone();
 
+    // Capture a stable identifier for the launch-time terminal window so the
+    // overlay follows *this specific window*, not "any window of this PID."
+    // Position heuristics can't disambiguate two same-PID windows — if the
+    // user drags our tracked window past another Ghostty/iTerm window, the
+    // overlay would otherwise snap to whichever sibling ended up closer.
+    #[cfg(target_os = "macos")]
+    let tracked_window_id: Option<u32> =
+        initial_bounds.and_then(|b| platform::get_window_id_for_bounds(pid, b));
+
     let state = TerminalState {
         pid,
         bounds: shared_bounds,
@@ -192,7 +201,11 @@ pub fn run(terminal_app: Option<String>) {
             // its closure, so clone it here before that move happens.
             let text_bounds = poll_bounds.clone();
 
-            // Poll: track window by position, toggle alwaysOnTop when terminal is active
+            // Poll: track window by its stable CGWindowID (macOS) and toggle
+            // alwaysOnTop when the terminal or our own app is frontmost.
+            // The heuristic `find_closest_window` only runs as a fallback if
+            // the window ID lookup failed at launch or the window has since
+            // disappeared.
             let win_track = window.clone();
             std::thread::spawn(move || {
                 let mut last_bounds = initial_bounds.unwrap_or((0, 0, 800, 600));
@@ -207,8 +220,21 @@ pub fn run(terminal_app: Option<String>) {
                         was_on_top = on_top;
                     }
 
-                    let windows = platform::get_all_window_bounds(pid);
-                    if let Some(b) = find_closest_window(&windows, last_bounds) {
+                    #[cfg(target_os = "macos")]
+                    let next = tracked_window_id
+                        .and_then(platform::get_window_bounds_by_id)
+                        .or_else(|| {
+                            let windows = platform::get_all_window_bounds(pid);
+                            find_closest_window(&windows, last_bounds)
+                        });
+
+                    #[cfg(not(target_os = "macos"))]
+                    let next = {
+                        let windows = platform::get_all_window_bounds(pid);
+                        find_closest_window(&windows, last_bounds)
+                    };
+
+                    if let Some(b) = next {
                         if b != last_bounds {
                             apply_bounds(&win_track, b.0, b.1, b.2, b.3);
                             last_bounds = b;
