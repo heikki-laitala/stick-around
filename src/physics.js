@@ -63,7 +63,7 @@ export function updateRope(state, dt, keys) {
     const pumpFade = 1 + (SWING_PUMP_FLOOR - 1) * decayT;
 
     // Pump strength scales inversely with rope length (longer rope = harder to pump)
-    const pumpScale = Math.min(1, 120 / state.rope.ropeLen);
+    const pumpScale = Math.min(1, 160 / state.rope.ropeLen);
     const pump = SWING_PUMP * pumpScale * pumpFade;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) state.rope.swingVel -= pump * dt;
     if (keys.has('KeyD') || keys.has('ArrowRight')) state.rope.swingVel += pump * dt;
@@ -74,7 +74,7 @@ export function updateRope(state, dt, keys) {
     if (keys.has('KeyS') || keys.has('ArrowDown')) state.rope.ropeLen = Math.min(ROPE_MAX_LEN, state.rope.ropeLen + CLIMB_SPEED * dt);
 
     // Cap swing velocity to prevent unrealistic spinning
-    const MAX_SWING_VEL = 3.0;
+    const MAX_SWING_VEL = 4.0;
     state.rope.swingVel = Math.max(-MAX_SWING_VEL, Math.min(MAX_SWING_VEL, state.rope.swingVel));
     state.rope.swingVel *= effectiveDamping;
     state.rope.swingAngle += state.rope.swingVel * dt;
