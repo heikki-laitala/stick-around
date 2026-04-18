@@ -37,6 +37,8 @@
  * which mission is active.
  */
 
+import { ESCAPE_LAVA_MISSION } from './missions/escapeLava.js';
+
 export const INITIAL_RANK = 'novice pauper';
 
 export const MISSIONS = [
@@ -52,6 +54,7 @@ export const MISSIONS = [
     check: (s) => (s.minesMined || 0) >= 4,
     rewardRank: 'journeyman pauper',
   },
+  ESCAPE_LAVA_MISSION,
 ];
 
 const ALL_DONE_MISSION = 'All missions complete!';

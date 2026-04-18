@@ -6,6 +6,7 @@ import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
 import { advanceMission, initialProgression, tickActiveMission } from './progression.js';
+import { restartEscapeLava } from './missions/escapeLava.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -63,6 +64,7 @@ const state = {
   axeSwing: null,    // { t, hit } while a swing is in progress
   score: 0,
   minesMined: 0,     // number of mana mines fully depleted — drives progression
+  gameOver: false,   // mission-driven fail state; movement and ticks pause while true
   promptArea: null,
   footerArea: null,
 
@@ -309,7 +311,15 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyF') { startAxeSwing(state); return; }
-  if (e.code === 'KeyR') { resetPlayer(state); return; }
+  if (e.code === 'KeyR') {
+    if (state.gameOver) {
+      restartEscapeLava(state);
+      resetPlayer(state);
+    } else {
+      resetPlayer(state);
+    }
+    return;
+  }
   if (e.code === 'Tab') {
     if (state.inventory.length > 0) {
       state.inventoryIdx = (state.inventoryIdx + 1) % state.inventory.length;
@@ -378,18 +388,23 @@ function loop(now) {
   if (state.hasSpawned) {
     state.screenW = W();
     state.screenH = H();
-    updateRope(state, dt, keys);
-    updateMovement(state, dt, keys, W(), H());
-    updatePosture(state);
-    updatePose(state, dt);
-    updateAxeSwing(state, dt);
-    updateCollectibles(state, dt);
-    updateManaMines(state, dt);
-    updateParticles(state.particles, dt);
-    // Mission tick runs before advance so the active mission's update can
-    // satisfy its own win condition on the same frame it happens.
-    tickActiveMission(state, dt);
-    advanceMission(state);
+    // When the active mission has declared game over (e.g. lava hit with 0
+    // balls), freeze gameplay updates. The mission's render hook keeps
+    // drawing the GAME OVER overlay until the user restarts with R.
+    if (!state.gameOver) {
+      updateRope(state, dt, keys);
+      updateMovement(state, dt, keys, W(), H());
+      updatePosture(state);
+      updatePose(state, dt);
+      updateAxeSwing(state, dt);
+      updateCollectibles(state, dt);
+      updateManaMines(state, dt);
+      updateParticles(state.particles, dt);
+      // Mission tick runs before advance so the active mission's update can
+      // satisfy its own win condition on the same frame it happens.
+      tickActiveMission(state, dt);
+      advanceMission(state);
+    }
     // Age holes and remove old ones
     for (let i = state.holes.length - 1; i >= 0; i--) {
       state.holes[i].age += dt;

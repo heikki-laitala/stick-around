@@ -21,6 +21,28 @@ function makeState(overrides = {}) {
   };
 }
 
+/**
+ * Walk `advanceMission` all the way past every real mission by supplying
+ * whatever each one demands (counters for simple checks, scene flags for
+ * stateful ones like escape-lava). Stops at the first mission whose check
+ * we don't know how to satisfy — which is where freshly-pushed test
+ * missions live.
+ */
+function completeRealMissions(s) {
+  s.score = Math.max(s.score || 0, 10_000);
+  s.minesMined = Math.max(s.minesMined || 0, 10_000);
+  for (let guard = 0; guard < 100; guard++) {
+    advanceMission(s);
+    const m = getActiveMission(s);
+    if (!m) return;
+    if (m.id === 'escape-lava' && s.missionScene) {
+      s.missionScene.reachedDoor = true;
+      continue;
+    }
+    return; // landed on something we don't know how to auto-satisfy
+  }
+}
+
 describe('initialProgression', () => {
   it('starts every state as novice pauper with mission 0 and empty unlocks', () => {
     expect(INITIAL_RANK).toBe('novice pauper');
@@ -63,13 +85,12 @@ describe('advanceMission', () => {
   it('exposes the upcoming mission via state.nextMission (null at the end)', () => {
     const s = makeState();
     expect(s.nextMission).toBe(MISSIONS[1].text);
-    advanceMission({ ...s, score: 5 });
     const s2 = makeState({ score: 5 });
     advanceMission(s2);
     expect(s2.mission).toBe(MISSIONS[1].text);
-    expect(s2.nextMission).toBeNull();
-    const s3 = makeState({ score: 10_000, minesMined: 10_000 });
-    advanceMission(s3);
+    expect(s2.nextMission).toBe(MISSIONS[2]?.text ?? null);
+    const s3 = makeState();
+    completeRealMissions(s3);
     expect(s3.nextMission).toBeNull();
   });
 
@@ -77,10 +98,10 @@ describe('advanceMission', () => {
     // Synthesize a one-off mission to exercise the title path without
     // coupling to a specific in-ladder entry.
     const titleMission = { id: 'test-title', text: 't', check: () => true, rewardTitle: 'legend' };
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
+    const s = makeState();
     MISSIONS.push(titleMission);
     try {
-      advanceMission(s);
+      completeRealMissions(s);
       expect(s.titles).toContain('legend');
       expect(hasCompleted(s, 'test-title')).toBe(true);
     } finally {
@@ -95,10 +116,10 @@ describe('advanceMission', () => {
       check: () => true,
       unlocks: ['dark-mode', 'rain'],
     };
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
+    const s = makeState();
     MISSIONS.push(unlockMission);
     try {
-      advanceMission(s);
+      completeRealMissions(s);
       expect(hasUnlock(s, 'dark-mode')).toBe(true);
       expect(hasUnlock(s, 'rain')).toBe(true);
       expect(hasUnlock(s, 'nope')).toBe(false);
@@ -108,8 +129,8 @@ describe('advanceMission', () => {
   });
 
   it('caps at the final rank when every mission is complete', () => {
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
-    advanceMission(s);
+    const s = makeState();
+    completeRealMissions(s);
     expect(s.missionIdx).toBe(MISSIONS.length);
     const lastRankMission = [...MISSIONS].reverse().find((m) => m.rewardRank);
     expect(s.rank).toBe(lastRankMission.rewardRank);
@@ -117,8 +138,8 @@ describe('advanceMission', () => {
   });
 
   it('is idempotent — calling advance again with the same state is a no-op', () => {
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
-    advanceMission(s);
+    const s = makeState();
+    completeRealMissions(s);
     const snapshot = {
       rank: s.rank,
       titles: [...s.titles],
@@ -162,8 +183,8 @@ describe('mission lifecycle hooks', () => {
         onEnter: () => { enters += 1; },
       },
       () => {
-        const s = makeState({ score: 10_000, minesMined: 10_000 });
-        advanceMission(s); // completes real missions, enters the test mission
+        const s = makeState();
+        completeRealMissions(s); // walks past real missions, enters the test mission
         expect(enters).toBe(1);
         advanceMission(s); // re-advance: check still false, no re-enter
         expect(enters).toBe(1);
@@ -180,8 +201,8 @@ describe('mission lifecycle hooks', () => {
         onEnter: (s) => { s.missionScene.lavaY = 100; },
       },
       () => {
-        const s = makeState({ score: 10_000, minesMined: 10_000 });
-        advanceMission(s);
+        const s = makeState();
+        completeRealMissions(s);
         expect(s.missionScene).toEqual({ lavaY: 100 });
         s.missionScene.won = true;
         advanceMission(s);
@@ -200,8 +221,8 @@ describe('mission lifecycle hooks', () => {
         update: (_s, dt) => { accum += dt; },
       },
       () => {
-        const s = makeState({ score: 10_000, minesMined: 10_000 });
-        advanceMission(s);
+        const s = makeState();
+        completeRealMissions(s);
         tickActiveMission(s, 0.016);
         tickActiveMission(s, 0.016);
         expect(accum).toBeCloseTo(0.032, 5);
@@ -219,8 +240,8 @@ describe('mission lifecycle hooks', () => {
         render: (ctx, _s, W, H) => { calls.push({ ctx, W, H }); },
       },
       () => {
-        const s = makeState({ score: 10_000, minesMined: 10_000 });
-        advanceMission(s);
+        const s = makeState();
+        completeRealMissions(s);
         const fakeCtx = { id: 'ctx' };
         renderActiveMission(fakeCtx, s, 800, 600);
         expect(calls).toEqual([{ ctx: fakeCtx, W: 800, H: 600 }]);
@@ -238,8 +259,8 @@ describe('mission lifecycle hooks', () => {
         onExit: () => { exits += 1; },
       },
       () => {
-        const s = makeState({ score: 10_000, minesMined: 10_000 });
-        advanceMission(s);
+        const s = makeState();
+        completeRealMissions(s);
         expect(exits).toBe(0);
         s.missionScene.won = true;
         advanceMission(s);
@@ -249,14 +270,14 @@ describe('mission lifecycle hooks', () => {
   });
 
   it('getActiveMission returns null when all missions are done', () => {
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
-    advanceMission(s);
+    const s = makeState();
+    completeRealMissions(s);
     expect(getActiveMission(s)).toBeNull();
   });
 
   it('tick/render hooks are safe no-ops when no mission is active', () => {
-    const s = makeState({ score: 10_000, minesMined: 10_000 });
-    advanceMission(s);
+    const s = makeState();
+    completeRealMissions(s);
     expect(() => tickActiveMission(s, 0.016)).not.toThrow();
     expect(() => renderActiveMission({}, s, 800, 600)).not.toThrow();
   });
