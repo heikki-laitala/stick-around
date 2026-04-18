@@ -1,4 +1,4 @@
-import { GRAV, JUMP_V } from '../constants.js';
+import { GRAV, HUD_HEIGHT, JUMP_V } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 
 /**
@@ -29,8 +29,8 @@ const LAVA_RISE_RATE = 7;         // px/sec — tune for desired difficulty
 const LAVA_HIT_COOLDOWN = 1.0;    // seconds between burn ticks while in lava
 const LAVA_SUBMERGE = STANDING_HEIGHT / 2; // depth the man sinks into the lava surface
 const LAVA_JUMP_CLEARANCE = 40;   // extra rise above lava surface on boosted jump
-const DOOR_W = 36;
-const DOOR_H = 56;
+const DOOR_W = 20;
+const DOOR_H = 32;
 const PRIME_SCORE = 5;            // minimum balls the mission starts/restarts with
 const DOOR_INSET_X = 20;          // horizontal offset from anchor platform's left edge
 
@@ -40,11 +40,25 @@ function trackable(p) {
   return !!p && typeof p.hash === 'number' && p.hash !== 0;
 }
 
-function topmostTrackablePlatform(platforms) {
+// Door must sit fully inside the terminal text area — below the HUD AND
+// below the terminal title bar. state.textOffsetY is the top of the text
+// area (the title sits above it). Fall back to HUD_HEIGHT if we don't
+// have the terminal metrics yet.
+function minDoorTop(state) {
+  const y = state?.textOffsetY;
+  return typeof y === 'number' && y > 0 ? y : HUD_HEIGHT;
+}
+
+function canHostDoor(p, state, doorH) {
+  return p.y >= minDoorTop(state) + doorH;
+}
+
+function topmostTrackablePlatform(platforms, state, doorH) {
   if (!platforms) return null;
   let top = null;
   for (const p of platforms) {
     if (!trackable(p)) continue;
+    if (!canHostDoor(p, state, doorH)) continue;
     if (!top || p.y < top.y) top = p;
   }
   return top;
@@ -79,17 +93,18 @@ export const ESCAPE_LAVA_MISSION = {
     scene.doorH = DOOR_H;
     scene.doorVy = 0;
 
-    const anchor = topmostTrackablePlatform(state.platforms);
+    const anchor = topmostTrackablePlatform(state.platforms, state, DOOR_H);
     if (anchor) {
       scene.doorX = anchor.x + DOOR_INSET_X;
       scene.doorY = anchor.y - DOOR_H;
       scene.doorAnchorHash = anchor.hash;
       scene.doorAnchorOffsetX = DOOR_INSET_X;
     } else {
-      // Nothing to anchor to — float near the top-left and let the physics
-      // step on the next frame pull the door down until something catches it.
+      // Nothing to anchor to — float just inside the terminal text area and
+      // let the physics step on the next frame pull the door down until
+      // something catches it.
       scene.doorX = 30;
-      scene.doorY = 80;
+      scene.doorY = minDoorTop(state) + 4;
       scene.doorAnchorHash = null;
       scene.doorAnchorOffsetX = 0;
     }
@@ -219,9 +234,13 @@ function updateDoorPhysics(state, scene, dt) {
   }
 
   // Collide with the highest platform whose top edge was crossed this step.
+  // Skip platforms that would push the door above the terminal text area —
+  // keep falling until we find a platform low enough to host a fully
+  // visible door.
   let landing = null;
   for (const p of state.platforms || []) {
     if (!horizontallyOverlaps(scene.doorX, scene.doorW, p)) continue;
+    if (!canHostDoor(p, state, scene.doorH)) continue;
     if (bottomBefore <= p.y && bottomAfter >= p.y) {
       if (!landing || p.y < landing.y) landing = p;
     }

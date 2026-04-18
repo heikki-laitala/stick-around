@@ -301,12 +301,15 @@ describe('debugSkipMission', () => {
     expect(s.mission).toMatch(/complete/i);
   });
 
-  it('is a safe no-op once every mission is complete', () => {
+  it('cycles back to the first mission once every mission is complete', () => {
     const s = makeState();
     for (let i = 0; i < MISSIONS.length; i++) debugSkipMission(s);
-    const beforeIdx = s.missionIdx;
+    expect(s.missionIdx).toBe(MISSIONS.length);
     debugSkipMission(s);
-    expect(s.missionIdx).toBe(beforeIdx);
+    expect(s.missionIdx).toBe(0);
+    expect(s.mission).toBe(MISSIONS[0].text);
+    expect(s.rank).toBe(INITIAL_RANK);
+    expect(s.completedMissionIds.size).toBe(0);
   });
 });
 

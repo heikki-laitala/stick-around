@@ -346,7 +346,7 @@ document.addEventListener('keydown', e => {
   }
 
   if (e.code === 'KeyE') {
-    if (!state.rope && state.ropeCooldown <= 0 && state.posture === 'standing') {
+    if (!state.rope && state.ropeCooldown <= 0 && state.posture !== 'prone') {
       const defaultAngle = state.faceR ? -Math.PI / 4 : -3 * Math.PI / 4;
       state.ropeAngle = defaultAngle;
       state.rope = {

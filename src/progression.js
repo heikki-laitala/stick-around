@@ -135,7 +135,22 @@ export function advanceMission(state) {
 export function debugSkipMission(state) {
   ensureFields(state);
   ensureEntered(state);
-  if (state.missionIdx >= MISSIONS.length) return;
+  // When already past the end, cycle back to the first mission and clear
+  // progress so the ladder plays through again. Counters (score,
+  // minesMined) are zeroed so simple check-missions don't auto-complete.
+  if (state.missionIdx >= MISSIONS.length) {
+    state.missionIdx = 0;
+    state.rank = INITIAL_RANK;
+    state.titles = [];
+    state.unlocks = new Set();
+    state.completedMissionIds = new Set();
+    state.missionScene = null;
+    state.currentMissionId = null;
+    state.score = 0;
+    state.minesMined = 0;
+    advanceMission(state);
+    return;
+  }
   const m = MISSIONS[state.missionIdx];
   if (m.rewardRank) state.rank = m.rewardRank;
   if (m.rewardTitle) state.titles.push(m.rewardTitle);
