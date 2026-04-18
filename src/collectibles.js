@@ -1,11 +1,10 @@
-import { findFloor } from './platforms.js';
+import { stepItemPhysics } from './itemPhysics.js';
 
 const MAX_COLLECTIBLES = 5;
 const COLLECT_RADIUS = 15;
 const SPAWN_INTERVAL = 2.0; // seconds between spawn attempts
 const MIN_DIST = 40; // minimum distance between collectibles
 const LIFETIME = 10; // seconds before a collectible expires
-const GRAV = 600; // gravity for collectibles (slightly less than player)
 
 let spawnTimer = 0;
 
@@ -59,32 +58,12 @@ export function updateCollectibles(state, dt) {
       continue;
     }
 
-    // Gravity and platform collision
-    if (!c.grounded) {
-      c.vy += GRAV * dt;
-      const prevY = c.y;
-      c.y += c.vy * dt;
-
-      // Land on platform
-      if (c.vy >= 0) {
-        const floor = findFloor(state.platforms, prevY - 1, c.x, screenH);
-        if (floor && c.y >= floor.y && prevY <= floor.y + 4) {
-          c.y = floor.y;
-          c.vy = 0;
-          c.grounded = true;
-        }
-      }
-
-      // Remove if fell off screen
-      if (c.y > screenH + 20) {
+    // Shared item physics — debug pins stay put for practice.
+    if (!c.debug) {
+      const alive = stepItemPhysics(c, state.platforms, screenH, dt);
+      if (!alive) {
         state.collectibles.splice(i, 1);
         continue;
-      }
-    } else {
-      // Check if platform still exists beneath
-      const floor = findFloor(state.platforms, c.y - 1, c.x, screenH);
-      if (!floor || Math.abs(c.y - floor.y) > 2) {
-        c.grounded = false;
       }
     }
 

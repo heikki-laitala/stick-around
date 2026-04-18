@@ -422,14 +422,14 @@ export function spawnBurstParticles(particles, x, y, count) {
 }
 
 /**
- * Begin an axe swing. No-op if already swinging, airborne, on a rope, or
- * not upright (crouched/prone). Returns true if the swing was started.
+ * Begin an axe swing. No-op if already swinging, airborne, or on a rope.
+ * The man can swing in any grounded posture (standing, crouching, or prone)
+ * so low-ceiling spots are still mineable. Returns true if started.
  */
 export function startAxeSwing(state) {
   if (state.axeSwing) return false;
   if (!state.grounded) return false;
   if (state.rope) return false;
-  if (state.posture && state.posture !== 'standing') return false;
   state.axeSwing = { t: 0, hit: false };
   return true;
 }

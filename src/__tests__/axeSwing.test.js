@@ -44,14 +44,14 @@ describe('startAxeSwing', () => {
     expect(s.axeSwing).toBeNull();
   });
 
-  it('no-op when crouching or prone', () => {
+  it('allows swinging while crouching or prone', () => {
     const s = makeState({ posture: 'crouching' });
-    expect(startAxeSwing(s)).toBe(false);
-    expect(s.axeSwing).toBeNull();
+    expect(startAxeSwing(s)).toBe(true);
+    expect(s.axeSwing).not.toBeNull();
 
     const sp = makeState({ posture: 'prone' });
-    expect(startAxeSwing(sp)).toBe(false);
-    expect(sp.axeSwing).toBeNull();
+    expect(startAxeSwing(sp)).toBe(true);
+    expect(sp.axeSwing).not.toBeNull();
   });
 });
 

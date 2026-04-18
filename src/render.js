@@ -116,11 +116,21 @@ export function render(ctx, state, screenW, screenH) {
   drawLimb(ctx, rhip.x, rhip.y, rk.x, rk.y);
   drawLimb(ctx, rk.x, rk.y, rf.x, rf.y);
 
-  // Axe swing — drawn as a rotated handle + blade attached to the lead hand
+  // Axe swing — a rotated handle + blade pivoting on the lead hand.
+  // Standing/crouching: full overhead arc (−135° → +45°, big chop).
+  // Prone: tight forward chip (−90° → 0°, shorter handle) since the man
+  // is lying flat and pecks at the ground ahead of him.
   if (state.axeSwing) {
     const handPos = state.faceR ? rh : lh;
     const progress = Math.min(1, state.axeSwing.t / AXE_SWING_DURATION);
-    const angle = -Math.PI * 3 / 4 + progress * Math.PI; // -135° → +45° in local frame
+    const isProne = state.posture === 'prone';
+    const startAngle = isProne ? -Math.PI / 2 : -Math.PI * 3 / 4;
+    const endAngle = isProne ? 0 : Math.PI / 4;
+    const angle = startAngle + progress * (endAngle - startAngle);
+    const handleLen = isProne ? 12 : 18;
+    const bladeBase = handleLen - 3;
+    const bladeTip = handleLen + 4;
+    const bladeHalf = isProne ? 4 : 5;
     ctx.save();
     ctx.shadowBlur = 0;
     ctx.translate(handPos.x, handPos.y);
@@ -131,16 +141,16 @@ export function render(ctx, state, screenW, screenH) {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(18, 0);
+    ctx.lineTo(handleLen, 0);
     ctx.stroke();
     // Blade (steel triangle)
     ctx.fillStyle = 'rgba(210, 220, 230, 0.95)';
     ctx.strokeStyle = 'rgba(90, 100, 115, 0.9)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(15, -5);
-    ctx.lineTo(15, 5);
-    ctx.lineTo(22, 0);
+    ctx.moveTo(bladeBase, -bladeHalf);
+    ctx.lineTo(bladeBase, bladeHalf);
+    ctx.lineTo(bladeTip, 0);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
