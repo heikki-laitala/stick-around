@@ -20,6 +20,13 @@ function drawLimb(ctx, ax, ay, bx, by) {
 export function render(ctx, state, screenW, screenH) {
   ctx.clearRect(0, 0, screenW, screenH);
 
+  // Debug: red outline showing the exact bounds of the overlay window.
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 60, 60, 0.9)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, screenW - 2, screenH - 2);
+  ctx.restore();
+
   if (!state.hasSpawned) {
     if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
     if (state.overlayActive) renderHUD(ctx, state, screenW);

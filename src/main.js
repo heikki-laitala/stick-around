@@ -113,6 +113,15 @@ function handleTerminalContent(content) {
 
   state.lastContent = content;
 
+  // Capture the man's horizontal offset on his current platform before we
+  // rebuild, so a sideways terminal move can snap him back to the same
+  // relative spot on that platform instead of leaving him hanging in air.
+  let manDx = null;
+  if (state.hasSpawned && state.grounded && state.standingHash !== 0) {
+    const oldPlat = state.platforms.find((p) => p.hash === state.standingHash);
+    if (oldPlat) manDx = state.gx - oldPlat.x;
+  }
+
   // The overlay window extends HUD_HEIGHT pixels above the terminal to host
   // the HUD strip. Shift text_offset_y so platforms render below the strip.
   const adjusted = { ...content, text_offset_y: content.text_offset_y + HUD_HEIGHT };
@@ -143,21 +152,16 @@ function handleTerminalContent(content) {
     state.faceR = false;
     state.hasSpawned = true;
   } else if (state.hasSpawned && state.grounded && state.platforms.length > 0) {
-    // Follow platform when terminal text changes (scroll tracking)
+    // Follow platform when terminal text changes (scroll or sideways move).
+    // If we captured manDx above, snap both gx and feetY to preserve the
+    // same relative spot on the platform — otherwise fall back to
+    // vertical-only snap (e.g. for the first frame after spawn).
     let matched = null;
     if (state.standingHash !== 0) {
-      let matchDist = Infinity;
-      for (const p of state.platforms) {
-        if (p.hash === state.standingHash && state.gx >= p.x - 10 && state.gx <= p.x + p.w + 10) {
-          const dist = Math.abs(p.y - state.feetY);
-          if (dist < matchDist) {
-            matched = p;
-            matchDist = dist;
-          }
-        }
-      }
+      matched = state.platforms.find((p) => p.hash === state.standingHash) || null;
     }
     if (matched) {
+      if (manDx !== null) state.gx = matched.x + manDx;
       state.feetY = matched.y;
     } else {
       let nearest = null, nearestDist = Infinity;
@@ -174,6 +178,23 @@ function handleTerminalContent(content) {
       }
     }
   }
+
+  // Snap items (collectibles, mana mines) to their platform's new position
+  // so a terminal move doesn't leave them floating where platforms used to
+  // be. Items without a matching platform fall through physics as usual.
+  const platByHash = new Map();
+  for (const p of state.platforms) if (p.hash) platByHash.set(p.hash, p);
+  const snapItem = (it) => {
+    if (!it.hash) return;
+    const p = platByHash.get(it.hash);
+    if (!p) return;
+    if (it.dx != null) it.x = p.x + it.dx;
+    it.y = p.y;
+    it.vy = 0;
+    it.grounded = true;
+  };
+  if (state.collectibles) for (const c of state.collectibles) snapItem(c);
+  if (state.manaMines) for (const m of state.manaMines) snapItem(m);
 
   // Break rope if anchor platform gone or content changed
   if (state.rope && (state.rope.state === 'swinging' || state.rope.state === 'attached')) {
@@ -198,8 +219,18 @@ if (window.__TAURI__) {
 // Track overlay focus so the HUD can be hidden when the user can't drive
 // the man. Tauri's non-activating panel translates NSWindow key state into
 // DOM focus/blur events on the webview window.
+//
+// On focus we also re-run resize(): while the overlay is blurred the
+// terminal can be moved/resized, and the canvas backing store can drift
+// from window.innerWidth/innerHeight (Tauri's programmatic window resize
+// doesn't always fire a DOM resize event on a non-activating panel).
+// Left unchecked, the HUD renders into a stale-size canvas and gets
+// scaled by the browser to fit the display — visibly shrunken.
 state.overlayActive = typeof document !== 'undefined' && document.hasFocus && document.hasFocus();
-window.addEventListener('focus', () => { state.overlayActive = true; });
+window.addEventListener('focus', () => {
+  resize();
+  state.overlayActive = true;
+});
 window.addEventListener('blur', () => { state.overlayActive = false; });
 
 // HUD close button — only reachable when the overlay is active (otherwise

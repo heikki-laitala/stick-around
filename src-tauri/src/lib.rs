@@ -5,19 +5,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Find the window closest to a known position (by center point distance).
+/// Find the window that best matches a known `(x, y, w, h)` tuple.
+///
+/// Matches prioritize **size similarity** over position proximity. Terminal
+/// apps often have auxiliary windows (preferences, command palettes, hotkey
+/// overlays) living under the same PID; if we scored by position alone,
+/// moving the tracked terminal far from its launch spot could make a small
+/// auxiliary window "closer" to `last` and cause the overlay to snap to it.
+/// Weighting size deltas 10× position deltas keeps identity stable across
+/// moves while still allowing modest resizes.
 fn find_closest_window(
     windows: &[(i32, i32, u32, u32)],
     last: (i32, i32, u32, u32),
 ) -> Option<(i32, i32, u32, u32)> {
-    let cx = last.0 + last.2 as i32 / 2;
-    let cy = last.1 + last.3 as i32 / 2;
     windows
         .iter()
         .min_by_key(|w| {
-            let wx = w.0 + w.2 as i32 / 2;
-            let wy = w.1 + w.3 as i32 / 2;
-            (wx - cx).pow(2) + (wy - cy).pow(2)
+            let size_diff =
+                (w.2 as i32 - last.2 as i32).abs() + (w.3 as i32 - last.3 as i32).abs();
+            let pos_diff = (w.0 - last.0).abs() + (w.1 - last.1).abs();
+            size_diff * 10 + pos_diff
         })
         .copied()
 }

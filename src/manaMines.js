@@ -48,7 +48,7 @@ export function spawnManaMine(platforms, existing, lineHeight = 16) {
     }
     if (tooClose) continue;
 
-    return { x, y, hits: MANA_MINE_HITS, age: 0, hash: plat.hash || 0, vy: 0, grounded: true };
+    return { x, y, hits: MANA_MINE_HITS, age: 0, hash: plat.hash || 0, dx: x - plat.x, vy: 0, grounded: true };
   }
 
   return null;

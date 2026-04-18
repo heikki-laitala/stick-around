@@ -33,7 +33,7 @@ export function spawnCollectible(platforms, existing) {
     }
     if (tooClose) continue;
 
-    return { x, y, vy: 0, grounded: true, age: 0 };
+    return { x, y, vy: 0, grounded: true, age: 0, hash: plat.hash || 0, dx: x - plat.x };
   }
 
   return null;
