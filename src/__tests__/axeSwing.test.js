@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { startAxeSwing, updateAxeSwing } from '../physics.js';
 import { AXE_SWING_DURATION, AXE_REACH, MANA_PER_MINE } from '../constants.js';
+import { IDLE, WALK } from '../poses.js';
 
 function makeState(overrides = {}) {
   return {
@@ -52,6 +53,18 @@ describe('startAxeSwing', () => {
     const sp = makeState({ posture: 'prone' });
     expect(startAxeSwing(sp)).toBe(true);
     expect(sp.axeSwing).not.toBeNull();
+  });
+
+  it('picks the forward-most arm as lead at swing start', () => {
+    // IDLE: rh.x=12, lh.x=-12 → rh is forward
+    const s = makeState({ curPose: IDLE });
+    startAxeSwing(s);
+    expect(s.axeSwing.armR).toBe(true);
+
+    // WALK[0]: lh.x=10, rh.x=-10 → lh is forward
+    const w = makeState({ curPose: WALK[0] });
+    startAxeSwing(w);
+    expect(w.axeSwing.armR).toBe(false);
   });
 });
 

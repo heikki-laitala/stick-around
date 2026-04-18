@@ -425,12 +425,19 @@ export function spawnBurstParticles(particles, x, y, count) {
  * Begin an axe swing. No-op if already swinging, airborne, or on a rope.
  * The man can swing in any grounded posture (standing, crouching, or prone)
  * so low-ceiling spots are still mineable. Returns true if started.
+ *
+ * armR captures which arm is currently forward: raw-pose x is mirrored by
+ * facing, so the hand with the larger raw x is always on the forward side
+ * regardless of direction. We freeze the choice at swing start so a walk
+ * cycle mid-swing can't swap the axe to the back arm.
  */
 export function startAxeSwing(state) {
   if (state.axeSwing) return false;
   if (!state.grounded) return false;
   if (state.rope) return false;
-  state.axeSwing = { t: 0, hit: false };
+  const pose = state.curPose || IDLE;
+  const armR = pose.rh.x >= pose.lh.x;
+  state.axeSwing = { t: 0, hit: false, armR };
   return true;
 }
 

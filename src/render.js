@@ -1,6 +1,6 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findCeiling } from './platforms.js';
-import { HUD_HEIGHT, AXE_SWING_DURATION, MANA_MINE_HITS } from './constants.js';
+import { HUD_HEIGHT, AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
 import { displayClass } from './progression.js';
 
 function drawLimb(ctx, ax, ay, bx, by) {
@@ -36,11 +36,43 @@ export function render(ctx, state, screenW, screenH) {
     y: oy + (state.curPose[name].y - 44) * s,
   });
 
-  const head = j('head'), neck = j('neck'), hip = j('hip');
-  const lsh = j('lsh'), rsh = j('rsh'), lel = j('lel'), rel = j('rel');
-  const lh = j('lh'), rh = j('rh');
+  let head = j('head'), neck = j('neck');
+  const hip = j('hip');
+  let lsh = j('lsh'), rsh = j('rsh'), lel = j('lel'), rel = j('rel');
+  let lh = j('lh'), rh = j('rh');
   const lhip = j('lhip'), rhip = j('rhip');
   const lk = j('lk'), rk = j('rk'), lf = j('lf'), rf = j('rf');
+
+  // Torso lean during an axe swing — windup back, drive forward through
+  // impact, ease back to rest. Applied as a rotation of the upper-body
+  // joints around the hip so the legs stay planted.
+  if (state.axeSwing) {
+    const dirLean = state.faceR ? 1 : -1;
+    const p = Math.min(1, state.axeSwing.t / AXE_SWING_DURATION);
+    const chop = p <= AXE_HIT_FRAME;
+    const t = chop ? p / AXE_HIT_FRAME : (p - AXE_HIT_FRAME) / (1 - AXE_HIT_FRAME);
+    const eased = chop ? t * t : 1 - (1 - t) * (1 - t);
+    const windupLean = state.posture === 'prone' ? -0.12 : -0.22;
+    const impactLean = state.posture === 'prone' ? 0.18 : 0.48;
+    const leanAngle = (chop
+      ? windupLean + (impactLean - windupLean) * eased
+      : impactLean + (0 - impactLean) * eased) * dirLean;
+    const cos = Math.cos(leanAngle);
+    const sin = Math.sin(leanAngle);
+    const rot = (pt) => {
+      const dx = pt.x - hip.x;
+      const dy = pt.y - hip.y;
+      return { x: hip.x + dx * cos - dy * sin, y: hip.y + dx * sin + dy * cos };
+    };
+    head = rot(head);
+    neck = rot(neck);
+    lsh = rot(lsh);
+    rsh = rot(rsh);
+    lel = rot(lel);
+    rel = rot(rel);
+    lh = rot(lh);
+    rh = rot(rh);
+  }
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -105,57 +137,172 @@ export function render(ctx, state, screenW, screenH) {
   ctx.lineWidth = 1.5;
   drawLimb(ctx, lsh.x, lsh.y, rsh.x, rsh.y);
 
+  const swingActive = !!state.axeSwing;
+  // The axe rides whichever arm was forward at swing start (frozen in
+  // state.axeSwing.armR). The other arm draws from its static pose.
+  const useRh = swingActive ? state.axeSwing.armR : true;
   ctx.lineWidth = 1.5;
-  drawLimb(ctx, lsh.x, lsh.y, lel.x, lel.y);
-  drawLimb(ctx, lel.x, lel.y, lh.x, lh.y);
-  drawLimb(ctx, rsh.x, rsh.y, rel.x, rel.y);
-  drawLimb(ctx, rel.x, rel.y, rh.x, rh.y);
+  if (!swingActive || useRh) {
+    drawLimb(ctx, lsh.x, lsh.y, lel.x, lel.y);
+    drawLimb(ctx, lel.x, lel.y, lh.x, lh.y);
+  }
+  if (!swingActive || !useRh) {
+    drawLimb(ctx, rsh.x, rsh.y, rel.x, rel.y);
+    drawLimb(ctx, rel.x, rel.y, rh.x, rh.y);
+  }
 
   drawLimb(ctx, lhip.x, lhip.y, lk.x, lk.y);
   drawLimb(ctx, lk.x, lk.y, lf.x, lf.y);
   drawLimb(ctx, rhip.x, rhip.y, rk.x, rk.y);
   drawLimb(ctx, rk.x, rk.y, rf.x, rf.y);
 
-  // Axe swing — a rotated handle + blade pivoting on the lead hand.
-  // Standing/crouching: full overhead arc (−135° → +45°, big chop).
-  // Prone: tight forward chip (−90° → 0°, shorter handle) since the man
-  // is lying flat and pecks at the ground ahead of him.
-  if (state.axeSwing) {
-    const handPos = state.faceR ? rh : lh;
-    const progress = Math.min(1, state.axeSwing.t / AXE_SWING_DURATION);
+  // Axe swing — animated lead arm + a bearded viking-style axe head.
+  // The arm windspups back on phase 1 (chop), snaps to the impact pose
+  // at AXE_HIT_FRAME, then eases back toward rest on phase 2 (recover).
+  if (swingActive) {
+    const leadShoulder = useRh ? rsh : lsh;
+    const leadHand = useRh ? rh : lh;
+    const dir = state.faceR ? 1 : -1;
     const isProne = state.posture === 'prone';
+    const progress = Math.min(1, state.axeSwing.t / AXE_SWING_DURATION);
+
+    const chopPhase = progress <= AXE_HIT_FRAME;
+    const phaseT = chopPhase
+      ? progress / AXE_HIT_FRAME
+      : (progress - AXE_HIT_FRAME) / (1 - AXE_HIT_FRAME);
+    // Ease-in for the chop (slow windup, fast snap to impact).
+    // Ease-out for recovery (quick release, gentle return).
+    const eased = chopPhase
+      ? phaseT * phaseT
+      : 1 - (1 - phaseT) * (1 - phaseT);
+
+    // Hand offsets from the natural rest position, mirrored by facing.
+    // Sized to the drawn man (~32px tall at SCALE=0.35), not raw pose units.
+    const windupOff = isProne ? { x: -3, y: -4 } : { x: -7, y: -13 };
+    const impactOff = isProne ? { x: 5, y: 2 } : { x: 7, y: 4 };
+    const targetOff = chopPhase ? impactOff : { x: 0, y: 0 };
+    const fromOff = chopPhase ? windupOff : impactOff;
+    const handOffX = fromOff.x + (targetOff.x - fromOff.x) * eased;
+    const handOffY = fromOff.y + (targetOff.y - fromOff.y) * eased;
+
+    const swingHandX = leadHand.x + handOffX * dir;
+    const swingHandY = leadHand.y + handOffY;
+
+    // Elbow = midpoint with an outward bend, stronger during windup.
+    const dx = swingHandX - leadShoulder.x;
+    const dy = swingHandY - leadShoulder.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const bendAmt = chopPhase ? 2.2 * (1 - eased) : 1 * (1 - eased);
+    const elbowX = (leadShoulder.x + swingHandX) / 2 + (-dy / len) * bendAmt * dir;
+    const elbowY = (leadShoulder.y + swingHandY) / 2 + (dx / len) * bendAmt * dir;
+
+    // Axe angle: start up-and-back, accelerate through impact, then ease
+    // toward a neutral carry angle so the recovery looks intentional.
     const startAngle = isProne ? -Math.PI / 2 : -Math.PI * 3 / 4;
-    const endAngle = isProne ? 0 : Math.PI / 4;
-    const angle = startAngle + progress * (endAngle - startAngle);
-    const handleLen = isProne ? 12 : 18;
-    const bladeBase = handleLen - 3;
-    const bladeTip = handleLen + 4;
-    const bladeHalf = isProne ? 4 : 5;
+    const endAngle = isProne ? 0 : Math.PI / 3;
+    const neutralAngle = isProne ? Math.PI / 6 : Math.PI / 4;
+    const angleFrom = chopPhase ? startAngle : endAngle;
+    const angleTo = chopPhase ? endAngle : neutralAngle;
+    const angle = angleFrom + (angleTo - angleFrom) * eased;
+
+    // Draw the swinging arm on top of the body in the stick-man color.
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    drawLimb(ctx, leadShoulder.x, leadShoulder.y, elbowX, elbowY);
+    drawLimb(ctx, elbowX, elbowY, swingHandX, swingHandY);
+
+    // Draw the axe pivoting on the new hand position.
     ctx.save();
     ctx.shadowBlur = 0;
-    ctx.translate(handPos.x, handPos.y);
+    ctx.translate(swingHandX, swingHandY);
     if (!state.faceR) ctx.scale(-1, 1);
     ctx.rotate(angle);
-    // Handle (wood)
-    ctx.strokeStyle = 'rgb(120, 85, 50)';
-    ctx.lineWidth = 2;
+
+    const scale = isProne ? 0.8 : 1;
+    const handleLen = 9 * scale;
+
+    // Wooden handle with a small pommel behind the grip.
+    ctx.strokeStyle = '#6b4a2e';
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(0, 0);
+    ctx.moveTo(-1.5, 0);
     ctx.lineTo(handleLen, 0);
     ctx.stroke();
-    // Blade (steel triangle)
-    ctx.fillStyle = 'rgba(210, 220, 230, 0.95)';
-    ctx.strokeStyle = 'rgba(90, 100, 115, 0.9)';
-    ctx.lineWidth = 1;
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = '#4a3320';
     ctx.beginPath();
-    ctx.moveTo(bladeBase, -bladeHalf);
-    ctx.lineTo(bladeBase, bladeHalf);
-    ctx.lineTo(bladeTip, 0);
+    ctx.arc(-1.5, 0, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Axe head — chunky blade with a flat poll (back), a short top edge,
+    // and a wide curved cutting edge that flares forward into a beard.
+    const hx = handleLen;
+    const hs = scale;
+    ctx.beginPath();
+    ctx.moveTo(hx - 1.8 * hs, -3 * hs);            // back-top (poll corner)
+    ctx.lineTo(hx + 1.5 * hs, -3.4 * hs);          // top of blade
+    ctx.quadraticCurveTo(hx + 5.5 * hs, -2.2 * hs, hx + 5.8 * hs, 0);  // cutting edge top arc
+    ctx.quadraticCurveTo(hx + 5.5 * hs, 3 * hs, hx + 2 * hs, 4 * hs);  // arc into beard
+    ctx.lineTo(hx - 1.8 * hs, 3.4 * hs);           // back-bottom (poll corner)
+    ctx.closePath();
+    ctx.fillStyle = '#b8bec5';
+    ctx.fill();
+    ctx.strokeStyle = '#2e343c';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Inner highlight suggesting a beveled face on the blade body.
+    ctx.fillStyle = 'rgba(240, 243, 247, 0.45)';
+    ctx.beginPath();
+    ctx.moveTo(hx - 1.2 * hs, -2.2 * hs);
+    ctx.lineTo(hx + 1.5 * hs, -2.5 * hs);
+    ctx.quadraticCurveTo(hx + 4.2 * hs, -1.4 * hs, hx + 4.4 * hs, 0);
+    ctx.quadraticCurveTo(hx + 4 * hs, 1.8 * hs, hx + 1.5 * hs, 2.6 * hs);
+    ctx.lineTo(hx - 1.2 * hs, 2.4 * hs);
     ctx.closePath();
     ctx.fill();
+
+    // Polished cutting edge highlight — same outer arc, brighter stroke.
+    ctx.strokeStyle = '#f4f6f9';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(hx + 1.5 * hs, -3.4 * hs);
+    ctx.quadraticCurveTo(hx + 5.5 * hs, -2.2 * hs, hx + 5.8 * hs, 0);
+    ctx.quadraticCurveTo(hx + 5.5 * hs, 3 * hs, hx + 2 * hs, 4 * hs);
     ctx.stroke();
+
+    // Socket shading where the handle passes through the head.
+    ctx.strokeStyle = '#4a3320';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.3, -3 * hs);
+    ctx.lineTo(hx - 0.3, 3.4 * hs);
+    ctx.stroke();
+
     ctx.restore();
-    // Restore shadow for subsequent draws
+
+    // Brief impact flash just after the apex.
+    const flashT = (progress - AXE_HIT_FRAME) / 0.08;
+    if (flashT >= 0 && flashT <= 1) {
+      const alpha = 0.6 * (1 - flashT);
+      ctx.save();
+      ctx.shadowBlur = 0;
+      ctx.translate(swingHandX, swingHandY);
+      if (!state.faceR) ctx.scale(-1, 1);
+      ctx.rotate(endAngle);
+      ctx.strokeStyle = `rgba(255, 245, 200, ${alpha})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(handleLen + 5.5 * hs, 0);
+      ctx.lineTo(handleLen + 9 * hs, -2 * hs);
+      ctx.moveTo(handleLen + 5.5 * hs, 0);
+      ctx.lineTo(handleLen + 9 * hs, 2 * hs);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Restore body shadow for subsequent draws.
     ctx.shadowColor = 'rgba(0, 220, 255, 0.4)';
     ctx.shadowBlur = 6;
   }
