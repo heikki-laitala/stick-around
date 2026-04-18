@@ -105,6 +105,28 @@ describe('updateAxeSwing', () => {
     expect(s.mana).toBe(5 + MANA_PER_MINE);
   });
 
+  it('increments minesMined when a mine is depleted', () => {
+    const mineX = 100 + AXE_REACH;
+    const s = makeState({
+      axeSwing: { t: 0, hit: false },
+      manaMines: [{ x: mineX, y: 190, hits: 1, age: 0 }],
+      minesMined: 2,
+    });
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.minesMined).toBe(3);
+  });
+
+  it('does not increment minesMined on a non-depleting hit', () => {
+    const mineX = 100 + AXE_REACH;
+    const s = makeState({
+      axeSwing: { t: 0, hit: false },
+      manaMines: [{ x: mineX, y: 190, hits: 3, age: 0 }],
+      minesMined: 2,
+    });
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.minesMined).toBe(2);
+  });
+
   it('misses when the mine is out of reach', () => {
     const s = makeState({
       axeSwing: { t: 0, hit: false },

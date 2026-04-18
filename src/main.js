@@ -5,7 +5,7 @@ import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, upd
 import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
-import { INITIAL_RANK, MISSIONS } from './progression.js';
+import { advanceMission, initialProgression, tickActiveMission } from './progression.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -43,10 +43,7 @@ const state = {
   mana: 0,
   inventory: ['bottle', 'key', 'map'],
   inventoryIdx: 0,
-  rank: INITIAL_RANK,
-  titles: [],
-  missionIdx: 0,
-  mission: MISSIONS[0].text,
+  ...initialProgression(),
   mouseX: -1,
   mouseY: -1,
   proneRequested: false, // true when user manually toggles prone with C
@@ -65,6 +62,7 @@ const state = {
   manaMines: [],     // { x, y, hits, age, debug? } — mineable crystal nodes
   axeSwing: null,    // { t, hit } while a swing is in progress
   score: 0,
+  minesMined: 0,     // number of mana mines fully depleted — drives progression
   promptArea: null,
   footerArea: null,
 
@@ -388,6 +386,10 @@ function loop(now) {
     updateCollectibles(state, dt);
     updateManaMines(state, dt);
     updateParticles(state.particles, dt);
+    // Mission tick runs before advance so the active mission's update can
+    // satisfy its own win condition on the same frame it happens.
+    tickActiveMission(state, dt);
+    advanceMission(state);
     // Age holes and remove old ones
     for (let i = state.holes.length - 1; i >= 0; i--) {
       state.holes[i].age += dt;

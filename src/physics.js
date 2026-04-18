@@ -488,6 +488,7 @@ function resolveAxeHit(state) {
       }
       if (m.hits <= 0) {
         state.mana = (state.mana || 0) + MANA_PER_MINE;
+        state.minesMined = (state.minesMined || 0) + 1;
         state.manaMines.splice(i, 1);
       }
       return; // one hit per swing

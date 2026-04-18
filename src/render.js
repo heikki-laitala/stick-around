@@ -1,7 +1,7 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findCeiling } from './platforms.js';
 import { HUD_HEIGHT, AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
-import { displayClass } from './progression.js';
+import { displayClass, renderActiveMission } from './progression.js';
 
 function drawLimb(ctx, ax, ay, bx, by) {
   ctx.beginPath();
@@ -413,6 +413,10 @@ export function render(ctx, state, screenW, screenH) {
     ctx.shadowBlur = 0;
   }
 
+  // Mission-specific visuals (rising lava, goal door, etc.) draw above the
+  // world but beneath HUD and debug overlays.
+  renderActiveMission(ctx, state, screenW, screenH);
+
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
   if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
 
@@ -486,7 +490,9 @@ function renderHUD(ctx, state, screenW) {
   ctx.fillStyle = 'rgba(240, 210, 165, 0.95)';
   ctx.fillText(displayClass(state), 288, textY);
 
-  // Quest (flexible — clipped to space before close button)
+  // Quest + Next (flexible — clipped to space before close button).
+  // The current quest uses the normal parchment-green; the next quest
+  // is shown dimmer so it reads as a preview, not a competing goal.
   const closeBtn = getCloseButtonRect(screenW);
   const missionX = 480;
   const missionMaxW = closeBtn.x - missionX - 12;
@@ -496,7 +502,16 @@ function renderHUD(ctx, state, screenW) {
     ctx.rect(missionX, 0, missionMaxW, HUD_HEIGHT);
     ctx.clip();
     ctx.fillStyle = 'rgba(195, 230, 180, 0.95)';
-    ctx.fillText(`Quest: ${state.mission}`, missionX, textY);
+    const questLabel = `Quest: ${state.mission}`;
+    ctx.fillText(questLabel, missionX, textY);
+    if (state.nextMission) {
+      const questW = ctx.measureText(questLabel).width;
+      const nextX = missionX + questW + 14;
+      if (nextX < missionX + missionMaxW - 40) {
+        ctx.fillStyle = 'rgba(195, 230, 180, 0.45)';
+        ctx.fillText(`Next: ${state.nextMission}`, nextX, textY);
+      }
+    }
     ctx.restore();
   }
 
