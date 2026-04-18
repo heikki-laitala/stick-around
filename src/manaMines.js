@@ -48,7 +48,10 @@ export function spawnManaMine(platforms, existing, lineHeight = 16) {
     }
     if (tooClose) continue;
 
-    return { x, y, hits: MANA_MINE_HITS, age: 0, hash: plat.hash || 0, dx: x - plat.x, vy: 0, grounded: true };
+    // See collectibles.js — fractional offset within the platform is
+    // resize-stable where an absolute pixel dx is not.
+    const dxFrac = plat.w > 0 ? (x - plat.x) / plat.w : 0;
+    return { x, y, hits: MANA_MINE_HITS, age: 0, hash: plat.hash || 0, dxFrac, vy: 0, grounded: true };
   }
 
   return null;

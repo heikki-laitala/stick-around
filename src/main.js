@@ -111,15 +111,38 @@ window.addEventListener('resize', () => {
 function handleTerminalContent(content) {
   if (!content || !Array.isArray(content.lines) || content.lines.length === 0) return;
 
+  // Detect a terminal *resize* (as opposed to scroll/move/content change).
+  // Chasing positions across a resize is unreliable — platform pixel
+  // widths and character widths shift in ways that hash-based snapping
+  // can't fully compensate for — so we treat a resize as a fresh scene:
+  // clear the items and teleport the man back to his spawn position.
+  const prev = state.lastContent;
+  const resized = !!prev && (
+    prev.term_cols !== content.term_cols
+    || prev.term_rows !== content.term_rows
+    || prev.text_width !== content.text_width
+    || prev.text_height !== content.text_height
+  );
+
   state.lastContent = content;
 
-  // Capture the man's horizontal offset on his current platform before we
-  // rebuild, so a sideways terminal move can snap him back to the same
-  // relative spot on that platform instead of leaving him hanging in air.
-  let manDx = null;
-  if (state.hasSpawned && state.grounded && state.standingHash !== 0) {
+  // The overlay may have been resized by the Rust side (terminal resize →
+  // apply_bounds → set_size) while blurred. On a non-activating panel that
+  // programmatic resize doesn't always fire a DOM resize event, so the
+  // canvas backing store can drift out of sync. Rerun resize() whenever
+  // the window dimensions don't match the current canvas, so subsequent
+  // platform/item math draws to a canvas of the correct pixel size.
+  if (canvas.width !== window.innerWidth * devicePixelRatio
+      || canvas.height !== window.innerHeight * devicePixelRatio) {
+    resize();
+  }
+
+  // Capture the man's fractional position along his current platform
+  // before we rebuild — only when it's NOT a resize; on resize we respawn.
+  let manDxFrac = null;
+  if (!resized && state.hasSpawned && state.grounded && state.standingHash !== 0) {
     const oldPlat = state.platforms.find((p) => p.hash === state.standingHash);
-    if (oldPlat) manDx = state.gx - oldPlat.x;
+    if (oldPlat && oldPlat.w > 0) manDxFrac = (state.gx - oldPlat.x) / oldPlat.w;
   }
 
   // The overlay window extends HUD_HEIGHT pixels above the terminal to host
@@ -145,15 +168,26 @@ function handleTerminalContent(content) {
   state.lastInputLine = result.lastInputLine;
   state.lastFooterLine = result.lastFooterLine;
 
+  // On resize, clear items so they respawn fresh on the new layout, and
+  // force the spawn branch below to re-place the man on the prompt box.
+  if (resized) {
+    if (state.collectibles) state.collectibles.length = 0;
+    if (state.manaMines) state.manaMines.length = 0;
+    state.hasSpawned = false;
+  }
+
   // Spawn man at terminal right edge, on top of prompt box
   if (!state.hasSpawned && state.promptArea && state.footerArea) {
     state.gx = state.textOffsetX + state.textWidth - 20 * SCALE - 20;
     state.feetY = state.promptArea.y;
     state.faceR = false;
+    state.vy = 0;
+    state.standingHash = 0;
+    state.grounded = true;
     state.hasSpawned = true;
   } else if (state.hasSpawned && state.grounded && state.platforms.length > 0) {
-    // Follow platform when terminal text changes (scroll or sideways move).
-    // If we captured manDx above, snap both gx and feetY to preserve the
+    // Follow platform when terminal text changes (scroll, move). If we
+    // captured manDxFrac above, snap both gx and feetY to preserve the
     // same relative spot on the platform — otherwise fall back to
     // vertical-only snap (e.g. for the first frame after spawn).
     let matched = null;
@@ -161,7 +195,7 @@ function handleTerminalContent(content) {
       matched = state.platforms.find((p) => p.hash === state.standingHash) || null;
     }
     if (matched) {
-      if (manDx !== null) state.gx = matched.x + manDx;
+      if (manDxFrac !== null) state.gx = matched.x + manDxFrac * matched.w;
       state.feetY = matched.y;
     } else {
       let nearest = null, nearestDist = Infinity;
@@ -179,22 +213,24 @@ function handleTerminalContent(content) {
     }
   }
 
-  // Snap items (collectibles, mana mines) to their platform's new position
-  // so a terminal move doesn't leave them floating where platforms used to
-  // be. Items without a matching platform fall through physics as usual.
-  const platByHash = new Map();
-  for (const p of state.platforms) if (p.hash) platByHash.set(p.hash, p);
-  const snapItem = (it) => {
-    if (!it.hash) return;
-    const p = platByHash.get(it.hash);
-    if (!p) return;
-    if (it.dx != null) it.x = p.x + it.dx;
-    it.y = p.y;
-    it.vy = 0;
-    it.grounded = true;
-  };
-  if (state.collectibles) for (const c of state.collectibles) snapItem(c);
-  if (state.manaMines) for (const m of state.manaMines) snapItem(m);
+  // Snap items to their platform's new position on scroll/move (not resize
+  // — we already cleared them above). Using a fractional offset keeps each
+  // item on the same visual spot of its line.
+  if (!resized) {
+    const platByHash = new Map();
+    for (const p of state.platforms) if (p.hash) platByHash.set(p.hash, p);
+    const snapItem = (it) => {
+      if (!it.hash) return;
+      const p = platByHash.get(it.hash);
+      if (!p) return;
+      if (it.dxFrac != null) it.x = p.x + it.dxFrac * p.w;
+      it.y = p.y;
+      it.vy = 0;
+      it.grounded = true;
+    };
+    if (state.collectibles) for (const c of state.collectibles) snapItem(c);
+    if (state.manaMines) for (const m of state.manaMines) snapItem(m);
+  }
 
   // Break rope if anchor platform gone or content changed
   if (state.rope && (state.rope.state === 'swinging' || state.rope.state === 'attached')) {

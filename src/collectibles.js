@@ -33,7 +33,12 @@ export function spawnCollectible(platforms, existing) {
     }
     if (tooClose) continue;
 
-    return { x, y, vy: 0, grounded: true, age: 0, hash: plat.hash || 0, dx: x - plat.x };
+    // Store the position as a fraction of the platform's width so that
+    // terminal resizes (which change charWidth and platform pixel width
+    // even when line content is unchanged) keep the item on the same
+    // visual spot of its line rather than drifting to a stale pixel offset.
+    const dxFrac = plat.w > 0 ? (x - plat.x) / plat.w : 0;
+    return { x, y, vy: 0, grounded: true, age: 0, hash: plat.hash || 0, dxFrac };
   }
 
   return null;

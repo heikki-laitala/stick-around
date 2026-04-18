@@ -5,30 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Find the window that best matches a known `(x, y, w, h)` tuple.
-///
-/// Matches prioritize **size similarity** over position proximity. Terminal
-/// apps often have auxiliary windows (preferences, command palettes, hotkey
-/// overlays) living under the same PID; if we scored by position alone,
-/// moving the tracked terminal far from its launch spot could make a small
-/// auxiliary window "closer" to `last` and cause the overlay to snap to it.
-/// Weighting size deltas 10× position deltas keeps identity stable across
-/// moves while still allowing modest resizes.
-fn find_closest_window(
-    windows: &[(i32, i32, u32, u32)],
-    last: (i32, i32, u32, u32),
-) -> Option<(i32, i32, u32, u32)> {
-    windows
-        .iter()
-        .min_by_key(|w| {
-            let size_diff =
-                (w.2 as i32 - last.2 as i32).abs() + (w.3 as i32 - last.3 as i32).abs();
-            let pos_diff = (w.0 - last.0).abs() + (w.1 - last.1).abs();
-            size_diff * 10 + pos_diff
-        })
-        .copied()
-}
-
 /// Extra strip above the terminal window reserved for the HUD.
 /// Must stay in sync with HUD_HEIGHT in src/constants.js.
 const HUD_HEIGHT: u32 = 32;
@@ -122,9 +98,11 @@ pub fn run(terminal_app: Option<String>) {
     // Position heuristics can't disambiguate two same-PID windows — if the
     // user drags our tracked window past another Ghostty/iTerm window, the
     // overlay would otherwise snap to whichever sibling ended up closer.
+    // We pick by z-order (the frontmost same-PID window right now) rather
+    // than by bounds, because same-app windows often share geometry and a
+    // bounds match is ambiguous.
     #[cfg(target_os = "macos")]
-    let tracked_window_id: Option<u32> =
-        initial_bounds.and_then(|b| platform::get_window_id_for_bounds(pid, b));
+    let tracked_window_id: Option<u32> = platform::get_frontmost_window_id_for_pid(pid);
 
     let state = TerminalState {
         pid,
@@ -203,9 +181,6 @@ pub fn run(terminal_app: Option<String>) {
 
             // Poll: track window by its stable CGWindowID (macOS) and toggle
             // alwaysOnTop when the terminal or our own app is frontmost.
-            // The heuristic `find_closest_window` only runs as a fallback if
-            // the window ID lookup failed at launch or the window has since
-            // disappeared.
             let win_track = window.clone();
             std::thread::spawn(move || {
                 let mut last_bounds = initial_bounds.unwrap_or((0, 0, 800, 600));
@@ -220,18 +195,31 @@ pub fn run(terminal_app: Option<String>) {
                         was_on_top = on_top;
                     }
 
+                    // macOS: track strictly by CGWindowID. No heuristic
+                    // fallback — a position/size heuristic can't disambiguate
+                    // same-PID siblings and is exactly how the overlay used
+                    // to hop onto the wrong Claude terminal during a resize.
+                    // If the ID lookup fails for a tick we just skip the
+                    // update and leave the overlay where it was; next tick
+                    // will pick it back up.
                     #[cfg(target_os = "macos")]
-                    let next = tracked_window_id
-                        .and_then(platform::get_window_bounds_by_id)
-                        .or_else(|| {
-                            let windows = platform::get_all_window_bounds(pid);
-                            find_closest_window(&windows, last_bounds)
-                        });
+                    let next = tracked_window_id.and_then(platform::get_window_bounds_by_id);
 
+                    // Non-macOS: no stable per-window ID hooked up yet, so
+                    // pick the closest same-PID window by size then position.
                     #[cfg(not(target_os = "macos"))]
                     let next = {
                         let windows = platform::get_all_window_bounds(pid);
-                        find_closest_window(&windows, last_bounds)
+                        windows
+                            .iter()
+                            .min_by_key(|w| {
+                                let size_diff = (w.2 as i32 - last_bounds.2 as i32).abs()
+                                    + (w.3 as i32 - last_bounds.3 as i32).abs();
+                                let pos_diff =
+                                    (w.0 - last_bounds.0).abs() + (w.1 - last_bounds.1).abs();
+                                size_diff * 10 + pos_diff
+                            })
+                            .copied()
                     };
 
                     if let Some(b) = next {

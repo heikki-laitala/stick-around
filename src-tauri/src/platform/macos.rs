@@ -32,7 +32,6 @@ struct CGRectRaw {
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
-    fn CGWindowListCreateDescriptionFromArray(array: CFTypeRef) -> CFTypeRef;
     fn CGRectMakeWithDictionaryRepresentation(dict: CFTypeRef, rect: *mut CGRectRaw) -> bool;
 }
 
@@ -40,15 +39,8 @@ extern "C" {
 extern "C" {
     fn CFArrayGetCount(array: CFTypeRef) -> isize;
     fn CFArrayGetValueAtIndex(array: CFTypeRef, idx: isize) -> CFTypeRef;
-    fn CFArrayCreate(
-        allocator: CFTypeRef,
-        values: *const CFTypeRef,
-        count: isize,
-        callbacks: CFTypeRef,
-    ) -> CFTypeRef;
     fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
     fn CFNumberGetValue(num: CFTypeRef, typ: i32, value_ptr: *mut c_void) -> bool;
-    fn CFNumberCreate(alloc: CFTypeRef, typ: i32, value_ptr: *const c_void) -> CFTypeRef;
     fn CFRelease(cf: CFTypeRef);
     fn CFStringCreateWithCString(
         alloc: CFTypeRef,
@@ -58,7 +50,6 @@ extern "C" {
 }
 
 const CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
-const CF_NUMBER_SINT32_TYPE: i32 = 3;
 const CF_NUMBER_SINT64_TYPE: i32 = 4;
 const CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
 
@@ -85,19 +76,22 @@ unsafe fn dict_number_i64(dict: CFTypeRef, key: &str) -> Option<i64> {
     }
 }
 
-/// Find the CGWindowID of the on-screen window owned by `pid` whose bounds
-/// match `want` (within a small tolerance to absorb AX vs CG rounding).
+/// Return the CGWindowID of the frontmost on-screen window owned by `pid`.
 ///
-/// Returns `None` if no match is found; the caller should fall back to a
-/// position/size heuristic in that case.
-pub fn get_window_id_for_bounds(pid: u32, want: (i32, i32, u32, u32)) -> Option<u32> {
+/// `CGWindowListCopyWindowInfo` returns windows z-ordered front to back, so
+/// the first normal-layer window we find for our target PID is the one the
+/// user is actively looking at — i.e. the terminal they just launched the
+/// overlay from. We deliberately avoid matching by bounds here: two
+/// same-app terminal windows often have identical or near-identical
+/// geometry, and a bounds-based match is ambiguous and fragile. Picking
+/// by z-order is unambiguous at launch time.
+pub fn get_frontmost_window_id_for_pid(pid: u32) -> Option<u32> {
     unsafe {
         let list = CGWindowListCopyWindowInfo(CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY, 0);
         if list.is_null() {
             return None;
         }
         let count = CFArrayGetCount(list);
-        let bounds_key = cfstr("kCGWindowBounds");
         let mut result: Option<u32> = None;
         for i in 0..count {
             let dict = CFArrayGetValueAtIndex(list, i);
@@ -111,26 +105,11 @@ pub fn get_window_id_for_bounds(pid: u32, want: (i32, i32, u32, u32)) -> Option<
             if dict_number_i64(dict, "kCGWindowLayer").unwrap_or(0) != 0 {
                 continue;
             }
-            let bd = CFDictionaryGetValue(dict, bounds_key);
-            if bd.is_null() {
-                continue;
-            }
-            let mut r = CGRectRaw::default();
-            if !CGRectMakeWithDictionaryRepresentation(bd, &mut r) {
-                continue;
-            }
-            if (r.origin_x as i32 - want.0).abs() <= 10
-                && (r.origin_y as i32 - want.1).abs() <= 10
-                && (r.size_width as i32 - want.2 as i32).abs() <= 10
-                && (r.size_height as i32 - want.3 as i32).abs() <= 10
-            {
-                if let Some(wid) = dict_number_i64(dict, "kCGWindowNumber") {
-                    result = Some(wid as u32);
-                    break;
-                }
+            if let Some(wid) = dict_number_i64(dict, "kCGWindowNumber") {
+                result = Some(wid as u32);
+                break;
             }
         }
-        CFRelease(bounds_key);
         CFRelease(list);
         result
     }
@@ -139,51 +118,50 @@ pub fn get_window_id_for_bounds(pid: u32, want: (i32, i32, u32, u32)) -> Option<
 /// Look up current bounds of a specific `CGWindowID`. Returns `None` if the
 /// window has been closed or is no longer reported (e.g., minimized into
 /// the Dock, off-screen on a disconnected display).
+///
+/// We iterate the full window list and match by `kCGWindowNumber` instead of
+/// using `CGWindowListCreateDescriptionFromArray`, which produced empty
+/// results in practice — likely because it needs a properly retained
+/// CFArray (CFArrayCreate with NULL callbacks doesn't suffice) and Apple's
+/// documented usage is thin on the ground. Iteration is ~O(num_windows)
+/// per poll tick (50–100 typically) and robust.
 pub fn get_window_bounds_by_id(window_id: u32) -> Option<(i32, i32, u32, u32)> {
     unsafe {
-        let id_val: i32 = window_id as i32;
-        let num = CFNumberCreate(
-            std::ptr::null(),
-            CF_NUMBER_SINT32_TYPE,
-            &id_val as *const _ as *const c_void,
-        );
-        if num.is_null() {
+        let list = CGWindowListCopyWindowInfo(CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY, 0);
+        if list.is_null() {
             return None;
         }
-        let vals: [CFTypeRef; 1] = [num];
-        let arr = CFArrayCreate(std::ptr::null(), vals.as_ptr(), 1, std::ptr::null());
-        CFRelease(num);
-        if arr.is_null() {
-            return None;
-        }
-
-        let desc = CGWindowListCreateDescriptionFromArray(arr);
-        CFRelease(arr);
-        if desc.is_null() {
-            return None;
-        }
-
-        let mut result = None;
-        if CFArrayGetCount(desc) > 0 {
-            let dict = CFArrayGetValueAtIndex(desc, 0);
-            if !dict.is_null() {
-                let bounds_key = cfstr("kCGWindowBounds");
-                let bd = CFDictionaryGetValue(dict, bounds_key);
-                CFRelease(bounds_key);
-                if !bd.is_null() {
-                    let mut r = CGRectRaw::default();
-                    if CGRectMakeWithDictionaryRepresentation(bd, &mut r) {
-                        result = Some((
-                            r.origin_x as i32,
-                            r.origin_y as i32,
-                            r.size_width as u32,
-                            r.size_height as u32,
-                        ));
-                    }
+        let count = CFArrayGetCount(list);
+        let mut result: Option<(i32, i32, u32, u32)> = None;
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(list, i);
+            if dict.is_null() {
+                continue;
+            }
+            let wid = match dict_number_i64(dict, "kCGWindowNumber") {
+                Some(v) => v as u32,
+                None => continue,
+            };
+            if wid != window_id {
+                continue;
+            }
+            let bounds_key = cfstr("kCGWindowBounds");
+            let bd = CFDictionaryGetValue(dict, bounds_key);
+            CFRelease(bounds_key);
+            if !bd.is_null() {
+                let mut r = CGRectRaw::default();
+                if CGRectMakeWithDictionaryRepresentation(bd, &mut r) {
+                    result = Some((
+                        r.origin_x as i32,
+                        r.origin_y as i32,
+                        r.size_width as u32,
+                        r.size_height as u32,
+                    ));
                 }
             }
+            break;
         }
-        CFRelease(desc);
+        CFRelease(list);
         result
     }
 }
@@ -283,6 +261,7 @@ fn parse_bounds(s: &str) -> Option<(i32, i32, u32, u32)> {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_all_window_bounds(pid: u32) -> Vec<(i32, i32, u32, u32)> {
     let script = format!(
         r#"tell application "System Events"
