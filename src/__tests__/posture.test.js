@@ -371,33 +371,33 @@ describe('movement blocked when space too tight', () => {
     expect(s.gvx).toBe(0);
   });
 
-  it('standing jump bursts through ceiling platform', () => {
-    // Man standing at feetY=300, platform at y=275 to burst through.
-    // Jump max height = JUMP_V²/(2*GRAV) = 240²/1600 = 36px → feet reach 264.
-    // So platform at 275 is within reach (300-275=25 < 36).
-    const s = makeState({
+  it('standing jump is plain JUMP_V regardless of overhead ceilings', () => {
+    // Regression: the standing-jump branch used to size velocity to clear
+    // any overhead ceiling, which made jumps under a content-line ceiling
+    // (common mid-screen) much taller than jumps on the open floor. The
+    // rule now: only the footer-escape branch boosts jumps.
+    const { JUMP_V } = require('../constants.js');
+    const mkFloor = () => ({ y: 300, x: 0, w: 400, hash: 2 });
+    const openField = makeState({
+      feetY: 300, gx: 100, posture: 'standing', gvy: 0,
+      platforms: [mkFloor()], holes: [], particles: [],
+      lineHeight: 20, promptArea: null,
+    });
+    const underCeiling = makeState({
       feetY: 300, gx: 100, posture: 'standing', gvy: 0,
       platforms: [
-        { y: 275, x: 0, w: 400, hash: 1 }, // platform to burst
-        { y: 300, x: 0, w: 400, hash: 2 }, // floor
+        { y: 200, x: 0, w: 400, hash: 1 }, // ceiling ~100px overhead
+        mkFloor(),
       ],
-      holes: [],
-      particles: [],
-      lineHeight: 20,
-      promptArea: null,
+      holes: [], particles: [],
+      lineHeight: 20, promptArea: null,
     });
-    // First tick: jump
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
-    expect(s.gvy).toBeLessThan(0);
-    expect(s.grounded).toBe(false);
-    // Keep ticking until feet cross the platform (y=275)
-    for (let i = 0; i < 60; i++) {
-      updateMovement(s, 0.016, new Set(), 800, 600);
-      if (s.holes.length > 0) break;
-    }
-    expect(s.holes.length).toBe(1);
-    expect(s.holes[0].y).toBe(275);
-    expect(s.particles.length).toBeGreaterThan(0);
+    updateMovement(openField, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(underCeiling, 0.016, new Set(['Space']), 800, 600);
+    // Both should leave the ground at exactly JUMP_V (minus one frame of gravity).
+    expect(openField.gvy).toBeCloseTo(underCeiling.gvy, 5);
+    expect(openField.gvy).toBeLessThan(0);
+    expect(Math.abs(openField.gvy)).toBeLessThanOrEqual(JUMP_V);
   });
 
   it('gives extra jump boost in footer area', () => {

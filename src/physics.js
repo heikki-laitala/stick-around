@@ -189,14 +189,13 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
       state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
       state.grounded = false; state.standingHash = 0; state.landT = 0;
     } else if (state.posture === 'standing') {
-      // Check for ceiling platform to burst through — boost jump to clear it
-      const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
-      if (ceiling && state.holes && state.particles) {
-        const dist = state.feetY - ceiling.y + CEIL_CLEAR_OVERSHOOT;
-        state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
-      } else {
-        state.gvy = -JUMP_V;
-      }
+      // Plain standing jump — constant JUMP_V everywhere. We deliberately do
+      // NOT size the jump to clear an overhead ceiling: that produced a much
+      // taller jump in the middle of the screen (where a content line sits
+      // as a ceiling above the man) than on the floor. Tight ceilings that
+      // the man can't walk under force a crouch, which uses the dedicated
+      // crouch-burst branch above.
+      state.gvy = -JUMP_V;
       state.grounded = false; state.standingHash = 0; state.landT = 0;
     }
   }
