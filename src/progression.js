@@ -127,6 +127,29 @@ export function advanceMission(state) {
 }
 
 /**
+ * Debug-only: force the current mission to complete, applying its rewards
+ * and firing onExit, then advance to the next mission. Used from a hidden
+ * key binding to play-test higher-level missions without satisfying their
+ * actual conditions.
+ */
+export function debugSkipMission(state) {
+  ensureFields(state);
+  ensureEntered(state);
+  if (state.missionIdx >= MISSIONS.length) return;
+  const m = MISSIONS[state.missionIdx];
+  if (m.rewardRank) state.rank = m.rewardRank;
+  if (m.rewardTitle) state.titles.push(m.rewardTitle);
+  if (m.unlocks) for (const u of m.unlocks) state.unlocks.add(u);
+  state.completedMissionIds.add(m.id);
+  m.onExit?.(state);
+  state.missionScene = null;
+  state.currentMissionId = null;
+  state.missionIdx += 1;
+  // Fire onEnter for the next mission (if any) and refresh the HUD fields.
+  advanceMission(state);
+}
+
+/**
  * Per-frame tick for the active mission's `update` hook (if any). Call
  * from the main game loop after gameplay updates, before rendering.
  */

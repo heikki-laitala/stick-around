@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MISSIONS,
   advanceMission,
+  debugSkipMission,
   displayClass,
   initialProgression,
   hasUnlock,
@@ -280,6 +281,32 @@ describe('mission lifecycle hooks', () => {
     completeRealMissions(s);
     expect(() => tickActiveMission(s, 0.016)).not.toThrow();
     expect(() => renderActiveMission({}, s, 800, 600)).not.toThrow();
+  });
+});
+
+describe('debugSkipMission', () => {
+  it('completes the current mission, applies its rewards, and advances', () => {
+    const s = makeState();
+    debugSkipMission(s);
+    expect(s.missionIdx).toBe(1);
+    expect(s.rank).toBe(MISSIONS[0].rewardRank);
+    expect(hasCompleted(s, MISSIONS[0].id)).toBe(true);
+    expect(s.mission).toBe(MISSIONS[1].text);
+  });
+
+  it('walks through every mission in the ladder', () => {
+    const s = makeState();
+    for (let i = 0; i < MISSIONS.length; i++) debugSkipMission(s);
+    expect(s.missionIdx).toBe(MISSIONS.length);
+    expect(s.mission).toMatch(/complete/i);
+  });
+
+  it('is a safe no-op once every mission is complete', () => {
+    const s = makeState();
+    for (let i = 0; i < MISSIONS.length; i++) debugSkipMission(s);
+    const beforeIdx = s.missionIdx;
+    debugSkipMission(s);
+    expect(s.missionIdx).toBe(beforeIdx);
   });
 });
 

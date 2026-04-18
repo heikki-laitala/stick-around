@@ -5,7 +5,7 @@ import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, upd
 import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
-import { advanceMission, initialProgression, tickActiveMission } from './progression.js';
+import { advanceMission, debugSkipMission, initialProgression, tickActiveMission } from './progression.js';
 import { restartEscapeLava } from './missions/escapeLava.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -311,6 +311,14 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyF') { startAxeSwing(state); return; }
+  if (e.code === 'KeyN' && e.shiftKey) {
+    // Debug: skip to the next mission. Applies rewards for the current one
+    // so progression stays consistent.
+    restartEscapeLava(state);
+    debugSkipMission(state);
+    resetPlayer(state);
+    return;
+  }
   if (e.code === 'KeyR') {
     if (state.gameOver) {
       restartEscapeLava(state);
@@ -401,9 +409,21 @@ function loop(now) {
       updateManaMines(state, dt);
       updateParticles(state.particles, dt);
       // Mission tick runs before advance so the active mission's update can
-      // satisfy its own win condition on the same frame it happens.
-      tickActiveMission(state, dt);
-      advanceMission(state);
+      // satisfy its own win condition on the same frame it happens. When
+      // the overlay is deactivated (user pressed Escape to focus the
+      // terminal), the mission pauses — lava stops rising, the door stops
+      // moving, and the render hook fades hazards to low alpha.
+      if (state.overlayActive) {
+        tickActiveMission(state, dt);
+        // Missions can ask for an automatic restart (e.g. lava swallowed
+        // the door). Honor it before advance so onEnter re-fires on this
+        // tick.
+        if (state.missionScene?.requestRestart) {
+          restartEscapeLava(state);
+          resetPlayer(state);
+        }
+        advanceMission(state);
+      }
     }
     // Age holes and remove old ones
     for (let i = state.holes.length - 1; i >= 0; i--) {

@@ -1,44 +1,63 @@
-import { JUMP_V } from '../constants.js';
+import { GRAV, JUMP_V } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 
 /**
  * "Escape the rising lava" mission.
  *
- * Lava rises from the bottom of the overlay at a steady rate. Each time the
- * man's feet touch the lava surface:
- *   - with score > 0: loses one glowing ball, gets knocked upward, and
- *     becomes briefly invulnerable so a single dip can't drain the counter.
- *   - with score == 0: GAME OVER.
+ * Lava rises from the bottom of the overlay at a steady rate. The man can
+ * stand on the lava surface — he ends up half-submerged and can jump off
+ * it to reach higher platforms. Each tick spent with feet in the lava
+ * costs one glowing ball (rate-limited by LAVA_HIT_COOLDOWN); a tick
+ * fired with zero balls left = GAME OVER.
  *
- * Winning is reaching the door anchored on the topmost content platform near
- * the left edge. Door contact flips state.missionScene.reachedDoor and the
- * progression ladder advances on the same frame.
+ * The door is a physics object. It anchors to the topmost identifiable
+ * platform at mission start and rides it as the terminal scrolls. If that
+ * platform vanishes (line edited away, scrolled off), the door detaches
+ * and falls under gravity until it lands on another platform. Hitting
+ * lava or falling off-screen requests a mission restart.
+ *
+ * Win conditions:
+ *   - torso overlaps the door rect while it's at rest (normal).
+ *   - door lands on the very platform the player is standing on
+ *     ("lava lucky" — the door delivers itself to the hero).
  *
  * `restartEscapeLava(state)` resets gameOver and wipes missionScene so the
  * next `advanceMission` tick re-enters the mission from scratch.
  */
 
-const LAVA_RISE_RATE = 12;        // px/sec — tune for desired difficulty
-const LAVA_HIT_COOLDOWN = 1.0;    // seconds of invulnerability after a hit
-const LAVA_KNOCKBACK = JUMP_V * 1.2;
+const LAVA_RISE_RATE = 7;         // px/sec — tune for desired difficulty
+const LAVA_HIT_COOLDOWN = 1.0;    // seconds between burn ticks while in lava
+const LAVA_SUBMERGE = STANDING_HEIGHT / 2; // depth the man sinks into the lava surface
+const LAVA_JUMP_CLEARANCE = 40;   // extra rise above lava surface on boosted jump
 const DOOR_W = 36;
 const DOOR_H = 56;
 const PRIME_SCORE = 5;            // minimum balls the mission starts/restarts with
+const DOOR_INSET_X = 20;          // horizontal offset from anchor platform's left edge
 
-function topmostPlatform(platforms) {
-  if (!platforms || platforms.length === 0) return null;
-  let top = platforms[0];
+function trackable(p) {
+  // hash 0 is "unidentifiable" (used for platforms without a stable line
+  // hash); 0xFFFF is the prompt-top border, which we also trust as stable.
+  return !!p && typeof p.hash === 'number' && p.hash !== 0;
+}
+
+function topmostTrackablePlatform(platforms) {
+  if (!platforms) return null;
+  let top = null;
   for (const p of platforms) {
-    if (p.y < top.y) top = p;
+    if (!trackable(p)) continue;
+    if (!top || p.y < top.y) top = p;
   }
   return top;
 }
 
-function pickDoorPosition(state) {
-  const top = topmostPlatform(state.platforms);
-  if (!top) return { x: 30, y: 64 };
-  // Anchor left but inset from the edge so the door is visibly framed.
-  return { x: top.x + 20, y: top.y - DOOR_H };
+function findPlatformByHash(platforms, hash) {
+  if (!platforms || hash == null) return null;
+  for (const p of platforms) if (p.hash === hash) return p;
+  return null;
+}
+
+function horizontallyOverlaps(doorX, doorW, p) {
+  return doorX < p.x + p.w && doorX + doorW > p.x;
 }
 
 export const ESCAPE_LAVA_MISSION = {
@@ -50,14 +69,31 @@ export const ESCAPE_LAVA_MISSION = {
   onEnter(state) {
     const screenH = state.screenH || 600;
     const scene = state.missionScene;
-    scene.lavaY = screenH + 40;   // starts just below the visible area
+    scene.lavaY = screenH + 40;
     scene.invulnTimer = 0;
     scene.reachedDoor = false;
-    const door = pickDoorPosition(state);
-    scene.doorX = door.x;
-    scene.doorY = door.y;
+    scene.requestRestart = false;
+    scene.luckyBestowed = false;
+    scene.wasOnLava = false;
     scene.doorW = DOOR_W;
     scene.doorH = DOOR_H;
+    scene.doorVy = 0;
+
+    const anchor = topmostTrackablePlatform(state.platforms);
+    if (anchor) {
+      scene.doorX = anchor.x + DOOR_INSET_X;
+      scene.doorY = anchor.y - DOOR_H;
+      scene.doorAnchorHash = anchor.hash;
+      scene.doorAnchorOffsetX = DOOR_INSET_X;
+    } else {
+      // Nothing to anchor to — float near the top-left and let the physics
+      // step on the next frame pull the door down until something catches it.
+      scene.doorX = 30;
+      scene.doorY = 80;
+      scene.doorAnchorHash = null;
+      scene.doorAnchorOffsetX = 0;
+    }
+
     state.gameOver = false;
     if ((state.score || 0) < PRIME_SCORE) state.score = PRIME_SCORE;
   },
@@ -75,6 +111,9 @@ export const ESCAPE_LAVA_MISSION = {
     if (scene.lavaY < 0) scene.lavaY = 0;
     scene.invulnTimer = Math.max(0, scene.invulnTimer - dt);
 
+    updateDoorPhysics(state, scene, dt);
+    if (scene.requestRestart) return;
+
     // Win condition: man's torso overlaps the door rect.
     const torsoY = state.feetY - STANDING_HEIGHT / 2;
     if (state.gx >= scene.doorX && state.gx <= scene.doorX + scene.doorW &&
@@ -83,42 +122,133 @@ export const ESCAPE_LAVA_MISSION = {
       return;
     }
 
-    // Lava hit: the man's feet dipped below the lava surface.
-    if (scene.invulnTimer <= 0 && state.feetY >= scene.lavaY) {
-      if ((state.score || 0) <= 0) {
-        state.gameOver = true;
-        state.gvx = 0;
-        state.gvy = 0;
-        return;
-      }
-      state.score -= 1;
-      scene.invulnTimer = LAVA_HIT_COOLDOWN;
-      state.gvy = -LAVA_KNOCKBACK;
-      state.grounded = false;
-      if (state.particles) {
-        for (let i = 0; i < 12; i++) {
-          const a = -Math.PI + Math.random() * Math.PI;
-          const sp = 40 + Math.random() * 80;
-          state.particles.push({
-            x: state.gx, y: scene.lavaY,
-            vx: Math.cos(a) * sp,
-            vy: Math.sin(a) * sp,
-            life: 0.5, maxLife: 0.5,
-          });
+    // Lava surface acts as a burning platform. Park the man half-submerged
+    // so the upper body stays visible and he can jump off to escape.
+    // Skip the clamp when he's rising (gvy<0) so jumps aren't re-grounded.
+    const onLavaFalling = state.feetY >= scene.lavaY && state.gvy >= 0;
+    if (onLavaFalling) {
+      state.feetY = scene.lavaY + LAVA_SUBMERGE;
+      state.gvy = 0;
+      state.grounded = true;
+      state.standingHash = 0;
+
+      if (scene.invulnTimer <= 0) {
+        if ((state.score || 0) <= 0) {
+          state.gameOver = true;
+          state.gvx = 0;
+          state.gvy = 0;
+          return;
+        }
+        state.score -= 1;
+        scene.invulnTimer = LAVA_HIT_COOLDOWN;
+        if (state.particles) {
+          for (let i = 0; i < 12; i++) {
+            const a = -Math.PI + Math.random() * Math.PI;
+            const sp = 40 + Math.random() * 80;
+            state.particles.push({
+              x: state.gx, y: scene.lavaY,
+              vx: Math.cos(a) * sp,
+              vy: Math.sin(a) * sp,
+              life: 0.5, maxLife: 0.5,
+            });
+          }
         }
       }
     }
+
+    // Lava launch boost: if the man was parked on lava last frame and has
+    // just jumped (gvy<0 this frame), override the normal JUMP_V with a
+    // distance-based velocity that clears the lava surface by
+    // LAVA_JUMP_CLEARANCE — same formula as the footer escape jump.
+    if (scene.wasOnLava && !onLavaFalling && state.gvy < 0) {
+      const dist = (state.feetY - scene.lavaY) + LAVA_JUMP_CLEARANCE;
+      state.gvy = -Math.max(JUMP_V, Math.sqrt(2 * GRAV * dist));
+    }
+    scene.wasOnLava = onLavaFalling;
   },
 
   render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
 
+    // While the overlay is deactivated (Escape pressed to return focus to
+    // the terminal), fade the lava way down so the user can read terminal
+    // content through it. The mission is also paused in main.js, so the
+    // faded lava isn't a live hazard.
+    const paused = state.overlayActive === false;
+    ctx.save();
+    ctx.globalAlpha = paused ? 0.2 : 1;
     renderLava(ctx, scene.lavaY, W, H);
+    ctx.restore();
+
     renderDoor(ctx, scene.doorX, scene.doorY, scene.doorW, scene.doorH);
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };
+
+function updateDoorPhysics(state, scene, dt) {
+  if (scene.doorAnchorHash != null) {
+    const anchor = findPlatformByHash(state.platforms, scene.doorAnchorHash);
+    if (anchor) {
+      scene.doorX = anchor.x + scene.doorAnchorOffsetX;
+      scene.doorY = anchor.y - scene.doorH;
+      scene.doorVy = 0;
+      return;
+    }
+    // Anchor gone — detach, start falling from wherever we were.
+    scene.doorAnchorHash = null;
+    scene.doorVy = 0;
+  }
+
+  // Free-fall.
+  scene.doorVy += GRAV * dt;
+  const bottomBefore = scene.doorY + scene.doorH;
+  scene.doorY += scene.doorVy * dt;
+  const bottomAfter = scene.doorY + scene.doorH;
+
+  // Into lava — unrecoverable; mission must restart.
+  if (bottomAfter >= scene.lavaY) {
+    scene.requestRestart = true;
+    return;
+  }
+  // Off the bottom of the screen with nothing catching it.
+  const screenH = state.screenH || 9999;
+  if (scene.doorY > screenH) {
+    scene.requestRestart = true;
+    return;
+  }
+
+  // Collide with the highest platform whose top edge was crossed this step.
+  let landing = null;
+  for (const p of state.platforms || []) {
+    if (!horizontallyOverlaps(scene.doorX, scene.doorW, p)) continue;
+    if (bottomBefore <= p.y && bottomAfter >= p.y) {
+      if (!landing || p.y < landing.y) landing = p;
+    }
+  }
+  if (landing) {
+    scene.doorY = landing.y - scene.doorH;
+    scene.doorVy = 0;
+    if (trackable(landing)) {
+      scene.doorAnchorHash = landing.hash;
+      scene.doorAnchorOffsetX = scene.doorX - landing.x;
+    } else {
+      scene.doorAnchorHash = null; // not a stable identity — will fall again next frame
+    }
+    // "Lava lucky": the door touched down on the player's own platform.
+    if (
+      state.grounded &&
+      state.standingHash &&
+      landing.hash === state.standingHash &&
+      !scene.luckyBestowed
+    ) {
+      scene.luckyBestowed = true;
+      if (!state.titles) state.titles = [];
+      if (!state.titles.includes('lava lucky')) state.titles.push('lava lucky');
+      scene.reachedDoor = true;
+    }
+  }
+}
 
 /**
  * Reset the lava mission to a fresh run. Clears gameOver and wipes the
