@@ -5,16 +5,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Extra strip above the terminal window reserved for the HUD.
-/// Must stay in sync with HUD_HEIGHT in src/constants.js.
+/// Extra strip above the terminal window reserved for the HUD. Narrow
+/// terminals use the taller strip so HUD items can wrap onto two rows.
+/// Must stay in sync with HUD_HEIGHT / HUD_HEIGHT_TALL / HUD_NARROW_THRESHOLD
+/// in src/constants.js.
 const HUD_HEIGHT: u32 = 32;
+const HUD_HEIGHT_TALL: u32 = 60;
+const HUD_NARROW_THRESHOLD: u32 = 720;
+
+fn hud_height_for(w: u32) -> u32 {
+    if w < HUD_NARROW_THRESHOLD { HUD_HEIGHT_TALL } else { HUD_HEIGHT }
+}
 
 fn apply_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
+    let hud = hud_height_for(w);
     let _ = window.set_position(tauri::Position::Logical(
-        tauri::LogicalPosition::new(x as f64, (y - HUD_HEIGHT as i32) as f64),
+        tauri::LogicalPosition::new(x as f64, (y - hud as i32) as f64),
     ));
     let _ = window.set_size(tauri::Size::Logical(
-        tauri::LogicalSize::new(w as f64, (h + HUD_HEIGHT) as f64),
+        tauri::LogicalSize::new(w as f64, (h + hud) as f64),
     ));
 }
 

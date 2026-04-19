@@ -6,9 +6,24 @@ export const FRIC = 0.88;
 export const MAXV = 250;
 
 // Overlay layout
-// Extra strip above the terminal window reserved for the HUD. Must stay in
-// sync with HUD_HEIGHT in src-tauri/src/lib.rs.
+// Extra strip above the terminal window reserved for the HUD. Narrow
+// terminals use the taller strip so HUD items can wrap onto two rows
+// without being squeezed off-screen by the quest text. Must stay in sync
+// with the HUD_HEIGHT / HUD_HEIGHT_TALL / HUD_NARROW_THRESHOLD constants
+// in src-tauri/src/lib.rs.
 export const HUD_HEIGHT = 32;
+export const HUD_HEIGHT_TALL = 60;
+export const HUD_NARROW_THRESHOLD = 720;
+
+export function effectiveHudHeight(screenW) {
+  return typeof screenW === 'number' && screenW < HUD_NARROW_THRESHOLD
+    ? HUD_HEIGHT_TALL
+    : HUD_HEIGHT;
+}
+
+export function isNarrowHud(screenW) {
+  return typeof screenW === 'number' && screenW < HUD_NARROW_THRESHOLD;
+}
 
 // Rope
 export const ROPE_AIM_SPEED = 2.0;

@@ -1,4 +1,4 @@
-import { GRAV, HUD_HEIGHT, JUMP_V } from '../constants.js';
+import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isShielded } from '../spells.js';
 
@@ -43,11 +43,11 @@ function trackable(p) {
 
 // Door must sit fully inside the terminal text area — below the HUD AND
 // below the terminal title bar. state.textOffsetY is the top of the text
-// area (the title sits above it). Fall back to HUD_HEIGHT if we don't
-// have the terminal metrics yet.
+// area (the title sits above it). Fall back to the HUD height appropriate
+// for the current screen width if we don't have the terminal metrics yet.
 function minDoorTop(state) {
   const y = state?.textOffsetY;
-  return typeof y === 'number' && y > 0 ? y : HUD_HEIGHT;
+  return typeof y === 'number' && y > 0 ? y : effectiveHudHeight(state?.screenW);
 }
 
 function canHostDoor(p, state, doorH) {

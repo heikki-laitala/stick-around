@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getCloseButtonRect, isInCloseButton } from '../render.js';
-import { HUD_HEIGHT } from '../constants.js';
+import { HUD_HEIGHT, HUD_HEIGHT_TALL } from '../constants.js';
 
 describe('HUD close button', () => {
   it('sits inset from the right edge of the HUD strip', () => {
@@ -30,5 +30,13 @@ describe('HUD close button', () => {
   it('hit-tests a click above the button as a miss', () => {
     const r = getCloseButtonRect(800);
     expect(isInCloseButton(r.x + r.w / 2, r.y - 1, 800)).toBe(false);
+  });
+
+  it('stays the same compact size on a narrow (tall-HUD) screen — never balloons to fill the taller strip', () => {
+    const wide = getCloseButtonRect(800);
+    const narrow = getCloseButtonRect(500);
+    expect(narrow.w).toBe(wide.w);
+    expect(narrow.h).toBe(wide.h);
+    expect(narrow.h).toBeLessThan(HUD_HEIGHT_TALL);
   });
 });

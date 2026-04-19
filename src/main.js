@@ -1,5 +1,5 @@
 import { IDLE, SCALE } from './poses.js';
-import { ROPE_COOLDOWN, HUD_HEIGHT } from './constants.js';
+import { ROPE_COOLDOWN, effectiveHudHeight } from './constants.js';
 import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles, startAxeSwing, updateAxeSwing } from './physics.js';
 import { updateCollectibles } from './collectibles.js';
@@ -147,9 +147,11 @@ function handleTerminalContent(content) {
     if (oldPlat && oldPlat.w > 0) manDxFrac = (state.gx - oldPlat.x) / oldPlat.w;
   }
 
-  // The overlay window extends HUD_HEIGHT pixels above the terminal to host
-  // the HUD strip. Shift text_offset_y so platforms render below the strip.
-  const adjusted = { ...content, text_offset_y: content.text_offset_y + HUD_HEIGHT };
+  // The overlay window extends effectiveHudHeight pixels above the terminal
+  // to host the HUD strip (taller on narrow terminals so items wrap onto a
+  // second row). Shift text_offset_y so platforms render below the strip.
+  const hudH = effectiveHudHeight(window.innerWidth);
+  const adjusted = { ...content, text_offset_y: content.text_offset_y + hudH };
   const result = buildPlatforms(adjusted, {
     cachedInputIdx: state.cachedInputIdx,
     cachedFooterIdx: state.cachedFooterIdx,

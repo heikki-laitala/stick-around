@@ -1,4 +1,4 @@
-import { HUD_HEIGHT } from '../constants.js';
+import { effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { isShielded } from '../spells.js';
@@ -28,7 +28,7 @@ const METEOR_SPAWN_Y_MARGIN = 20;            // spawn this many px above textOff
 function spawnY(state) {
   const top = typeof state.textOffsetY === 'number' && state.textOffsetY > 0
     ? state.textOffsetY
-    : HUD_HEIGHT;
+    : effectiveHudHeight(state.screenW);
   return top - METEOR_SPAWN_Y_MARGIN;
 }
 
@@ -125,7 +125,7 @@ export const METEOR_SHOWER_MISSION = {
     for (const m of scene.meteors) renderMeteor(ctx, m);
     ctx.restore();
 
-    renderCountdown(ctx, scene, W);
+    renderCountdown(ctx, scene, W, state.screenW || W);
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };
@@ -234,7 +234,7 @@ function renderMeteor(ctx, m) {
   ctx.restore();
 }
 
-function renderCountdown(ctx, scene, W) {
+function renderCountdown(ctx, scene, W, screenW) {
   const remaining = Math.max(0, scene.durationGoal - scene.survivedTime);
   ctx.save();
   ctx.font = "bold 18px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
@@ -243,7 +243,7 @@ function renderCountdown(ctx, scene, W) {
   ctx.textBaseline = 'top';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
   ctx.shadowBlur = 4;
-  ctx.fillText(`${remaining.toFixed(1)}s`, W / 2, HUD_HEIGHT + 4);
+  ctx.fillText(`${remaining.toFixed(1)}s`, W / 2, effectiveHudHeight(screenW) + 4);
   ctx.restore();
 }
 

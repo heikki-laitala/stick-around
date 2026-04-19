@@ -1,6 +1,6 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findCeiling } from './platforms.js';
-import { HUD_HEIGHT, AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
+import { HUD_HEIGHT, AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS, effectiveHudHeight, isNarrowHud } from './constants.js';
 import { displayClass, renderActiveMission } from './progression.js';
 import { isShielded, selectedSpell, canCastSelected, shieldFadeAlpha } from './spells.js';
 
@@ -448,55 +448,62 @@ const HUD_GOLD = 'rgba(190, 155, 85, 0.9)';
  * canvas-drawn fantasy icons instead of Unicode dingbats.
  */
 function renderHUD(ctx, state, screenW) {
+  const hudH = effectiveHudHeight(screenW);
+  const twoRow = isNarrowHud(screenW);
+
   // Panel background: dark aged wood with vertical gradient.
-  const grad = ctx.createLinearGradient(0, 0, 0, HUD_HEIGHT);
+  const grad = ctx.createLinearGradient(0, 0, 0, hudH);
   grad.addColorStop(0, 'rgb(26, 22, 16)');
   grad.addColorStop(1, 'rgb(38, 32, 24)');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, screenW, HUD_HEIGHT);
+  ctx.fillRect(0, 0, screenW, hudH);
 
   // Gold bottom trim: 2px band + 1px highlight.
   ctx.fillStyle = HUD_GOLD;
-  ctx.fillRect(0, HUD_HEIGHT - 2, screenW, 2);
+  ctx.fillRect(0, hudH - 2, screenW, 2);
   ctx.fillStyle = 'rgba(235, 205, 135, 0.45)';
-  ctx.fillRect(0, HUD_HEIGHT - 3, screenW, 1);
+  ctx.fillRect(0, hudH - 3, screenW, 1);
 
   ctx.font = HUD_FONT;
   ctx.textBaseline = 'alphabetic';
-  const y = HUD_HEIGHT / 2;
-  // Baseline Y that centers cap-height glyphs (digits, "M"-height caps) at y.
+  // Row centers: single-row HUDs render everything on one midline; two-row
+  // HUDs put icons/counters on the top row and the quest text on the bottom.
+  const row1Y = twoRow ? 15 : hudH / 2;
+  const row2Y = twoRow ? hudH - 15 : hudH / 2;
   const ref = ctx.measureText('M0');
-  const textY = y + (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
+  const capOff = (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
+  const row1TextY = row1Y + capOff;
+  const row2TextY = row2Y + capOff;
   const ICON = 7;
 
   // Glowing balls — same palette as the in-world collectibles, pulsing
   const pulse = 1 + 0.12 * Math.sin(performance.now() / 250);
-  drawGlowingBallIcon(ctx, 14, y, ICON, pulse);
+  drawGlowingBallIcon(ctx, 14, row1Y, ICON, pulse);
   ctx.save();
   ctx.shadowColor = 'rgba(255, 220, 50, 0.8)';
   ctx.shadowBlur = 6 + 4 * (pulse - 1) / 0.12; // track the pulse
   ctx.fillStyle = 'rgba(255, 240, 170, 0.98)';
-  ctx.fillText(`${state.score || 0}`, 28, textY);
+  ctx.fillText(`${state.score || 0}`, 28, row1TextY);
   ctx.restore();
-  drawSeparator(ctx, 70);
+  drawSeparator(ctx, 70, row1Y);
 
   // Mana — blue potion flask
-  drawPotionIcon(ctx, 84, y, ICON, 'rgb(90, 160, 255)');
+  drawPotionIcon(ctx, 84, row1Y, ICON, 'rgb(90, 160, 255)');
   ctx.fillStyle = HUD_PARCHMENT;
-  ctx.fillText(`${Math.floor(state.mana || 0)}`, 98, textY);
-  drawSeparator(ctx, 140);
+  ctx.fillText(`${Math.floor(state.mana || 0)}`, 98, row1TextY);
+  drawSeparator(ctx, 140, row1Y);
 
   // Inventory — leather pouch
   // Inventory items are lowercase words (e.g. "bottle") whose visual bounds
   // differ from cap-height text — measure this string specifically so it
   // sits on the same visual midline as its pouch icon.
-  drawPouchIcon(ctx, 154, y, ICON, 'rgb(150, 100, 55)');
+  drawPouchIcon(ctx, 154, row1Y, ICON, 'rgb(150, 100, 55)');
   const activeItem = (state.inventory && state.inventory[state.inventoryIdx]) || '—';
   ctx.fillStyle = HUD_PARCHMENT;
   const itemM = ctx.measureText(activeItem);
-  const itemY = y + (itemM.actualBoundingBoxAscent - itemM.actualBoundingBoxDescent) / 2;
+  const itemY = row1Y + (itemM.actualBoundingBoxAscent - itemM.actualBoundingBoxDescent) / 2;
   ctx.fillText(activeItem, 168, itemY);
-  drawSeparator(ctx, 260);
+  drawSeparator(ctx, 260, row1Y);
 
   // Spells — sparkle/star icon; selected spell name shown like inventory.
   // Greyed when the player doesn't have enough mana to cast; pulses blue
@@ -507,40 +514,46 @@ function renderHUD(ctx, state, screenW) {
   const sparkleColor = shielded
     ? `rgba(120, 210, 255, ${0.85 + 0.15 * Math.sin(performance.now() / 160)})`
     : castable ? 'rgb(200, 180, 255)' : 'rgba(160, 155, 180, 0.5)';
-  drawSparkleIcon(ctx, 274, y, ICON, sparkleColor);
+  drawSparkleIcon(ctx, 274, row1Y, ICON, sparkleColor);
   ctx.fillStyle = shielded
     ? 'rgba(180, 225, 255, 0.98)'
     : castable ? HUD_PARCHMENT : 'rgba(180, 170, 160, 0.55)';
   const spellM = ctx.measureText(spellName);
-  const spellY = y + (spellM.actualBoundingBoxAscent - spellM.actualBoundingBoxDescent) / 2;
+  const spellY = row1Y + (spellM.actualBoundingBoxAscent - spellM.actualBoundingBoxDescent) / 2;
   ctx.fillText(spellName, 288, spellY);
-  drawSeparator(ctx, 370);
+  drawSeparator(ctx, 370, row1Y);
 
   // Class — small crown
-  drawCrownIcon(ctx, 384, y, ICON, 'rgb(230, 190, 100)');
+  drawCrownIcon(ctx, 384, row1Y, ICON, 'rgb(230, 190, 100)');
   ctx.fillStyle = 'rgba(240, 210, 165, 0.95)';
-  ctx.fillText(displayClass(state), 398, textY);
+  ctx.fillText(displayClass(state), 398, row1TextY);
 
-  // Quest + Next (flexible — clipped to space before close button).
-  // The current quest uses the normal parchment-green; the next quest
-  // is shown dimmer so it reads as a preview, not a competing goal.
+  // Quest + Next (flexible — clipped to space before close button on a
+  // single row, or stretched across the full bottom row on a tall HUD).
+  // Current quest uses the parchment-green; next quest is dimmer so it
+  // reads as a preview, not a competing goal.
   const closeBtn = getCloseButtonRect(screenW);
-  const missionX = 580;
-  const missionMaxW = closeBtn.x - missionX - 12;
+  const missionX = twoRow ? 14 : 580;
+  const missionMaxW = twoRow
+    ? screenW - missionX - 12
+    : closeBtn.x - missionX - 12;
+  const missionTextY = twoRow ? row2TextY : row1TextY;
   if (missionMaxW > 40 && state.mission) {
     ctx.save();
     ctx.beginPath();
-    ctx.rect(missionX, 0, missionMaxW, HUD_HEIGHT);
+    const clipY = twoRow ? row2Y - 12 : 0;
+    const clipH = twoRow ? 24 : hudH;
+    ctx.rect(missionX, clipY, missionMaxW, clipH);
     ctx.clip();
     ctx.fillStyle = 'rgba(195, 230, 180, 0.95)';
     const questLabel = `Quest: ${state.mission}`;
-    ctx.fillText(questLabel, missionX, textY);
+    ctx.fillText(questLabel, missionX, missionTextY);
     if (state.nextMission) {
       const questW = ctx.measureText(questLabel).width;
       const nextX = missionX + questW + 14;
       if (nextX < missionX + missionMaxW - 40) {
         ctx.fillStyle = 'rgba(195, 230, 180, 0.45)';
-        ctx.fillText(`Next: ${state.nextMission}`, nextX, textY);
+        ctx.fillText(`Next: ${state.nextMission}`, nextX, missionTextY);
       }
     }
     ctx.restore();
@@ -585,12 +598,14 @@ function drawManaMine(ctx, m) {
   ctx.restore();
 }
 
-function drawSeparator(ctx, x) {
+function drawSeparator(ctx, x, rowY = HUD_HEIGHT / 2) {
   ctx.strokeStyle = 'rgba(190, 155, 85, 0.35)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(x + 0.5, 7);
-  ctx.lineTo(x + 0.5, HUD_HEIGHT - 7);
+  // 9 px tall tick centered on the row (same visual height as the single-row
+  // HUD's 7 → HUD_HEIGHT-7 span).
+  ctx.moveTo(x + 0.5, rowY - 9);
+  ctx.lineTo(x + 0.5, rowY + 9);
   ctx.stroke();
 }
 
@@ -904,6 +919,9 @@ function roundRect(ctx, x, y, w, h, r) {
  * inset by CLOSE_BTN_MARGIN on all visible sides).
  */
 export function getCloseButtonRect(screenW) {
+  // Size is fixed at the single-row HUD height so a tall HUD doesn't puff the
+  // close button into an oversized slab. Position stays top-right — on a tall
+  // two-row HUD that means it sits on the top row next to the icons.
   const size = HUD_HEIGHT - 2 * CLOSE_BTN_MARGIN;
   return {
     x: screenW - size - CLOSE_BTN_MARGIN,
