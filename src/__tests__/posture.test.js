@@ -85,6 +85,19 @@ describe('findCeiling', () => {
     const result = findCeiling(platforms, 300, 100, lineHeight);
     expect(result.y).toBe(200); // closest above
   });
+
+  it('skips a ceiling platform with a hole at xPos and falls back to the next-higher one', () => {
+    const holes = [{ x: 50, y: 200, w: 100 }]; // hole in y=200 covering x∈[50,150]
+    const result = findCeiling(platforms, 300, 100, lineHeight, holes);
+    expect(result).not.toBeNull();
+    expect(result.y).toBe(100); // y=200 hidden by hole, y=100 surfaces instead
+  });
+
+  it('still returns the holed platform when xPos sits outside the hole', () => {
+    const holes = [{ x: 50, y: 200, w: 100 }];
+    const result = findCeiling(platforms, 300, 200, lineHeight, holes);
+    expect(result.y).toBe(200);
+  });
 });
 
 describe('updatePosture', () => {

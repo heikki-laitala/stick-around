@@ -1,6 +1,7 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
 import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
-import { findFloor, findCeiling } from './platforms.js';
+import { findFloor, findCeiling, isInHole } from './platforms.js';
+export { isInHole };
 
 /**
  * Update rope state (aiming, flying, swinging).
@@ -122,7 +123,7 @@ export function updateRope(state, dt, keys) {
           if (p.hash === state.rope.startPlatHash) continue;
 
           // Normal landing
-          const ceiling = findCeiling(state.platforms, platTop, state.gx, state.lineHeight);
+          const ceiling = findCeiling(state.platforms, platTop, state.gx, state.lineHeight, state.holes);
           if (ceiling) {
             const clearance = platTop - (ceiling.y + state.lineHeight);
             if (clearance < PRONE_HEIGHT) continue;
@@ -173,7 +174,7 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
     // Crouch burst takes priority over footer escape: when crouching under a ceiling,
     // we must punch through it before any footer-escape jump can clear the prompt area.
     const crouchCeiling = (state.posture === 'crouching' && state.holes && state.particles)
-      ? findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight)
+      ? findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight, state.holes)
       : null;
     // Just enough overshoot to clear the top edge of a ceiling platform.
     const CEIL_CLEAR_OVERSHOOT = 6;
@@ -237,7 +238,7 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
         // don't land — fall through the hole
       } else {
         // Don't land if ceiling makes the gap too tight even for prone
-        const ceiling = findCeiling(state.platforms, floor.y, state.gx, state.lineHeight);
+        const ceiling = findCeiling(state.platforms, floor.y, state.gx, state.lineHeight, state.holes);
         const clearance = ceiling ? floor.y - (ceiling.y + state.lineHeight) : Infinity;
         if (clearance >= PRONE_HEIGHT) {
           if (state.gvy > 100) state.landT = 0.15;
@@ -273,7 +274,7 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   // Check if destination has enough clearance for current posture
   if (state.grounded && state.gvx !== 0) {
     const nextX = state.gx + state.gvx * dt;
-    const ceiling = findCeiling(state.platforms, state.feetY, nextX, state.lineHeight);
+    const ceiling = findCeiling(state.platforms, state.feetY, nextX, state.lineHeight, state.holes);
     if (ceiling) {
       const clearance = state.feetY - (ceiling.y + state.lineHeight);
       const minHeight = state.posture === 'prone' ? PRONE_HEIGHT : CROUCH_HEIGHT;
@@ -301,7 +302,7 @@ export function updatePosture(state) {
     return;
   }
 
-  const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
+  const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight, state.holes);
   if (!ceiling) {
     state.posture = 'standing';
     return;
@@ -394,16 +395,6 @@ export function resetPlayer(state) {
 }
 
 /**
- * Check if a position falls inside a hole on a given platform y.
- */
-export function isInHole(holes, x, platY) {
-  for (const h of holes) {
-    if (Math.abs(h.y - platY) < 2 && x >= h.x && x <= h.x + h.w) return true;
-  }
-  return false;
-}
-
-/**
  * Spawn burst debris particles at a position.
  */
 export function spawnBurstParticles(particles, x, y, count) {
@@ -462,36 +453,134 @@ export function updateAxeSwing(state, dt) {
   }
 }
 
+/**
+ * Hits required to break a single block out of a platform with the axe.
+ * Multi-hit so chipping through is a real cost, not a free shortcut.
+ */
+export const PLATFORM_MINE_HITS = 3;
+const PLATFORM_MINE_HOLE_W = 30;
+
 function resolveAxeHit(state) {
-  if (!state.manaMines || state.manaMines.length === 0) return;
+  if (resolveAxeMineHit(state)) return;
+  resolveAxePlatformHit(state);
+}
+
+function resolveAxeMineHit(state) {
+  if (!state.manaMines || state.manaMines.length === 0) return false;
   const dir = state.faceR ? 1 : -1;
   const hx = state.gx + dir * AXE_REACH;
   const hy = state.feetY - 10;
 
-  for (let i = state.manaMines.length - 1; i >= 0; i--) {
+  let hitIdx = -1;
+  let bestManDist = Infinity;
+  for (let i = 0; i < state.manaMines.length; i++) {
     const m = state.manaMines[i];
-    if (Math.hypot(m.x - hx, m.y - hy) < AXE_HIT_RADIUS) {
-      m.hits -= 1;
-      if (state.particles) {
-        for (let j = 0; j < 5; j++) {
-          const a = Math.random() * Math.PI * 2;
-          const sp = 30 + Math.random() * 60;
-          state.particles.push({
-            x: m.x, y: m.y,
-            vx: Math.cos(a) * sp,
-            vy: Math.sin(a) * sp - 30,
-            life: 0.3,
-            maxLife: 0.3,
-          });
-        }
-      }
-      if (m.hits <= 0) {
-        state.mana = (state.mana || 0) + MANA_PER_MINE;
-        state.minesMined = (state.minesMined || 0) + 1;
-        state.manaMines.splice(i, 1);
-      }
-      return; // one hit per swing
+    if (Math.hypot(m.x - hx, m.y - hy) >= AXE_HIT_RADIUS) continue;
+    const manDist = Math.hypot(m.x - state.gx, m.y - state.feetY);
+    if (manDist < bestManDist) {
+      bestManDist = manDist;
+      hitIdx = i;
     }
+  }
+  if (hitIdx === -1) return false;
+
+  const m = state.manaMines[hitIdx];
+  m.hits -= 1;
+  if (state.particles) {
+    for (let j = 0; j < 5; j++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 30 + Math.random() * 60;
+      state.particles.push({
+        x: m.x, y: m.y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 30,
+        life: 0.3,
+        maxLife: 0.3,
+      });
+    }
+  }
+  if (m.hits <= 0) {
+    state.mana = (state.mana || 0) + MANA_PER_MINE;
+    state.minesMined = (state.minesMined || 0) + 1;
+    state.manaMines.splice(hitIdx, 1);
+  }
+  return true;
+}
+
+/**
+ * Chip away at a platform that sits next to the player at torso height
+ * (the terminal line one row above where the player stands). The axe
+ * extends in the facing direction; the hit point is at torso height,
+ * the candidate platform's body must contain that point. Each axe hit
+ * accumulates progress on a per-block key (platform hash + block x);
+ * after PLATFORM_MINE_HITS hits, a hole bursts open in the side
+ * platform — same shape as a jump-burst hole, so the player can step
+ * into the gap. The platform the player stands on is skipped so
+ * swinging never destroys their own footing.
+ */
+function resolveAxePlatformHit(state) {
+  if (!state.platforms || !state.holes) return;
+  if (!state.grounded) return;
+  const dir = state.faceR ? 1 : -1;
+  const hx = state.gx + dir * AXE_REACH;
+  const hy = state.feetY - STANDING_HEIGHT / 2;
+  const lineHeight = state.lineHeight || 16;
+
+  let target = null;
+  let bestManDist = Infinity;
+  for (const p of state.platforms) {
+    if (!p || !p.hash) continue;
+    if (p.hash === state.standingHash) continue;
+    if (hx < p.x || hx > p.x + p.w) continue;
+    if (hy < p.y - 2 || hy > p.y + lineHeight + 2) continue;
+    const manDist = Math.abs(p.y + lineHeight / 2 - state.feetY);
+    if (manDist < bestManDist) {
+      bestManDist = manDist;
+      target = p;
+    }
+  }
+  if (!target) return;
+
+  let blockX = hx - PLATFORM_MINE_HOLE_W / 2;
+  if (isInHole(state.holes, hx, target.y)) return;
+
+  // Snap blockX to abut an adjacent same-row hole so successive swings
+  // don't leave a sliver of wall that blocks the man from walking
+  // forward. Axe reach (28) exceeds half the hole width (15), so without
+  // this a man pushed against a hole's edge would carve the next hole a
+  // few pixels away, leaving an impassable strip.
+  for (const h of state.holes) {
+    if (Math.abs(h.y - target.y) >= 2) continue;
+    if (dir > 0) {
+      const hRight = h.x + h.w;
+      if (blockX > hRight && blockX - hRight < PLATFORM_MINE_HOLE_W) {
+        blockX = hRight;
+      }
+    } else {
+      const blockRight = blockX + PLATFORM_MINE_HOLE_W;
+      if (blockRight < h.x && h.x - blockRight < PLATFORM_MINE_HOLE_W) {
+        blockX = h.x - PLATFORM_MINE_HOLE_W;
+      }
+    }
+  }
+
+  if (!state.miningProgress) state.miningProgress = [];
+  let entry = state.miningProgress.find(
+    (e) => e.hash === target.hash && Math.abs(e.x - blockX) < PLATFORM_MINE_HOLE_W / 2,
+  );
+  if (!entry) {
+    entry = { hash: target.hash, x: blockX, hits: 0, age: 0 };
+    state.miningProgress.push(entry);
+  }
+  entry.hits += 1;
+  entry.age = 0;
+
+  if (state.particles) spawnBurstParticles(state.particles, hx, target.y, 6);
+
+  if (entry.hits >= PLATFORM_MINE_HITS) {
+    state.holes.push({ x: blockX, y: target.y, w: PLATFORM_MINE_HOLE_W, age: 0 });
+    if (state.particles) spawnBurstParticles(state.particles, hx, target.y, 14);
+    state.miningProgress = state.miningProgress.filter((e) => e !== entry);
   }
 }
 

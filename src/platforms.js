@@ -34,17 +34,32 @@ export function findPlatformAbove(platforms, feetScreenY, xPos, maxDist) {
 /**
  * Find the nearest platform directly above feetScreenY that the man is horizontally on.
  * Returns the platform whose bottom edge (y + lineHeight) is closest above feetY, or null.
+ *
+ * If `holes` is supplied, platforms with a hole covering xPos at their top edge
+ * are skipped — a mined-out gap should let the man pass through, not act as a
+ * ceiling that blocks horizontal motion or forces a crouch.
  */
-export function findCeiling(platforms, feetScreenY, xPos, lineHeight) {
+export function findCeiling(platforms, feetScreenY, xPos, lineHeight, holes = null) {
   let best = null;
   for (const p of platforms) {
     const bottom = p.y + lineHeight;
     // Platform bottom must be above feet (with small tolerance)
     if (bottom < feetScreenY + 2 && xPos >= p.x && xPos <= p.x + p.w) {
+      if (holes && isInHole(holes, xPos, p.y)) continue;
       if (best === null || p.y > best.y) best = p;
     }
   }
   return best;
+}
+
+/**
+ * Check if a position falls inside a hole on a given platform y.
+ */
+export function isInHole(holes, x, platY) {
+  for (const h of holes) {
+    if (Math.abs(h.y - platY) < 2 && x >= h.x && x <= h.x + h.w) return true;
+  }
+  return false;
 }
 
 /**

@@ -757,7 +757,7 @@ function renderPlatformOverlay(ctx, state) {
     ctx.fillText(`h=${h.toFixed(1)}`, state.gx + 8, boxTop + 18);
 
     // Show ceiling detection — fixed position top-left
-    const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight);
+    const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight, state.holes);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
     ctx.fillRect(0, 0, 300, 50);
     ctx.fillStyle = 'rgba(255, 255, 0, 0.95)';

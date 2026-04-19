@@ -58,6 +58,7 @@ const state = {
   platforms: [],
   lastContent: null, // last TerminalContent payload — used to rebuild on resize
   holes: [],         // { x, y, w, age } — gaps punched through platforms
+  miningProgress: [], // { hash, x, hits, age } — accumulated axe hits per ceiling block
   particles: [],     // { x, y, vx, vy, life, maxLife } — burst debris
   collectibles: [],  // { x, y, age } — items to collect
   manaMines: [],     // { x, y, hits, age, debug? } — mineable crystal nodes
@@ -429,6 +430,13 @@ function loop(now) {
     for (let i = state.holes.length - 1; i >= 0; i--) {
       state.holes[i].age += dt;
       if (state.holes[i].age > 8) state.holes.splice(i, 1);
+    }
+    // Mining progress decays so half-mined blocks don't linger forever.
+    if (state.miningProgress) {
+      for (let i = state.miningProgress.length - 1; i >= 0; i--) {
+        state.miningProgress[i].age += dt;
+        if (state.miningProgress[i].age > 5) state.miningProgress.splice(i, 1);
+      }
     }
   }
 
