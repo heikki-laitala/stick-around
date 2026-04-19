@@ -238,6 +238,19 @@ describe('METEOR_SHOWER_MISSION.update — man collision', () => {
     METEOR_SHOWER_MISSION.update(s, 0.016);
     expect(s.gameOver).toBe(false);
   });
+
+  it('a shielded man absorbs meteors without dying', () => {
+    const s = makeState({ shieldActive: true });
+    METEOR_SHOWER_MISSION.onEnter(s);
+    // onEnter must not clobber the pre-existing shield — it belongs to the
+    // player, not the mission scene.
+    s.shieldActive = true;
+    const torsoY = s.feetY - STANDING_HEIGHT / 2;
+    s.missionScene.meteors.push({ x: s.gx, y: torsoY, vx: 0, vy: 200 });
+    METEOR_SHOWER_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+    expect(s.missionScene.meteors.length).toBe(0); // meteor was absorbed
+  });
 });
 
 describe('METEOR_SHOWER_MISSION.update — survival', () => {

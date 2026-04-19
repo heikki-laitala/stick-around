@@ -1,5 +1,6 @@
 import { GRAV, HUD_HEIGHT, JUMP_V } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
+import { isShielded } from '../spells.js';
 
 /**
  * "Escape the rising lava" mission.
@@ -147,7 +148,7 @@ export const ESCAPE_LAVA_MISSION = {
       state.grounded = true;
       state.standingHash = 0;
 
-      if (scene.invulnTimer <= 0) {
+      if (scene.invulnTimer <= 0 && !isShielded(state)) {
         if ((state.score || 0) <= 0) {
           state.gameOver = true;
           state.gvx = 0;

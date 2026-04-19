@@ -1,6 +1,7 @@
 import { HUD_HEIGHT } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
+import { isShielded } from '../spells.js';
 
 /**
  * "Dodge the meteor shower" mission.
@@ -86,11 +87,12 @@ export const METEOR_SHOWER_MISSION = {
       burstPlatformsBetween(state, xBefore, yBefore, m.x, m.y);
 
       if (hitsMan(state, m)) {
+        spawnImpactParticles(state, m.x, m.y);
+        scene.meteors.splice(i, 1);
+        if (isShielded(state)) continue;
         state.gameOver = true;
         state.gvx = 0;
         state.gvy = 0;
-        spawnImpactParticles(state, m.x, m.y);
-        scene.meteors.splice(i, 1);
         return;
       }
 

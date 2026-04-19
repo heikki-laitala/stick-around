@@ -2,6 +2,7 @@ import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js'
 import { findCeiling } from './platforms.js';
 import { HUD_HEIGHT, AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
 import { displayClass, renderActiveMission } from './progression.js';
+import { isShielded, selectedSpell, canCastSelected, shieldFadeAlpha } from './spells.js';
 
 function drawLimb(ctx, ax, ay, bx, by) {
   ctx.beginPath();
@@ -345,6 +346,92 @@ export function render(ctx, state, screenW, screenH) {
 
   ctx.shadowBlur = 0;
 
+  // Shield aura — layered magical dome: soft bubble gradient, orbiting
+  // hexagonal energy cells, a counter-rotating runic tick ring, and a
+  // bright crescent highlight that sells the spherical illusion. The
+  // whole thing fades in over 0.2s and out over the last 1s so the
+  // player sees the shield about to drop.
+  if (isShielded(state)) {
+    const cx = state.gx;
+    const cy = (head.y + hip.y) / 2;
+    const alpha = shieldFadeAlpha(state);
+    const now = performance.now();
+    const pulse = 1 + 0.02 * Math.sin(now / 180);
+    const r = 24 * s * pulse;
+
+    ctx.save();
+
+    // Bubble — radial gradient with a brighter rim so it reads as a dome.
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.35, cx, cy, r);
+    grad.addColorStop(0, 'rgba(120, 200, 255, 0)');
+    grad.addColorStop(0.75, `rgba(120, 200, 255, ${0.14 * alpha})`);
+    grad.addColorStop(1, `rgba(190, 235, 255, ${0.42 * alpha})`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hex cells orbiting around the rim — each hexagon's flat face points
+    // outward so the ring reads as a honeycomb dome segment, not floating
+    // tiles.
+    ctx.strokeStyle = `rgba(150, 225, 255, ${0.6 * alpha})`;
+    ctx.lineWidth = 1;
+    ctx.shadowColor = `rgba(100, 200, 255, ${0.6 * alpha})`;
+    ctx.shadowBlur = 6;
+    const hexRot = now / 1600;
+    const hexR = r * 0.22;
+    const hexCount = 10;
+    for (let i = 0; i < hexCount; i++) {
+      const theta = hexRot + (i / hexCount) * Math.PI * 2;
+      const hx = cx + Math.cos(theta) * (r - hexR * 0.55);
+      const hy = cy + Math.sin(theta) * (r - hexR * 0.55);
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = theta + (k / 6) * Math.PI * 2;
+        const px = hx + Math.cos(a) * hexR;
+        const py = hy + Math.sin(a) * hexR;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // Counter-rotating rune ring — thin circle plus tick marks.
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(200, 240, 255, ${0.45 * alpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.83, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const runeRot = -now / 1100;
+    ctx.strokeStyle = `rgba(220, 245, 255, ${0.75 * alpha})`;
+    ctx.lineWidth = 1.2;
+    const tickCount = 16;
+    for (let i = 0; i < tickCount; i++) {
+      const theta = runeRot + (i / tickCount) * Math.PI * 2;
+      const r1 = r * 0.8;
+      const r2 = r * 0.88;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(theta) * r1, cy + Math.sin(theta) * r1);
+      ctx.lineTo(cx + Math.cos(theta) * r2, cy + Math.sin(theta) * r2);
+      ctx.stroke();
+    }
+
+    // Bright crescent highlight at the upper-left — the "specular" that
+    // makes the bubble look 3D instead of a flat disk.
+    ctx.strokeStyle = `rgba(235, 250, 255, ${0.8 * alpha})`;
+    ctx.lineWidth = 1.6;
+    ctx.shadowColor = `rgba(160, 225, 255, ${0.9 * alpha})`;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI * 1.12, Math.PI * 1.48);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   // Mana mines — blue crystal outcrops on platforms
   if (state.manaMines) {
     for (const m of state.manaMines) {
@@ -470,7 +557,7 @@ function renderHUD(ctx, state, screenW) {
   // Mana — blue potion flask
   drawPotionIcon(ctx, 84, y, ICON, 'rgb(90, 160, 255)');
   ctx.fillStyle = HUD_PARCHMENT;
-  ctx.fillText(`${state.mana || 0}`, 98, textY);
+  ctx.fillText(`${Math.floor(state.mana || 0)}`, 98, textY);
   drawSeparator(ctx, 140);
 
   // Inventory — leather pouch
@@ -485,16 +572,34 @@ function renderHUD(ctx, state, screenW) {
   ctx.fillText(activeItem, 168, itemY);
   drawSeparator(ctx, 260);
 
+  // Spells — sparkle/star icon; selected spell name shown like inventory.
+  // Greyed when the player doesn't have enough mana to cast; pulses blue
+  // while a shield is active.
+  const spellName = selectedSpell(state) || '—';
+  const castable = canCastSelected(state);
+  const shielded = isShielded(state);
+  const sparkleColor = shielded
+    ? `rgba(120, 210, 255, ${0.85 + 0.15 * Math.sin(performance.now() / 160)})`
+    : castable ? 'rgb(200, 180, 255)' : 'rgba(160, 155, 180, 0.5)';
+  drawSparkleIcon(ctx, 274, y, ICON, sparkleColor);
+  ctx.fillStyle = shielded
+    ? 'rgba(180, 225, 255, 0.98)'
+    : castable ? HUD_PARCHMENT : 'rgba(180, 170, 160, 0.55)';
+  const spellM = ctx.measureText(spellName);
+  const spellY = y + (spellM.actualBoundingBoxAscent - spellM.actualBoundingBoxDescent) / 2;
+  ctx.fillText(spellName, 288, spellY);
+  drawSeparator(ctx, 370);
+
   // Class — small crown
-  drawCrownIcon(ctx, 274, y, ICON, 'rgb(230, 190, 100)');
+  drawCrownIcon(ctx, 384, y, ICON, 'rgb(230, 190, 100)');
   ctx.fillStyle = 'rgba(240, 210, 165, 0.95)';
-  ctx.fillText(displayClass(state), 288, textY);
+  ctx.fillText(displayClass(state), 398, textY);
 
   // Quest + Next (flexible — clipped to space before close button).
   // The current quest uses the normal parchment-green; the next quest
   // is shown dimmer so it reads as a preview, not a competing goal.
   const closeBtn = getCloseButtonRect(screenW);
-  const missionX = 480;
+  const missionX = 580;
   const missionMaxW = closeBtn.x - missionX - 12;
   if (missionMaxW > 40 && state.mission) {
     ctx.save();
@@ -649,6 +754,30 @@ function drawCrownIcon(ctx, cx, cy, s, color) {
   ctx.fillStyle = 'rgb(220, 80, 110)';
   ctx.beginPath();
   ctx.arc(cx, cy + s * 0.05, s * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSparkleIcon(ctx, cx, cy, s, color) {
+  // Four-pointed sparkle with a small center glow. Reads clearly as
+  // "magic" at tiny sizes without the clutter of a wand or scroll.
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s);
+  ctx.lineTo(cx, cy + s);
+  ctx.moveTo(cx - s, cy);
+  ctx.lineTo(cx + s, cy);
+  ctx.moveTo(cx - s * 0.55, cy - s * 0.55);
+  ctx.lineTo(cx + s * 0.55, cy + s * 0.55);
+  ctx.moveTo(cx - s * 0.55, cy + s * 0.55);
+  ctx.lineTo(cx + s * 0.55, cy - s * 0.55);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }

@@ -148,6 +148,18 @@ describe('ESCAPE_LAVA_MISSION.update — on lava surface', () => {
     expect(s.gvy).toBe(0);
   });
 
+  it('a shielded man standing in lava neither burns nor dies', () => {
+    const s = makeState({ score: 0, shieldActive: true });
+    ESCAPE_LAVA_MISSION.onEnter(s);
+    s.score = 0;
+    s.shieldActive = true;
+    s.missionScene.lavaY = 400;
+    s.feetY = 420;
+    ESCAPE_LAVA_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+    expect(s.score).toBe(0);
+  });
+
   it('is a no-op when gameOver is already set', () => {
     const s = makeState();
     ESCAPE_LAVA_MISSION.onEnter(s);

@@ -6,6 +6,7 @@ import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
+import { initialSpells, cycleSpell, castSpell, tickSpells } from './spells.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -43,6 +44,7 @@ const state = {
   mana: 0,
   inventory: ['bottle', 'key', 'map'],
   inventoryIdx: 0,
+  ...initialSpells(),
   ...initialProgression(),
   mouseX: -1,
   mouseY: -1,
@@ -336,6 +338,9 @@ document.addEventListener('keydown', e => {
     return;
   }
 
+  if (e.code === 'KeyX') { cycleSpell(state); return; }
+  if (e.code === 'KeyZ') { castSpell(state); return; }
+
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {
     state.proneRequested = !state.proneRequested;
@@ -414,6 +419,7 @@ function loop(now) {
       // terminal), the mission pauses — lava stops rising, the door stops
       // moving, and the render hook fades hazards to low alpha.
       if (state.overlayActive) {
+        tickSpells(state, dt);
         tickActiveMission(state, dt);
         // Missions can ask for an automatic restart (e.g. lava swallowed
         // the door). Honor it before advance so onEnter re-fires on this
