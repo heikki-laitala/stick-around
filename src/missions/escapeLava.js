@@ -130,6 +130,14 @@ export const ESCAPE_LAVA_MISSION = {
     updateDoorPhysics(state, scene, dt);
     if (scene.requestRestart) return;
 
+    // Lava has risen up and engulfed the door — mission cannot be won.
+    if (scene.lavaY <= scene.doorY + scene.doorH) {
+      state.gameOver = true;
+      state.gvx = 0;
+      state.gvy = 0;
+      return;
+    }
+
     // Win condition: man's torso overlaps the door rect.
     const torsoY = state.feetY - STANDING_HEIGHT / 2;
     if (state.gx >= scene.doorX && state.gx <= scene.doorX + scene.doorW &&

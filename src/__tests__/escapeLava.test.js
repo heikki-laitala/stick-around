@@ -256,6 +256,17 @@ describe('ESCAPE_LAVA_MISSION.update — door physics', () => {
     expect(s.missionScene.requestRestart).toBe(true);
   });
 
+  it('triggers gameOver when the rising lava reaches the door', () => {
+    const s = makeState();
+    ESCAPE_LAVA_MISSION.onEnter(s);
+    // Park lava so its surface sits just above the door's bottom edge.
+    s.missionScene.lavaY = s.missionScene.doorY + s.missionScene.doorH - 1;
+    ESCAPE_LAVA_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(true);
+    expect(s.gvx).toBe(0);
+    expect(s.gvy).toBe(0);
+  });
+
   it('awards the "lava lucky" title and wins when the door lands on the player\'s platform', () => {
     const s = makeState({ standingHash: 0x2002, grounded: true });
     ESCAPE_LAVA_MISSION.onEnter(s);
