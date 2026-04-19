@@ -1,5 +1,11 @@
 # stick-around
 
+## Applying changes
+
+After code changes, run `make dev` (builds the Tauri binary and installs
+it to the plugin cache used by the `/stick-around:play` skill). Plain
+`npm run build` / `tauri build` alone does not copy the binary to the
+launcher path — relaunches will still run the stale build.
 
 ---
 
