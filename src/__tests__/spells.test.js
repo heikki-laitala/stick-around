@@ -120,8 +120,8 @@ describe('tickSpells — shield drain', () => {
   it('drops the shield when mana runs out', () => {
     const s = make({ mana: 1 });
     castSpell(s);
-    // 1 mana at 2/sec lasts 0.5s — tick past that and it should be done.
-    tickSpells(s, 1.0);
+    // Drain for far longer than the mana supply — shield must be down.
+    tickSpells(s, 100.0);
     expect(s.mana).toBe(0);
     expect(isShielded(s)).toBe(false);
   });

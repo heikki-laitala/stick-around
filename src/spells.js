@@ -19,7 +19,7 @@
  */
 
 export const SPELLS = ['shield', 'lightning'];
-export const SHIELD_MANA_PER_SECOND = 2;
+export const SHIELD_MANA_PER_SECOND = 0.5;
 export const LIGHTNING_MANA_COST = 8;
 const SHIELD_FADE_IN_DURATION = 0.2;
 const CAST_FLASH_DURATION = 0.35;
