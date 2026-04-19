@@ -40,6 +40,10 @@ function completeRealMissions(s) {
       s.missionScene.reachedDoor = true;
       continue;
     }
+    if (m.id === 'dodge-meteors' && s.missionScene) {
+      s.missionScene.survived = true;
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }

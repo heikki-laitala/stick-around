@@ -38,6 +38,7 @@
  */
 
 import { ESCAPE_LAVA_MISSION } from './missions/escapeLava.js';
+import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 
 export const INITIAL_RANK = 'novice pauper';
 
@@ -55,6 +56,7 @@ export const MISSIONS = [
     rewardRank: 'journeyman pauper',
   },
   ESCAPE_LAVA_MISSION,
+  METEOR_SHOWER_MISSION,
 ];
 
 const ALL_DONE_MISSION = 'All missions complete!';
@@ -181,6 +183,18 @@ export function tickActiveMission(state, dt) {
 export function renderActiveMission(ctx, state, W, H) {
   const m = getActiveMission(state);
   m?.render?.(ctx, state, W, H);
+}
+
+/**
+ * Reset the currently-active mission to a fresh run. Clears gameOver and
+ * wipes missionScene so the next `advanceMission` tick fires onEnter
+ * again. Mission-agnostic — missions' individual restart helpers all do
+ * the same thing; this is the one that main.js should call.
+ */
+export function restartActiveMission(state) {
+  state.gameOver = false;
+  state.currentMissionId = null;
+  state.missionScene = null;
 }
 
 function ensureFields(state) {

@@ -5,8 +5,7 @@ import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, upd
 import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
-import { advanceMission, debugSkipMission, initialProgression, tickActiveMission } from './progression.js';
-import { restartEscapeLava } from './missions/escapeLava.js';
+import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -315,14 +314,14 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyN' && e.shiftKey) {
     // Debug: skip to the next mission. Applies rewards for the current one
     // so progression stays consistent.
-    restartEscapeLava(state);
+    restartActiveMission(state);
     debugSkipMission(state);
     resetPlayer(state);
     return;
   }
   if (e.code === 'KeyR') {
     if (state.gameOver) {
-      restartEscapeLava(state);
+      restartActiveMission(state);
       resetPlayer(state);
     } else {
       resetPlayer(state);
@@ -420,7 +419,7 @@ function loop(now) {
         // the door). Honor it before advance so onEnter re-fires on this
         // tick.
         if (state.missionScene?.requestRestart) {
-          restartEscapeLava(state);
+          restartActiveMission(state);
           resetPlayer(state);
         }
         advanceMission(state);
