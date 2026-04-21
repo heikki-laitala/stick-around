@@ -179,6 +179,9 @@ pub fn run() {
                 if let Ok(ns_window) = window.ns_window() {
                     unsafe { platform::configure_as_panel(ns_window) };
                 }
+                // Override the generic standalone-binary Dock icon with the
+                // stick-figure PNG baked into the binary at compile time.
+                platform::set_dock_icon(include_bytes!("../icons/icon.png"));
             }
 
             if let Some((x, y, w, h)) = initial_bounds {

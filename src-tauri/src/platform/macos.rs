@@ -1273,6 +1273,30 @@ pub unsafe fn resign_key_window(ns_window: *mut std::ffi::c_void) {
     let _: () = msg_send![window, resignKeyWindow];
 }
 
+/// Set the running app's Dock icon from raw PNG bytes. We ship the binary
+/// standalone (not a .app bundle), so macOS would otherwise show a generic
+/// executable icon. This overrides it with the embedded stick-figure art.
+pub fn set_dock_icon(png_bytes: &[u8]) {
+    unsafe {
+        let ns_data_cls = objc2::ffi::objc_getClass(c"NSData".as_ptr()) as *const AnyClass;
+        let data: *mut AnyObject = msg_send![
+            ns_data_cls,
+            dataWithBytes: png_bytes.as_ptr() as *const c_void,
+            length: png_bytes.len()
+        ];
+        if data.is_null() { return; }
+
+        let ns_image_cls = objc2::ffi::objc_getClass(c"NSImage".as_ptr()) as *const AnyClass;
+        let img: *mut AnyObject = msg_send![ns_image_cls, alloc];
+        let img: *mut AnyObject = msg_send![img, initWithData: data];
+        if img.is_null() { return; }
+
+        let ns_app_cls = objc2::ffi::objc_getClass(c"NSApplication".as_ptr()) as *const AnyClass;
+        let app: *mut AnyObject = msg_send![ns_app_cls, sharedApplication];
+        let _: () = msg_send![app, setApplicationIconImage: img];
+    }
+}
+
 /// Look up the process name for a given unix PID via System Events.
 /// Used at launch to decide which terminal-content backend to run
 /// (Terminal.app's generic AX path vs iTerm's own scripting dictionary).
