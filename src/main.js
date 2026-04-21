@@ -1,13 +1,16 @@
-import { IDLE, SCALE } from './poses.js';
+import { IDLE, SCALE, jointWorldPos } from './poses.js';
 import { ROPE_COOLDOWN, hudStripHeight, isNarrowHud } from './constants.js';
 import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles, startAxeSwing, updateAxeSwing } from './physics.js';
 import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
-import { render, isInCloseButton } from './render.js';
+import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
-import { initialSpells, cycleSpell, castSpell, tickSpells } from './spells.js';
+import {
+  initialSpells, cycleSpell, castSpell, releaseCast,
+  adjustLightningAim, cancelLightningAim, isLightningAiming, tickSpells,
+} from './spells.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -407,6 +410,14 @@ document.addEventListener('keyup', e => {
     state.rope.tipX = state.gx;
     state.rope.tipY = state.feetY - 15 * SCALE;
   }
+  if (e.code === 'KeyZ' && isLightningAiming(state)) {
+    // Fire from the wand tip so the bolt visibly erupts from the wand,
+    // not the man's head. The forward hand carries the wand, mirroring
+    // how the rope is drawn.
+    const hand = jointWorldPos(state, state.faceR ? 'rh' : 'lh');
+    const tip = wandTip(hand.x, hand.y, state.lightningAim.angle);
+    releaseCast(state, tip.x, tip.y);
+  }
 });
 
 // ── Game Loop ────────────────────────────────────────────────────────
@@ -457,6 +468,15 @@ function loop(now) {
       // terminal), the mission pauses — lava stops rising, the door stops
       // moving, and the render hook fades hazards to low alpha.
       if (state.overlayActive) {
+        // Rotate the lightning aim while Z is held. Default points
+        // straight up, so Left/Right swings the bolt toward the
+        // respective horizon. Movement is suppressed while aiming
+        // (see physics.js), so no conflict with the walk keys.
+        if (isLightningAiming(state)) {
+          const AIM_SPEED = 2.0;
+          if (keys.has('ArrowLeft')  || keys.has('KeyA')) adjustLightningAim(state, -AIM_SPEED * dt);
+          if (keys.has('ArrowRight') || keys.has('KeyD')) adjustLightningAim(state,  AIM_SPEED * dt);
+        }
         tickSpells(state, dt);
         tickActiveMission(state, dt);
         // Missions can ask for an automatic restart (e.g. lava swallowed

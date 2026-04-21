@@ -207,3 +207,18 @@ export const STANDING_HEIGHT = (44 - (-48)) * SCALE; // ~32px
 export const CROUCH_HEIGHT = (44 - (-15)) * SCALE; // ~21px
 // Prone: head y=32 → (44-30) * SCALE (use lowest crawl head y for safety)
 export const PRONE_HEIGHT = (44 - 30) * SCALE; // ~5px
+
+/**
+ * World-space position of a named joint on the current pose. Mirrors the
+ * `j()` helper in render.js so callers (main.js picking the wand origin,
+ * etc.) don't each reimplement the transform.
+ */
+export function jointWorldPos(state, name) {
+  const pose = state.curPose;
+  if (!pose || !pose[name]) return { x: state.gx, y: state.feetY };
+  const fl = state.faceR ? 1 : -1;
+  return {
+    x: state.gx + pose[name].x * SCALE * fl,
+    y: state.feetY + (pose[name].y - 44) * SCALE,
+  };
+}

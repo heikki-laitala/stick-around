@@ -168,7 +168,7 @@ export function updateRope(state, dt, keys) {
 export function updateMovement(state, dt, keys, screenW, screenH) {
   if (state.rope && state.rope.state === 'swinging') return;
 
-  const aiming = state.rope && state.rope.state === 'aiming';
+  const aiming = (state.rope && state.rope.state === 'aiming') || !!state.lightningAim;
   const left = !aiming && (keys.has('KeyA') || keys.has('ArrowLeft'));
   const right = !aiming && (keys.has('KeyD') || keys.has('ArrowRight'));
   const jump = !aiming && (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space'));

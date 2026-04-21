@@ -251,6 +251,26 @@ describe('METEOR_SHOWER_MISSION.update — man collision', () => {
     expect(s.gameOver).toBe(false);
     expect(s.missionScene.meteors.length).toBe(0); // meteor was absorbed
   });
+
+  it('a lightning bolt vaporises meteors in its column without punching platforms', () => {
+    const s = makeState();
+    METEOR_SHOWER_MISSION.onEnter(s);
+    // Two meteors: one in the bolt column, one far to the side.
+    s.missionScene.meteors.push({ x: s.gx,       y: 100, vx: 0, vy: 200 });
+    s.missionScene.meteors.push({ x: s.gx + 400, y: 100, vx: 0, vy: 200 });
+    s.lightningBolt = {
+      x: s.gx, y: s.feetY - STANDING_HEIGHT,
+      angle: -Math.PI / 2,
+      life: 0.3, maxLife: 0.3, zig: [],
+    };
+    s.holes = [];
+    METEOR_SHOWER_MISSION.update(s, 0.016);
+    // The column meteor vanished; the distant one kept falling.
+    expect(s.missionScene.meteors.length).toBe(1);
+    expect(s.missionScene.meteors[0].x).toBe(s.gx + 400);
+    // And no platform was burned through by the vaporised meteor.
+    expect(s.holes.length).toBe(0);
+  });
 });
 
 describe('METEOR_SHOWER_MISSION.update — survival', () => {

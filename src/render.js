@@ -2,7 +2,10 @@ import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js'
 import { findCeiling } from './platforms.js';
 import { AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
 import { renderActiveMission } from './progression.js';
-import { isShielded, shieldFadeAlpha } from './spells.js';
+import {
+  isShielded, shieldFadeAlpha, isLightningAiming, isLightningActive,
+  LIGHTNING_BEAM_WIDTH, LIGHTNING_RANGE,
+} from './spells.js';
 import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 
@@ -352,6 +355,21 @@ export function render(ctx, state, screenW, screenH) {
 
   ctx.shadowBlur = 0;
 
+  // Caster get-up — while a spell is being wielded (lightning aim/live
+  // or shield up) the stick man dons a pointy wizard hat. For lightning
+  // he also holds a wand, which doubles as the bolt origin so the cast
+  // visually erupts from the tip instead of his head.
+  const wandEngaged = isLightningAiming(state) || isLightningActive(state);
+  const hatEngaged = wandEngaged || isShielded(state);
+  if (hatEngaged) drawWizardHat(ctx, head.x, head.y, hr, fl);
+  if (wandEngaged) {
+    const hand = state.faceR ? rh : lh;
+    const aimAngle = state.lightningAim
+      ? state.lightningAim.angle
+      : (state.lightningBolt ? state.lightningBolt.angle : -Math.PI / 2);
+    drawWand(ctx, hand.x, hand.y, aimAngle);
+  }
+
   // Shield aura — layered magical dome with bubble gradient, two
   // counter-rotating hex rings (outer + inner) for depth, a rune tick
   // band, crackling energy arcs that skitter along the rim, and a
@@ -436,10 +454,166 @@ export function render(ctx, state, screenW, screenH) {
   // world but beneath HUD and debug overlays.
   renderActiveMission(ctx, state, screenW, screenH);
 
+  // Lightning aim ray and live bolts draw on top of meteors so the
+  // player can see the bolt stabbing through hazards it's about to
+  // vaporise. The aim/bolt originates at the wand tip so a casual
+  // viewer reads "wand shoots lightning" — not "head emits lightning".
+  if (state.lightningAim) {
+    const hand = state.faceR ? rh : lh;
+    const tip = wandTip(hand.x, hand.y, state.lightningAim.angle);
+    drawLightningAim(ctx, tip.x, tip.y, state.lightningAim.angle);
+  }
+  if (state.lightningBolt) drawLightningBolt(ctx, state.lightningBolt);
+
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
   if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
 
   if (state.overlayActive) renderHUD(ctx, state, screenW);
+}
+
+const WAND_LENGTH = 14;
+const WAND_TIP_RADIUS = 2.2;
+
+// Wand tip in world coords given a hand position and an aim angle.
+// Kept in one place so aim/bolt/visual all sample the same point.
+export function wandTip(handX, handY, angle) {
+  return {
+    x: handX + Math.cos(angle) * WAND_LENGTH,
+    y: handY + Math.sin(angle) * WAND_LENGTH,
+  };
+}
+
+function drawWizardHat(ctx, headX, headY, headR, fl) {
+  // Slight backward tilt so the hat looks perched, not stabbed down.
+  const tilt = -0.25 * fl;
+  ctx.save();
+  ctx.translate(headX, headY - headR * 0.6);
+  ctx.rotate(tilt);
+  // Brim — thin dark ellipse sitting on the head.
+  ctx.fillStyle = '#1a0e2a';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, headR * 1.8, headR * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Cone body — tall triangle with a gentle curve.
+  ctx.fillStyle = '#2d1b4e';
+  ctx.strokeStyle = '#4a2d7a';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-headR * 1.3, 0);
+  ctx.lineTo(headR * 1.3, 0);
+  ctx.quadraticCurveTo(headR * 1.0, -headR * 1.2, headR * 0.5 * fl, -headR * 3.0);
+  ctx.quadraticCurveTo(-headR * 0.2 * fl, -headR * 2.5, -headR * 1.3, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Gold band along the brim.
+  ctx.fillStyle = '#d9a73a';
+  ctx.fillRect(-headR * 1.25, -headR * 0.3, headR * 2.5, headR * 0.35);
+  // Tiny star on the cone.
+  ctx.fillStyle = '#ffd866';
+  ctx.beginPath();
+  ctx.arc(headR * 0.15 * fl, -headR * 1.6, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawWand(ctx, handX, handY, angle) {
+  const tip = wandTip(handX, handY, angle);
+  ctx.save();
+  // Haft — dark wood.
+  ctx.strokeStyle = '#3a2819';
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(handX, handY);
+  ctx.lineTo(tip.x, tip.y);
+  ctx.stroke();
+  // Glowing crystal at the tip.
+  ctx.shadowColor = 'rgba(180, 220, 255, 0.9)';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = 'rgba(220, 240, 255, 0.95)';
+  ctx.beginPath();
+  ctx.arc(tip.x, tip.y, WAND_TIP_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawLightningAim(ctx, ox, oy, angle) {
+  const len = 260;
+  const ex = ox + Math.cos(angle) * len;
+  const ey = oy + Math.sin(angle) * len;
+  ctx.save();
+  ctx.setLineDash([6, 6]);
+  ctx.strokeStyle = 'rgba(180, 220, 255, 0.75)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(180, 220, 255, 0.5)';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Faint halo at the origin so the caster reads as powering up.
+  ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawLightningBolt(ctx, bolt) {
+  // The bolt's ray direction + perpendicular normal. Offsets from zig[]
+  // are applied along the normal to draw the jagged shape.
+  const cos = Math.cos(bolt.angle);
+  const sin = Math.sin(bolt.angle);
+  const nx = -sin;
+  const ny = cos;
+  const zig = bolt.zig || [];
+  const n = Math.max(2, zig.length);
+  const alpha = Math.max(0, Math.min(1, bolt.life / bolt.maxLife));
+
+  // Outer glow — thick soft blue stroke, drawn once along the zigzag.
+  const points = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const along = t * LIGHTNING_RANGE;
+    const off = zig[i] || 0;
+    const px = bolt.x + cos * along + nx * off;
+    const py = bolt.y + sin * along + ny * off;
+    points.push([px, py]);
+  }
+
+  ctx.save();
+  // Glow halo.
+  ctx.strokeStyle = `rgba(160, 200, 255, ${0.35 * alpha})`;
+  ctx.lineWidth = LIGHTNING_BEAM_WIDTH * 0.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(130, 180, 255, 0.9)';
+  ctx.shadowBlur = 24;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+
+  // Mid-brightness core.
+  ctx.strokeStyle = `rgba(200, 230, 255, ${0.95 * alpha})`;
+  ctx.lineWidth = 4;
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+
+  // Bright white inner strand.
+  ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawManaMine(ctx, m) {

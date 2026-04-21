@@ -1,7 +1,7 @@
 import { effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
-import { isShielded } from '../spells.js';
+import { isShielded, lightningStrikesPoint } from '../spells.js';
 
 /**
  * "Dodge the meteor shower" mission.
@@ -90,6 +90,14 @@ export const METEOR_SHOWER_MISSION = {
       const yBefore = m.y;
       m.x += (m.vx || 0) * dt;
       m.y += m.vy * dt;
+
+      // Struck by a live lightning bolt? Vaporise cleanly — no platform
+      // damage, no man damage, just sparks.
+      if (lightningStrikesPoint(state, m.x, m.y)) {
+        spawnImpactParticles(state, m.x, m.y);
+        scene.meteors.splice(i, 1);
+        continue;
+      }
 
       burstPlatformsBetween(state, xBefore, yBefore, m.x, m.y);
 
