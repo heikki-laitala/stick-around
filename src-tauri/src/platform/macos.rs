@@ -744,8 +744,6 @@ struct ItermAx {
     visible_text: String,
     visible_rows: usize,
     first_vis: usize,
-    num_para: usize,
-    line_height: f64,
 }
 
 fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
@@ -793,7 +791,7 @@ fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
                 -- numbers using the system locale, which in European locales
                 -- means a comma is the decimal separator ("1,7954E+4"). That
                 -- makes a comma-split parser on the Rust side eat a digit.
-                return ((item 1 of wp) as string) & "|" & ((item 2 of wp) as string) & "|" & ((item 1 of sp) as string) & "|" & ((item 2 of sp) as string) & "|" & ((item 1 of ss) as string) & "|" & ((item 2 of ss) as string) & "|" & (actualRows as string) & "|" & (firstVis as string) & "|" & (numPara as string) & "|" & (lh as string) & "|" & ((item 2 of tp) as string) & "|" & (taH as string) & linefeed & "---SPLIT---" & linefeed & visText
+                return ((item 1 of wp) as string) & "|" & ((item 2 of wp) as string) & "|" & ((item 1 of sp) as string) & "|" & ((item 2 of sp) as string) & "|" & ((item 1 of ss) as string) & "|" & ((item 2 of ss) as string) & "|" & (actualRows as string) & "|" & (firstVis as string) & linefeed & "---SPLIT---" & linefeed & visText
             end tell
         on error
             return ""
@@ -821,7 +819,7 @@ fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
         .split('|')
         .map(|s| s.trim().replace(',', "."))
         .collect();
-    if fields.len() < 10 {
+    if fields.len() < 8 {
         return None;
     }
     // AppleScript may format reals in scientific notation ("1.7954E+4").
@@ -835,8 +833,6 @@ fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
     let sa_h: f64 = fields[5].parse().ok()?;
     let visible_rows: usize = fields[6].parse().ok()?;
     let first_vis: usize = fields[7].parse().ok()?;
-    let num_para: usize = fields[8].parse().ok()?;
-    let line_height: f64 = fields[9].parse().ok()?;
 
     Some(ItermAx {
         win_x, win_y,
@@ -844,8 +840,6 @@ fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
         visible_text: text.to_string(),
         visible_rows,
         first_vis,
-        num_para,
-        line_height,
     })
 }
 
