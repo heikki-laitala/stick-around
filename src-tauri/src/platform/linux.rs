@@ -87,12 +87,14 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
 pub fn get_terminal_content(
     _pid: u32,
     _target_xy: Option<(i32, i32)>,
+    _app_name: &str,
 ) -> Option<super::TerminalContent> {
     // TODO: implement terminal text reading for Linux
     None
 }
 
-pub fn get_pid_by_name(name: &str) -> Option<u32> {
-    let output = run_cmd("pgrep", &["-x", name])?;
-    output.lines().next()?.trim().parse().ok()
+pub fn get_name_by_pid(pid: u32) -> Option<String> {
+    let output = run_cmd("ps", &["-p", &pid.to_string(), "-o", "comm="])?;
+    let name = output.trim();
+    if name.is_empty() { None } else { Some(name.to_string()) }
 }

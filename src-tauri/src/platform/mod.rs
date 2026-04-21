@@ -25,6 +25,17 @@ pub struct TerminalContent {
     pub hashes: Vec<u32>,
     /// Debug: last few lines of raw text for prompt detection debugging
     pub debug_lines: Vec<String>,
+    /// Direct pixel bounds of the prompt box (between the top and bottom
+    /// box-drawing separators), relative to the window's top-left. Measured
+    /// via `AXBoundsForRange` on macOS/iTerm so the overlay's PROMPT rect
+    /// matches the real on-screen box instead of being derived from
+    /// `input_line * line_height`, which drifts by fractions of a pixel
+    /// and visually bleeds into the row below.
+    pub prompt_rect: Option<(f64, f64, f64, f64)>,
+    /// Direct pixel bounds of the footer/status strip. Same reasoning as
+    /// `prompt_rect` — measure what iTerm actually renders rather than
+    /// inferring from per-row arithmetic.
+    pub footer_rect: Option<(f64, f64, f64, f64)>,
 }
 
 #[cfg(target_os = "macos")]

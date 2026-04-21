@@ -545,7 +545,10 @@ export function renderDebugOverlays(ctx, state, screenH) {
     ctx.fillRect(state.footerArea.x, state.footerArea.y, state.footerArea.w, state.footerArea.h);
     ctx.strokeStyle = 'rgba(0, 200, 50, 0.6)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(state.footerArea.x, state.footerArea.y, state.footerArea.w, state.footerArea.h);
+    // Inset stroke by 1 so lineWidth=2 (which draws ±1 around the path)
+    // stays entirely inside the fill rect. Without inset, the bottom
+    // stroke bleeds 1 px into the row below.
+    ctx.strokeRect(state.footerArea.x + 1, state.footerArea.y + 1, state.footerArea.w - 2, state.footerArea.h - 2);
     ctx.fillStyle = 'rgba(0, 200, 50, 0.9)';
     ctx.font = '10px monospace';
     ctx.fillText('FOOTER', state.footerArea.x + 4, state.footerArea.y + 12);
@@ -555,7 +558,7 @@ export function renderDebugOverlays(ctx, state, screenH) {
     ctx.fillRect(state.promptArea.x, state.promptArea.y, state.promptArea.w, state.promptArea.h);
     ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(state.promptArea.x, state.promptArea.y, state.promptArea.w, state.promptArea.h);
+    ctx.strokeRect(state.promptArea.x + 1, state.promptArea.y + 1, state.promptArea.w - 2, state.promptArea.h - 2);
     ctx.fillStyle = 'rgba(0, 100, 255, 0.9)';
     ctx.font = '10px monospace';
     ctx.fillText('PROMPT', state.promptArea.x + 4, state.promptArea.y + 12);
@@ -564,6 +567,26 @@ export function renderDebugOverlays(ctx, state, screenH) {
     ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
     ctx.font = '12px monospace';
     ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
+  }
+  if (state.lineHeight > 0 && state.textHeight > 0) {
+    const rows = Math.round(state.textHeight / state.lineHeight);
+    const x0 = state.textOffsetX || 0;
+    const xW = state.textWidth || 600;
+    ctx.font = '9px monospace';
+    for (let i = 0; i <= rows; i++) {
+      const y = state.textOffsetY + i * state.lineHeight;
+      const major = i % 5 === 0;
+      ctx.strokeStyle = major ? 'rgba(255, 200, 0, 0.8)' : 'rgba(255, 0, 0, 0.35)';
+      ctx.lineWidth = major ? 1 : 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x0 + xW, y);
+      ctx.stroke();
+      if (major) {
+        ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
+        ctx.fillText(`r${i}`, x0 + 2, y - 1);
+      }
+    }
   }
   if (state.lastDebugLines && state.lastDebugLines.length > 0) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';

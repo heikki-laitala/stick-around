@@ -94,40 +94,16 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
     }
 }
 
-pub fn get_pid_by_name(name: &str) -> Option<u32> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32First, Process32Next,
-        PROCESSENTRY32, TH32CS_SNAPPROCESS,
-    };
-
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.ok()?;
-    let mut entry = PROCESSENTRY32 {
-        dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
-        ..Default::default()
-    };
-
-    unsafe {
-        if Process32First(snapshot, &mut entry).is_ok() {
-            loop {
-                let exe = std::ffi::CStr::from_ptr(entry.szExeFile.as_ptr())
-                    .to_string_lossy();
-                let exe_name = exe.trim_end_matches(".exe");
-                if exe_name.eq_ignore_ascii_case(name) {
-                    return Some(entry.th32ProcessID);
-                }
-                if Process32Next(snapshot, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    None
-}
-
 pub fn get_terminal_content(
     _pid: u32,
     _target_xy: Option<(i32, i32)>,
+    _app_name: &str,
 ) -> Option<super::TerminalContent> {
     // TODO: implement terminal text reading for Windows
+    None
+}
+
+pub fn get_name_by_pid(_pid: u32) -> Option<String> {
+    // TODO: implement process name lookup for Windows
     None
 }

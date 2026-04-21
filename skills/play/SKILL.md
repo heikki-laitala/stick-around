@@ -7,7 +7,6 @@ allowed-tools: Bash
 Launch the stick man overlay game by running:
 
 ```bash
-STICK_TERMINAL_APP=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true') \
 "${CLAUDE_PLUGIN_ROOT}/stick-around" &
 STICK_PID=$!
 sleep 0.5

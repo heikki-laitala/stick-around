@@ -81,22 +81,24 @@ fn pid_file_path() -> std::path::PathBuf {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(terminal_app: Option<String>) {
+pub fn run() {
     let pid_file = pid_file_path();
     std::fs::write(&pid_file, std::process::id().to_string()).ok();
 
-    // Detect the terminal PID (frontmost process at launch)
-    let terminal_pid: Option<u32> = terminal_app
-        .and_then(|name| platform::get_pid_by_name(&name))
-        .or_else(|| platform::get_frontmost_pid());
-
-    let pid = match terminal_pid {
+    // Detect the terminal PID (frontmost process at launch). This runs
+    // before tauri::Builder so the terminal still owns focus — the overlay
+    // window hasn't been created yet.
+    let pid = match platform::get_frontmost_pid() {
         Some(p) => p,
         None => {
             eprintln!("[stick-around] could not detect terminal PID");
             return;
         }
     };
+
+    // Terminal process name, used to pick the right content-reading
+    // backend (Terminal.app's AX hierarchy vs iTerm's native scripting).
+    let terminal_name = platform::get_name_by_pid(pid).unwrap_or_default();
 
     let initial_bounds = platform::get_front_window_bounds(pid);
     let shared_bounds = Arc::new(Mutex::new(initial_bounds.unwrap_or((0, 0, 800, 600))));
@@ -249,11 +251,16 @@ pub fn run(terminal_app: Option<String>) {
             // another window of the same terminal app doesn't pollute the
             // overlay with content from the wrong window.
             let win_text = window.clone();
+            let terminal_name_text = terminal_name.clone();
             std::thread::spawn(move || {
                 let mut last_content: Option<platform::TerminalContent> = None;
                 loop {
                     let (tx, ty, _, _) = *text_bounds.lock().unwrap();
-                    if let Some(content) = platform::get_terminal_content(pid, Some((tx, ty))) {
+                    if let Some(content) = platform::get_terminal_content(
+                        pid,
+                        Some((tx, ty)),
+                        &terminal_name_text,
+                    ) {
                         if last_content.as_ref() != Some(&content) {
                             let _ = win_text.emit("terminal-content", &content);
                             last_content = Some(content);

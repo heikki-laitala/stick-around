@@ -41,22 +41,231 @@ extern "C" {
     fn CFArrayGetValueAtIndex(array: CFTypeRef, idx: isize) -> CFTypeRef;
     fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
     fn CFNumberGetValue(num: CFTypeRef, typ: i32, value_ptr: *mut c_void) -> bool;
+    fn CFNumberCreate(alloc: CFTypeRef, typ: i32, value_ptr: *const c_void) -> CFTypeRef;
     fn CFRelease(cf: CFTypeRef);
+    fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
     fn CFStringCreateWithCString(
         alloc: CFTypeRef,
         cstr: *const c_char,
         encoding: u32,
     ) -> CFTypeRef;
+    fn CFStringGetCString(
+        the_string: CFTypeRef,
+        buffer: *mut c_char,
+        buffer_size: isize,
+        encoding: u32,
+    ) -> bool;
+}
+
+// ─── Accessibility FFI ───────────────────────────────────────────────────
+// We need pixel bounds for a specific range of characters in iTerm's
+// AXTextArea. AppleScript (System Events) can't pass parameters to AX
+// attributes, so `AXBoundsForRange` is unreachable from there. Going
+// through the C API lets us ask iTerm directly for the on-screen rectangle
+// of line N — no arithmetic between sa.h, ta.h, numPara, or wrap-aware
+// guessing involved.
+type AXUIElementRef = CFTypeRef;
+
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+struct AXCFRange {
+    location: isize,
+    length: isize,
+}
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: CFTypeRef,
+        value: *mut CFTypeRef,
+    ) -> i32;
+    fn AXUIElementCopyParameterizedAttributeValue(
+        element: AXUIElementRef,
+        parameter_attribute: CFTypeRef,
+        parameter: CFTypeRef,
+        value: *mut CFTypeRef,
+    ) -> i32;
+    fn AXValueCreate(type_: u32, value_ptr: *const c_void) -> CFTypeRef;
+    fn AXValueGetValue(value: CFTypeRef, type_: u32, out: *mut c_void) -> bool;
 }
 
 const CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1 << 0;
 const CF_NUMBER_SINT64_TYPE: i32 = 4;
 const CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
+// Per ApplicationServices/HIServices/AXValue.h: kAXValueCGPointType = 1,
+// kAXValueCGSizeType = 2, kAXValueCGRectType = 3, kAXValueCFRangeType = 4.
+// Previously had CGRect = 1, so `AXValueGetValue` silently rejected every
+// bounds payload and the whole stack fell back to `sa.h / term_rows`
+// arithmetic — which lined up close enough to look right for row 0 but was
+// never the real on-screen rect.
+const AX_VALUE_TYPE_CGRECT: u32 = 3;
+const AX_VALUE_TYPE_CFRANGE: u32 = 4;
+const AX_ERROR_SUCCESS: i32 = 0;
+
+/// RAII wrapper that releases a CF/AX object on drop.
+struct CfGuard(CFTypeRef);
+impl Drop for CfGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CFRelease(self.0) };
+        }
+    }
+}
+impl CfGuard {
+    fn as_ref(&self) -> CFTypeRef {
+        self.0
+    }
+}
 
 unsafe fn cfstr(s: &str) -> CFTypeRef {
     let c = CString::new(s).unwrap();
     CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), CF_STRING_ENCODING_UTF8)
 }
+
+unsafe fn cfnumber_i64(v: i64) -> CFTypeRef {
+    CFNumberCreate(
+        std::ptr::null(),
+        CF_NUMBER_SINT64_TYPE,
+        &v as *const _ as *const c_void,
+    )
+}
+
+unsafe fn ax_get_attr(elem: AXUIElementRef, name: &str) -> Option<CfGuard> {
+    let name_cf = CfGuard(cfstr(name));
+    if name_cf.as_ref().is_null() {
+        return None;
+    }
+    let mut out: CFTypeRef = std::ptr::null();
+    let err = AXUIElementCopyAttributeValue(elem, name_cf.as_ref(), &mut out);
+    if err != AX_ERROR_SUCCESS || out.is_null() {
+        None
+    } else {
+        Some(CfGuard(out))
+    }
+}
+
+unsafe fn ax_get_param_attr(
+    elem: AXUIElementRef,
+    name: &str,
+    param: CFTypeRef,
+) -> Option<CfGuard> {
+    let name_cf = CfGuard(cfstr(name));
+    if name_cf.as_ref().is_null() {
+        return None;
+    }
+    let mut out: CFTypeRef = std::ptr::null();
+    let err = AXUIElementCopyParameterizedAttributeValue(elem, name_cf.as_ref(), param, &mut out);
+    if err != AX_ERROR_SUCCESS || out.is_null() {
+        None
+    } else {
+        Some(CfGuard(out))
+    }
+}
+
+unsafe fn cfstring_to_string(s: CFTypeRef) -> Option<String> {
+    let mut buf = [0i8; 128];
+    if CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as isize, CF_STRING_ENCODING_UTF8) {
+        let cstr = std::ffi::CStr::from_ptr(buf.as_ptr());
+        Some(cstr.to_string_lossy().into_owned())
+    } else {
+        None
+    }
+}
+
+/// Recursively walk an AX element's children looking for the first node
+/// whose `AXRole` equals `target_role`. `max_depth` caps recursion in case
+/// the host app gives us a cyclic or pathologically deep tree.
+///
+/// Elements returned from `CFArrayGetValueAtIndex` are *not* retained; once
+/// their parent array drops they become dangling. The returned `CfGuard`
+/// wraps a retained ref so the found element outlives the recursion.
+unsafe fn ax_find_descendant(
+    elem: AXUIElementRef,
+    target_role: &str,
+    max_depth: usize,
+) -> Option<CfGuard> {
+    if max_depth == 0 || elem.is_null() {
+        return None;
+    }
+    if let Some(role_cf) = ax_get_attr(elem, "AXRole") {
+        if let Some(role) = cfstring_to_string(role_cf.as_ref()) {
+            if role == target_role {
+                return Some(CfGuard(CFRetain(elem)));
+            }
+        }
+    }
+    if let Some(kids_cf) = ax_get_attr(elem, "AXChildren") {
+        let count = CFArrayGetCount(kids_cf.as_ref());
+        for i in 0..count {
+            let child = CFArrayGetValueAtIndex(kids_cf.as_ref(), i);
+            if let Some(found) = ax_find_descendant(child, target_role, max_depth - 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// Walk to iTerm's AXTextArea once per poll. Caller takes ownership of the
+/// returned guard. Kept separate so row-bounds queries don't re-walk the tree.
+unsafe fn iterm_text_area(pid: u32) -> Option<CfGuard> {
+    let app = AXUIElementCreateApplication(pid as i32);
+    if app.is_null() {
+        return None;
+    }
+    let app_guard = CfGuard(app);
+
+    let windows = ax_get_attr(app_guard.as_ref(), "AXWindows")?;
+    let count = CFArrayGetCount(windows.as_ref());
+    if count == 0 {
+        return None;
+    }
+    let window = CFArrayGetValueAtIndex(windows.as_ref(), 0);
+    if window.is_null() {
+        return None;
+    }
+    ax_find_descendant(window, "AXTextArea", 12)
+}
+
+/// On-screen rectangle of a specific AX line (paragraph) inside the given
+/// text area. `line_num` is an absolute paragraph index in the full
+/// scrollback — the caller converts visible-row indices to absolute via
+/// `first_vis + visible_row`. Returns `None` if iTerm rejects the query.
+unsafe fn measure_iterm_line_rect(ta_ref: AXUIElementRef, line_num: i64) -> Option<CGRectRaw> {
+    let line_num_cf = CfGuard(cfnumber_i64(line_num));
+    if line_num_cf.as_ref().is_null() {
+        return None;
+    }
+    let line_range_cf = ax_get_param_attr(ta_ref, "AXRangeForLine", line_num_cf.as_ref())?;
+    let mut line_range = AXCFRange::default();
+    if !AXValueGetValue(
+        line_range_cf.as_ref(),
+        AX_VALUE_TYPE_CFRANGE,
+        &mut line_range as *mut _ as *mut c_void,
+    ) {
+        return None;
+    }
+    let range_param = CfGuard(AXValueCreate(
+        AX_VALUE_TYPE_CFRANGE,
+        &line_range as *const _ as *const c_void,
+    ));
+    if range_param.as_ref().is_null() {
+        return None;
+    }
+    let bounds_cf = ax_get_param_attr(ta_ref, "AXBoundsForRange", range_param.as_ref())?;
+    let mut rect = CGRectRaw::default();
+    if !AXValueGetValue(
+        bounds_cf.as_ref(),
+        AX_VALUE_TYPE_CGRECT,
+        &mut rect as *mut _ as *mut c_void,
+    ) {
+        return None;
+    }
+    Some(rect)
+}
+
 
 unsafe fn dict_number_i64(dict: CFTypeRef, key: &str) -> Option<i64> {
     let k = cfstr(key);
@@ -331,14 +540,31 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
 use super::TerminalContent;
 
 /// Read the terminal's text area geometry and visible line content.
-/// Uses AXVisibleCharacterRange to get exactly the visible text.
-/// Combines geometry, text, and title into a single AppleScript call for speed.
+/// Routes to the right backend based on the terminal app:
+/// - Terminal.app (and anything else using System Events AX with a
+///   scroll-area/text-area hierarchy) uses `get_ax_terminal_content`.
+/// - iTerm2 uses its native scripting dictionary via `get_iterm_content`
+///   because it doesn't expose the same AX tree.
 ///
 /// `target_xy` pins the query to the specific launch-time window by matching
 /// its current position. Without this, the script would target `front window`
 /// of the process — which swaps if the user clicks another window of the same
 /// terminal app, polluting prompt/footer detection with the wrong content.
-pub fn get_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
+pub fn get_terminal_content(
+    pid: u32,
+    target_xy: Option<(i32, i32)>,
+    app_name: &str,
+) -> Option<TerminalContent> {
+    if app_name.starts_with("iTerm") {
+        return get_iterm_content(pid, target_xy);
+    }
+    get_ax_terminal_content(pid, target_xy)
+}
+
+/// Generic System Events AX path — works for Terminal.app.
+/// Uses AXVisibleCharacterRange to get exactly the visible text.
+/// Combines geometry, text, and title into a single AppleScript call for speed.
+fn get_ax_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
     let window_lookup = match target_xy {
         Some((tx, ty)) => format!(
             r#"set targetWin to missing value
@@ -491,6 +717,267 @@ pub fn get_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<T
         line_offsets,
         hashes,
         debug_lines,
+        prompt_rect: None,
+        footer_rect: None,
+    })
+}
+
+/// iTerm AX probe result: window origin, visible scroll-area rect, and the
+/// text content that falls inside that rect (sliced from the full scrollback
+/// in AXTextArea).
+///
+/// iTerm2's AX hierarchy is:
+///   Window → AXGroup → AXSplitGroup → AXScrollArea (visible viewport)
+///                                      → AXTextArea (entire scrollback buffer)
+///
+/// AXVisibleCharacterRange — which works for Terminal.app — returns the full
+/// buffer on iTerm, so we have to compute the visible slice ourselves from
+/// pixel geometry: `(sa.y - ta.y) / lineHeight` gives the first visible
+/// paragraph, and `sa.h / lineHeight` gives how many are visible.
+struct ItermAx {
+    win_x: f64,
+    win_y: f64,
+    sa_x: f64,
+    sa_y: f64,
+    sa_w: f64,
+    sa_h: f64,
+    visible_text: String,
+    visible_rows: usize,
+    first_vis: usize,
+    num_para: usize,
+    line_height: f64,
+}
+
+fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
+    // `round x` in AppleScript defaults to banker's rounding (nearest even).
+    // That's fine for our purposes; what matters is that we're NOT using
+    // `rounding down` here — the pixel offset lands at e.g. 945.99, and
+    // floor(945.99) = 945 is one paragraph earlier than the visible start,
+    // which shifted the detected prompt by 2 rows. Using nearest rounding
+    // fixes the off-by-2 observed in practice.
+    let script = format!(r#"tell application "System Events"
+        try
+            tell (first process whose unix id is {pid})
+                if (count of windows) is 0 then return ""
+                set w to front window
+                set wp to position of w
+                set grp to first UI element of w whose role is "AXGroup"
+                set sg to first UI element of grp whose role is "AXSplitGroup"
+                set sa to first UI element of sg whose role is "AXScrollArea"
+                set sp to position of sa
+                set ss to size of sa
+                set ta to first UI element of sa whose role is "AXTextArea"
+                set tp to position of ta
+                set ts to size of ta
+                set fullText to value of ta
+                set numPara to count of paragraphs of fullText
+                if numPara is 0 then return ""
+                -- Force real division. AppleScript integer/integer returns
+                -- an integer in some versions, which rounds lh to 17 from a
+                -- real 17.97 and shifts every visible row.
+                set taH to (item 2 of ts) * 1.0
+                set lh to taH / numPara
+                if lh <= 0 then return ""
+                set firstVis to round ((((item 2 of sp) - (item 2 of tp)) / lh))
+                set visRows to round (((item 2 of ss) / lh))
+                if firstVis < 0 then set firstVis to 0
+                if firstVis >= numPara then set firstVis to numPara - 1
+                set lastVis to firstVis + visRows - 1
+                if lastVis >= numPara then set lastVis to numPara - 1
+                set visText to ""
+                repeat with i from (firstVis + 1) to (lastVis + 1)
+                    set visText to visText & (paragraph i of fullText) & linefeed
+                end repeat
+                set actualRows to (lastVis - firstVis + 1)
+                -- Use "|" as the field separator. AppleScript formats real
+                -- numbers using the system locale, which in European locales
+                -- means a comma is the decimal separator ("1,7954E+4"). That
+                -- makes a comma-split parser on the Rust side eat a digit.
+                return ((item 1 of wp) as string) & "|" & ((item 2 of wp) as string) & "|" & ((item 1 of sp) as string) & "|" & ((item 2 of sp) as string) & "|" & ((item 1 of ss) as string) & "|" & ((item 2 of ss) as string) & "|" & (actualRows as string) & "|" & (firstVis as string) & "|" & (numPara as string) & "|" & (lh as string) & "|" & ((item 2 of tp) as string) & "|" & (taH as string) & linefeed & "---SPLIT---" & linefeed & visText
+            end tell
+        on error
+            return ""
+        end try
+    end tell"#, pid = pid);
+
+    let raw = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())?;
+    if raw.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = raw.splitn(2, "---SPLIT---").collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let geo = parts[0].trim();
+    let text = parts[1].strip_prefix('\n').unwrap_or(parts[1]);
+    let text = text.strip_suffix('\n').unwrap_or(text);
+
+    let fields: Vec<String> = geo
+        .split('|')
+        .map(|s| s.trim().replace(',', "."))
+        .collect();
+    if fields.len() < 10 {
+        return None;
+    }
+    // AppleScript may format reals in scientific notation ("1.7954E+4").
+    // Rust's f64::FromStr parses that fine, so after the comma→dot locale
+    // fix above we can parse directly.
+    let win_x: f64 = fields[0].parse().ok()?;
+    let win_y: f64 = fields[1].parse().ok()?;
+    let sa_x: f64 = fields[2].parse().ok()?;
+    let sa_y: f64 = fields[3].parse().ok()?;
+    let sa_w: f64 = fields[4].parse().ok()?;
+    let sa_h: f64 = fields[5].parse().ok()?;
+    let visible_rows: usize = fields[6].parse().ok()?;
+    let first_vis: usize = fields[7].parse().ok()?;
+    let num_para: usize = fields[8].parse().ok()?;
+    let line_height: f64 = fields[9].parse().ok()?;
+
+    Some(ItermAx {
+        win_x, win_y,
+        sa_x, sa_y, sa_w, sa_h,
+        visible_text: text.to_string(),
+        visible_rows,
+        first_vis,
+        num_para,
+        line_height,
+    })
+}
+
+/// iTerm2 content reader. Walks the AX hierarchy to pull the full scrollback
+/// from AXTextArea, slices to the visible viewport using AXScrollArea pixel
+/// geometry, and returns both the text and the on-screen rectangle.
+///
+/// `target_xy` is accepted for API parity with the Terminal.app path but not
+/// used yet — iTerm's AX tree gives `front window`, which matches in practice
+/// because the overlay's own app doesn't steal focus. If multi-iTerm-window
+/// disambiguation becomes needed, add a window-by-position lookup here.
+fn get_iterm_content(pid: u32, _target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
+    let ax = get_iterm_ax(pid)?;
+
+    let text_offset_x = (ax.sa_x - ax.win_x).max(0.0);
+    let text_width = ax.sa_w;
+
+    let text_lines: Vec<&str> = ax.visible_text.lines().collect();
+    let term_rows = ax.visible_rows.max(text_lines.len().max(1));
+
+    // Ask iTerm directly for the on-screen rectangle of specific rows via
+    // AX's parameterized `AXBoundsForRange`. This is the ground truth — no
+    // arithmetic between sa.h, ta.h, and numPara, which all drift slightly
+    // depending on scroll padding and paragraph wrapping. Fall back to the
+    // sa.h/term_rows average if the AX probe fails (e.g. permissions, iTerm
+    // busy), which keeps detection approximately correct instead of breaking
+    // entirely.
+    let ta_guard = unsafe { iterm_text_area(pid) };
+    // iTerm's AXTextArea indexes AX lines into the FULL scrollback (0..numPara),
+    // not the viewport. Use AppleScript's firstVis (pixel-derived) as the base
+    // for visible-row → AX-line conversion; AXVisibleCharacterRange.location
+    // lies (returns 0 even when scrolled).
+    let first_vis_abs = ax.first_vis as i64;
+    let row0_rect = ta_guard
+        .as_ref()
+        .and_then(|ta| unsafe { measure_iterm_line_rect(ta.as_ref(), first_vis_abs) });
+    let (row0_top, line_height) = match row0_rect {
+        Some(r) => (r.origin_y, r.size_height),
+        None => (ax.sa_y, ax.sa_h / term_rows.max(1) as f64),
+    };
+    let text_height = line_height * term_rows as f64;
+    let text_offset_y = (row0_top - ax.win_y).max(0.0);
+
+    // Approximate term_cols from widest visible line; good enough for the
+    // charWidth derivation frontend-side (textWidth / term_cols).
+    let term_cols = text_lines
+        .iter()
+        .map(|l| l.chars().map(|c| if is_wide_char(c) { 2 } else { 1 }).sum::<usize>())
+        .max()
+        .unwrap_or(80)
+        .max(1);
+
+    let mut lines: Vec<usize> = Vec::with_capacity(text_lines.len());
+    let mut line_offsets: Vec<usize> = Vec::with_capacity(text_lines.len());
+    let mut hashes: Vec<u32> = Vec::with_capacity(text_lines.len());
+    for l in text_lines.iter() {
+        let leading: usize = l.chars()
+            .take_while(|c| c.is_whitespace())
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
+        line_offsets.push(leading);
+        let trimmed_content = l.trim();
+        let width: usize = trimmed_content.chars()
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
+        lines.push(width);
+        let mut h: u32 = 2166136261;
+        for b in l.bytes() {
+            h ^= b as u32;
+            h = h.wrapping_mul(16777619);
+        }
+        hashes.push(h);
+    }
+
+    let (input_line, footer_line) = detect_terminal_regions(&text_lines);
+
+    // Measure the top prompt border row and the footer row directly via
+    // `AXBoundsForRange`. Deriving promptArea from `input_line *
+    // line_height` is brittle — iTerm's sa.h doesn't divide evenly into the
+    // visible rows, so per-row arithmetic accumulates sub-pixel drift and
+    // the PROMPT box bleeds by ~1 row at the bottom. Asking AX for the
+    // exact rect of each row sidesteps that entirely.
+    let row_rect_at = |visible_row: usize| -> Option<CGRectRaw> {
+        let ta = ta_guard.as_ref()?;
+        unsafe { measure_iterm_line_rect(ta.as_ref(), first_vis_abs + visible_row as i64) }
+    };
+    let prompt_top_rect = input_line.and_then(row_rect_at);
+    let footer_top_rect = footer_line.and_then(row_rect_at);
+
+    let prompt_rect: Option<(f64, f64, f64, f64)> = match (prompt_top_rect, footer_top_rect) {
+        (Some(top), Some(bot)) => {
+            let y = top.origin_y - ax.win_y;
+            let h = bot.origin_y - top.origin_y;
+            Some((text_offset_x, y, text_width, h.max(0.0)))
+        }
+        _ => None,
+    };
+    let footer_rect: Option<(f64, f64, f64, f64)> = footer_top_rect.map(|top| {
+        let y = top.origin_y - ax.win_y;
+        let h = (ax.sa_y + ax.sa_h) - top.origin_y;
+        (text_offset_x, y, text_width, h.max(0.0))
+    });
+
+    let total = text_lines.len();
+    let start = if total > 8 { total - 8 } else { 0 };
+    let debug_lines: Vec<String> = text_lines[start..].iter().enumerate().map(|(i, l)| {
+        let idx = start + i;
+        let escaped: String = l.chars().take(60).map(|c| {
+            if c.is_ascii_graphic() || c == ' ' {
+                c.to_string()
+            } else {
+                format!("U+{:04X}", c as u32)
+            }
+        }).collect();
+        format!("[{}] {}", idx, escaped)
+    }).collect();
+
+    Some(TerminalContent {
+        text_offset_y,
+        text_offset_x,
+        text_height,
+        text_width,
+        term_cols,
+        term_rows,
+        footer_line,
+        input_line,
+        lines,
+        line_offsets,
+        hashes,
+        debug_lines,
+        prompt_rect,
+        footer_rect,
     })
 }
 
@@ -792,10 +1279,13 @@ pub unsafe fn resign_key_window(ns_window: *mut std::ffi::c_void) {
     let _: () = msg_send![window, resignKeyWindow];
 }
 
-pub fn get_pid_by_name(name: &str) -> Option<u32> {
+/// Look up the process name for a given unix PID via System Events.
+/// Used at launch to decide which terminal-content backend to run
+/// (Terminal.app's generic AX path vs iTerm's own scripting dictionary).
+pub fn get_name_by_pid(pid: u32) -> Option<String> {
     let script = format!(
-        r#"tell application "System Events" to get unix id of first process whose name is "{}""#,
-        name
+        r#"tell application "System Events" to get name of first process whose unix id is {}"#,
+        pid
     );
-    run_osascript(&script).and_then(|s| s.parse().ok())
+    run_osascript(&script).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }

@@ -133,26 +133,40 @@ export function buildPlatforms(content, cached) {
 
   // Add prompt top border as a walkable platform (full width)
   if (inputIdx != null) {
-    const promptPlatY = textOffsetY + inputIdx * lineHeight + 2;
+    const promptPlatY = textOffsetY + inputIdx * lineHeight;
     platforms.push({ y: promptPlatY, x: textOffsetX, w: textWidth, hash: 0xFFFF });
   }
 
-  // Prompt area bounding box
+  // Prompt/footer rects — prefer the direct AX-measured pixel bounds from
+  // the backend when available (iTerm path sets these via AXBoundsForRange).
+  // The fractional per-row line height arithmetic drifts enough that the
+  // PROMPT box visually bleeds into the footer row; direct measurement
+  // avoids the drift entirely. The measured rects are already in the same
+  // coordinate basis as textOffsetY (main.js applies the HUD-strip shift
+  // to the whole payload before calling us).
+  const measuredPrompt = content.prompt_rect;
+  const measuredFooter = content.footer_rect;
+
   let promptArea = null;
-  if (inputIdx != null) {
-    const promptY = textOffsetY + inputIdx * lineHeight + 2;
+  if (measuredPrompt) {
+    const [, py, , ph] = measuredPrompt;
+    promptArea = { x: textOffsetX, y: py, w: textWidth, h: ph };
+  } else if (inputIdx != null) {
+    const promptY = textOffsetY + inputIdx * lineHeight;
     const promptLines = footerIdx != null ? footerIdx - inputIdx : fitLines - inputIdx;
     promptArea = {
       x: textOffsetX,
       y: promptY,
       w: textWidth,
-      h: promptLines * lineHeight - 9,
+      h: promptLines * lineHeight,
     };
   }
 
-  // Footer area bounding box
   let footerArea = null;
-  if (footerIdx != null && promptArea) {
+  if (measuredFooter) {
+    const [, fy, , fh] = measuredFooter;
+    footerArea = { x: textOffsetX, y: fy, w: textWidth, h: fh };
+  } else if (footerIdx != null && promptArea) {
     const footerY = promptArea.y + promptArea.h;
     const footerBottom = textOffsetY + fitLines * lineHeight;
     footerArea = {

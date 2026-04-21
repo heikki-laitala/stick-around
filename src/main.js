@@ -149,9 +149,17 @@ function handleTerminalContent(content) {
 
   // The overlay window extends effectiveHudHeight pixels above the terminal
   // to host the HUD strip (taller on narrow terminals so items wrap onto a
-  // second row). Shift text_offset_y so platforms render below the strip.
+  // second row). Shift every y-coordinate we receive from the backend so
+  // platforms, the PROMPT rect, and the FOOTER rect all render below the
+  // strip in the same basis.
   const hudH = effectiveHudHeight(window.innerWidth);
-  const adjusted = { ...content, text_offset_y: content.text_offset_y + hudH };
+  const shiftRect = (r) => (r ? [r[0], r[1] + hudH, r[2], r[3]] : null);
+  const adjusted = {
+    ...content,
+    text_offset_y: content.text_offset_y + hudH,
+    prompt_rect: shiftRect(content.prompt_rect),
+    footer_rect: shiftRect(content.footer_rect),
+  };
   const result = buildPlatforms(adjusted, {
     cachedInputIdx: state.cachedInputIdx,
     cachedFooterIdx: state.cachedFooterIdx,
