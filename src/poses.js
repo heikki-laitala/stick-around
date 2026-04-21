@@ -141,6 +141,63 @@ export const PRONE_CRAWL = [
   ),
 ];
 
+// Swim: horizontal float, body ~12px above the pose floor baseline so it
+// sits near the surface of a shallow (≈15–20px) water rect. Positive x =
+// forward (head leads). Used by missions that flag a water region, not
+// posture-dependent — see updatePose in physics.js.
+export const SWIM = p(
+  { x: 30, y: 0 },    // head (forward, above water surface)
+  { x: 22, y: 6 },    // neck
+  { x: 0, y: 12 },    // hip
+  { x: 18, y: 6 },    // lsh
+  { x: 16, y: 10 },   // rsh
+  { x: 10, y: 2 },    // lel
+  { x: 10, y: 14 },   // rel
+  { x: 22, y: -4 },   // lh (reaching ahead)
+  { x: 16, y: 18 },   // rh (recovering near hip)
+  { x: -4, y: 14 },   // lhip
+  { x: -8, y: 14 },   // rhip
+  { x: -18, y: 12 },  // lk
+  { x: -20, y: 16 },  // rk
+  { x: -30, y: 10 },  // lf
+  { x: -32, y: 18 },  // rf
+);
+
+// Freestyle stroke cycle: entry/catch on one side while the other arm
+// pulls back, with alternating flutter kicks. Frames 1 and 3 are glide
+// frames (same as SWIM) so the stroke reads as a clear rhythm instead
+// of a continuous flail.
+export const SWIM_STROKE = [
+  // Frame 0: right arm reaching forward above water, left arm pulling back
+  p(
+    { x: 30, y: -2 }, { x: 22, y: 4 }, { x: 0, y: 12 },
+    { x: 18, y: 8 }, { x: 16, y: 6 }, { x: 8, y: 16 }, { x: 14, y: -2 },
+    { x: -12, y: 22 }, { x: 28, y: -8 }, { x: -4, y: 14 }, { x: -8, y: 14 },
+    { x: -18, y: 10 }, { x: -18, y: 18 }, { x: -30, y: 6 }, { x: -30, y: 22 },
+  ),
+  // Frame 1: glide
+  p(
+    { x: 30, y: 0 }, { x: 22, y: 6 }, { x: 0, y: 12 },
+    { x: 18, y: 6 }, { x: 16, y: 10 }, { x: 10, y: 2 }, { x: 10, y: 14 },
+    { x: 22, y: -4 }, { x: 16, y: 18 }, { x: -4, y: 14 }, { x: -8, y: 14 },
+    { x: -18, y: 12 }, { x: -20, y: 16 }, { x: -30, y: 10 }, { x: -32, y: 18 },
+  ),
+  // Frame 2: left arm reaching forward, right arm pulling back
+  p(
+    { x: 30, y: -2 }, { x: 22, y: 4 }, { x: 0, y: 12 },
+    { x: 16, y: 6 }, { x: 18, y: 8 }, { x: 14, y: -2 }, { x: 8, y: 16 },
+    { x: 28, y: -8 }, { x: -12, y: 22 }, { x: -4, y: 14 }, { x: -8, y: 14 },
+    { x: -18, y: 18 }, { x: -18, y: 10 }, { x: -30, y: 22 }, { x: -30, y: 6 },
+  ),
+  // Frame 3: glide
+  p(
+    { x: 30, y: 0 }, { x: 22, y: 6 }, { x: 0, y: 12 },
+    { x: 18, y: 6 }, { x: 16, y: 10 }, { x: 10, y: 2 }, { x: 10, y: 14 },
+    { x: 22, y: -4 }, { x: 16, y: 18 }, { x: -4, y: 14 }, { x: -8, y: 14 },
+    { x: -18, y: 12 }, { x: -20, y: 16 }, { x: -30, y: 10 }, { x: -32, y: 18 },
+  ),
+];
+
 export const SCALE = 0.35;
 
 // Posture heights in screen pixels (used for ceiling collision)

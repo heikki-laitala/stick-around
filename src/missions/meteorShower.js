@@ -63,6 +63,13 @@ export const METEOR_SHOWER_MISSION = {
   update(state, dt) {
     const scene = state.missionScene;
     if (!scene) return;
+
+    // Flood the footer row: while this mission runs, the footer acts as
+    // water so the man can't just drop down and sprint across it to dodge
+    // meteors. Refreshed each tick because footerArea moves with terminal
+    // scroll. Cleared when the mission transitions (progression.js).
+    state.waterArea = state.footerArea || null;
+
     if (state.gameOver) return;
     if (scene.survived) return;
 
@@ -119,6 +126,9 @@ export const METEOR_SHOWER_MISSION = {
   render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
+
+    if (state.waterArea) renderWater(ctx, state.waterArea, scene.survivedTime || 0);
+
     const paused = state.overlayActive === false;
     ctx.save();
     ctx.globalAlpha = paused ? 0.25 : 1;
@@ -129,6 +139,32 @@ export const METEOR_SHOWER_MISSION = {
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };
+
+function renderWater(ctx, rect, t) {
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, rect.y, 0, rect.y + rect.h);
+  grad.addColorStop(0, 'rgba(90, 170, 230, 0.45)');
+  grad.addColorStop(1, 'rgba(40, 90, 160, 0.55)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+  // Animated wavy surface line. Two offset sines add a bit of texture
+  // without needing per-particle foam.
+  ctx.strokeStyle = 'rgba(210, 235, 255, 0.8)';
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  const steps = Math.max(2, Math.ceil(rect.w / 6));
+  for (let i = 0; i <= steps; i++) {
+    const x = rect.x + (rect.w * i) / steps;
+    const local = x - rect.x;
+    const y = rect.y
+      + Math.sin(local / 24 + t * 2.2) * 1.4
+      + Math.sin(local / 11 - t * 3.1) * 0.6;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
 
 function spawnMeteor(state, scene) {
   const { x0, x1 } = spawnXRange(state);

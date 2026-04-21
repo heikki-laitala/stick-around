@@ -76,6 +76,7 @@ const state = {
   gameOver: false,   // mission-driven fail state; movement and ticks pause while true
   promptArea: null,
   footerArea: null,
+  waterArea: null,  // set by missions that flood a region (e.g. meteor shower uses footerArea)
 
   // Terminal metrics
   textOffsetX: 0,

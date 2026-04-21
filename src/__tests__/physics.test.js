@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { updateMovement, updateRope, updatePose, resetPlayer, updateParticles, isInHole } from '../physics.js';
-import { IDLE } from '../poses.js';
+import { updateMovement, updateRope, updatePose, resetPlayer, updateParticles, isInHole, isInWater, WADE_SPEED_MUL } from '../physics.js';
+import { IDLE, SWIM } from '../poses.js';
 import { JUMP_V, MAXV } from '../constants.js';
 
 function makeState(overrides = {}) {
@@ -438,6 +438,74 @@ describe('platform burst', () => {
     // Man should fall through the hole, not land on the platform
     expect(s.feetY).toBeGreaterThan(150);
     expect(s.grounded).toBe(false);
+  });
+});
+
+describe('isInWater', () => {
+  it('returns false when no waterArea is set', () => {
+    const s = makeState({ waterArea: null });
+    expect(isInWater(s)).toBe(false);
+  });
+
+  it('returns true when feet are inside the waterArea rect', () => {
+    const s = makeState({
+      gx: 200, feetY: 310,
+      waterArea: { x: 100, y: 300, w: 300, h: 20 },
+    });
+    expect(isInWater(s)).toBe(true);
+  });
+
+  it('returns false when feet are outside horizontally', () => {
+    const s = makeState({
+      gx: 50, feetY: 310,
+      waterArea: { x: 100, y: 300, w: 300, h: 20 },
+    });
+    expect(isInWater(s)).toBe(false);
+  });
+
+  it('returns false when feet are above the water surface', () => {
+    const s = makeState({
+      gx: 200, feetY: 290,
+      waterArea: { x: 100, y: 300, w: 300, h: 20 },
+    });
+    expect(isInWater(s)).toBe(false);
+  });
+});
+
+describe('wading', () => {
+  it('caps horizontal top speed far below MAXV while in water', () => {
+    const s = makeState({
+      gx: 200, feetY: 310, gvx: MAXV,
+      waterArea: { x: 0, y: 300, w: 800, h: 20 },
+    });
+    updateMovement(s, 0.016, makeKeys('KeyD'), 800, 600);
+    // The wade clamp is applied after accel, so gvx can't exceed
+    // MAXV * WADE_SPEED_MUL even when already moving at full speed.
+    expect(s.gvx).toBeLessThanOrEqual(MAXV * WADE_SPEED_MUL + 0.01);
+  });
+
+  it('does not cap speed when the waterArea is missing', () => {
+    const s = makeState({ gvx: 100, waterArea: null });
+    updateMovement(s, 0.016, makeKeys('KeyD'), 800, 600);
+    // Without water, crouch/prone/standing mul of 1 applies — top speed
+    // is MAXV, not a fraction of it.
+    expect(s.gvx).toBeGreaterThan(MAXV * WADE_SPEED_MUL + 1);
+  });
+});
+
+describe('swim pose', () => {
+  it('uses the SWIM pose when grounded, idle, and in water', () => {
+    const s = makeState({
+      gx: 200, feetY: 310, gvx: 0,
+      waterArea: { x: 0, y: 300, w: 800, h: 20 },
+    });
+    // Many frames to let the lerp converge toward SWIM.
+    for (let i = 0; i < 60; i++) updatePose(s, 0.016);
+    // Head pose in SWIM projects forward (x=30) and slightly above
+    // water (y=0); IDLE has head near x=0 / y=-48.
+    expect(s.curPose.head.x).toBeGreaterThan(15);
+    expect(s.curPose.head.y).toBeGreaterThan(-20);
+    expect(Math.abs(s.curPose.head.x - SWIM.head.x)).toBeLessThan(3);
   });
 });
 

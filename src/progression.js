@@ -117,6 +117,7 @@ export function advanceMission(state) {
     m.onExit?.(state);
     state.missionScene = null;
     state.currentMissionId = null;
+    state.waterArea = null;
 
     state.missionIdx += 1;
     ensureEntered(state);
@@ -148,6 +149,7 @@ export function debugSkipMission(state) {
     state.completedMissionIds = new Set();
     state.missionScene = null;
     state.currentMissionId = null;
+    state.waterArea = null;
     state.score = 0;
     state.minesMined = 0;
     advanceMission(state);
@@ -161,6 +163,7 @@ export function debugSkipMission(state) {
   m.onExit?.(state);
   state.missionScene = null;
   state.currentMissionId = null;
+  state.waterArea = null;
   state.missionIdx += 1;
   // Fire onEnter for the next mission (if any) and refresh the HUD fields.
   advanceMission(state);
@@ -195,6 +198,7 @@ export function restartActiveMission(state) {
   state.gameOver = false;
   state.currentMissionId = null;
   state.missionScene = null;
+  state.waterArea = null;
 }
 
 function ensureFields(state) {

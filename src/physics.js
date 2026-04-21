@@ -1,7 +1,27 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
-import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
+import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findFloor, findCeiling, isInHole } from './platforms.js';
 export { isInHole };
+
+// Wading through water cripples horizontal acceleration/top-speed so the
+// player can't just drop into a water rect and sprint across it. Picked
+// to feel slower than a crouch (0.6) without being as punishing as prone
+// (0.25) — the player still has agency, just much less ground speed.
+export const WADE_SPEED_MUL = 0.28;
+
+/**
+ * True when the man's feet are currently inside a mission-defined water
+ * region. `state.waterArea` is a `{x, y, w, h}` rect set by missions in
+ * their update hook (e.g. meteor shower aliases the footer row as water);
+ * it stays null for missions without water.
+ */
+export function isInWater(state) {
+  const w = state.waterArea;
+  if (!w) return false;
+  if (state.gx < w.x || state.gx > w.x + w.w) return false;
+  if (state.feetY < w.y || state.feetY > w.y + w.h) return false;
+  return true;
+}
 
 /**
  * Update rope state (aiming, flying, swinging).
@@ -155,8 +175,15 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
 
   if (state.dropThrough > 0) state.dropThrough -= dt;
 
-  // Horizontal movement — slower when crouching, much slower when prone
-  const speedMul = state.posture === 'prone' ? 0.25 : state.posture === 'crouching' ? 0.6 : 1;
+  // Horizontal movement — slower when crouching, much slower when prone,
+  // and capped at wade speed when the feet are inside a water region
+  // (overrides the posture multiplier — the point of wading is that you
+  // can't outrun it by standing up).
+  const speedMul = isInWater(state)
+    ? WADE_SPEED_MUL
+    : state.posture === 'prone' ? 0.25
+    : state.posture === 'crouching' ? 0.6
+    : 1;
   const accel = ACCEL * speedMul;
   const maxv = MAXV * speedMul;
   if (left) { state.gvx -= accel * dt; state.faceR = false; }
@@ -337,6 +364,19 @@ export function updatePose(state, dt) {
   } else if (state.landT > 0) {
     target = lerpPose(IDLE, LAND, state.landT / 0.15);
     state.landT -= dt;
+  } else if (isInWater(state)) {
+    // Freestyle stroke cycle when moving, glide pose when still. Stroke
+    // cadence scales with horizontal speed so a wader who barely nudges
+    // left/right doesn't look like they're sprinting in place.
+    if (Math.abs(state.gvx) > 5) {
+      state.walkPh += Math.abs(state.gvx) * dt * 0.012;
+      if (state.walkPh >= 1) state.walkPh -= 1;
+      const n = SWIM_STROKE.length, raw = state.walkPh * n;
+      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
+      target = lerpPose(SWIM_STROKE[i], SWIM_STROKE[(i + 1) % n], f);
+    } else {
+      target = SWIM;
+    }
   } else if (state.posture === 'prone') {
     if (Math.abs(state.gvx) > 5) {
       state.walkPh += Math.abs(state.gvx) * dt * 0.006;
