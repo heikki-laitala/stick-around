@@ -1,10 +1,11 @@
 import { IDLE, SCALE } from './poses.js';
-import { ROPE_COOLDOWN, effectiveHudHeight } from './constants.js';
+import { ROPE_COOLDOWN, hudStripHeight, isNarrowHud } from './constants.js';
 import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles, startAxeSwing, updateAxeSwing } from './physics.js';
 import { updateCollectibles } from './collectibles.js';
 import { updateManaMines } from './manaMines.js';
 import { render, isInCloseButton } from './render.js';
+import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import { initialSpells, cycleSpell, castSpell, tickSpells } from './spells.js';
 
@@ -49,6 +50,12 @@ const state = {
   mouseX: -1,
   mouseY: -1,
   proneRequested: false, // true when user manually toggles prone with C
+
+  // HUD strip layout: start from the width heuristic (matches Rust's
+  // initial reserve) so the first paint is consistent; the render loop
+  // re-measures each frame and pushes any change to the backend so the
+  // reserved strip resizes to match the content.
+  hudTall: isNarrowHud(window.innerWidth),
 
   // Rope
   rope: null,
@@ -147,12 +154,12 @@ function handleTerminalContent(content) {
     if (oldPlat && oldPlat.w > 0) manDxFrac = (state.gx - oldPlat.x) / oldPlat.w;
   }
 
-  // The overlay window extends effectiveHudHeight pixels above the terminal
-  // to host the HUD strip (taller on narrow terminals so items wrap onto a
-  // second row). Shift every y-coordinate we receive from the backend so
-  // platforms, the PROMPT rect, and the FOOTER rect all render below the
-  // strip in the same basis.
-  const hudH = effectiveHudHeight(window.innerWidth);
+  // The overlay window extends `hudStripHeight` pixels above the terminal
+  // to host the HUD strip (taller when the single-row layout doesn't fit,
+  // so items wrap onto a second row). Shift every y-coordinate we receive
+  // from the backend so platforms, the PROMPT rect, and the FOOTER rect
+  // all render below the strip in the same basis.
+  const hudH = hudStripHeight(state);
   const shiftRect = (r) => (r ? [r[0], r[1] + hudH, r[2], r[3]] : null);
   const adjusted = {
     ...content,
@@ -404,9 +411,29 @@ document.addEventListener('keyup', e => {
 // ── Game Loop ────────────────────────────────────────────────────────
 let lastTime = performance.now();
 
+// Track the last value pushed to Rust so we only invoke on actual change.
+let reportedHudTall = null;
+
+function syncHudTall(tall) {
+  if (tall === reportedHudTall) return;
+  reportedHudTall = tall;
+  if (window.__TAURI__) {
+    window.__TAURI__.core.invoke('set_hud_tall', { tall }).catch(() => {});
+  }
+}
+
 function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
+
+  // Measure whether the HUD content still fits on a single row. On a flip,
+  // update local state (so subsequent renders and terminal-content shifts
+  // use the new strip height) and tell the Rust side to resize the reserve.
+  const needsTall = hudNeedsTwoRows(ctx, state, W());
+  if (needsTall !== state.hudTall) {
+    state.hudTall = needsTall;
+  }
+  syncHudTall(state.hudTall);
 
   if (state.hasSpawned) {
     state.screenW = W();

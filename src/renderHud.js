@@ -5,13 +5,14 @@
  * RPG panel with gold trim, a serif typeface, and canvas-drawn fantasy
  * icons rather than Unicode dingbats.
  *
- * On narrow terminals the HUD grows to `HUD_HEIGHT_TALL` and splits
- * into two rows (icons on top, quest on bottom) so nothing gets
- * clipped off the right edge. See `effectiveHudHeight` /
- * `isNarrowHud` in `./constants.js`.
+ * When single-row content won't fit the available width, the HUD grows
+ * to `HUD_HEIGHT_TALL` and splits into two rows (icons on top, quest on
+ * bottom). `hudNeedsTwoRows` makes that decision by measuring the real
+ * content; the render loop pushes the result into `state.hudTall` and
+ * forwards it to the Rust overlay so the reserved strip resizes to match.
  */
 
-import { HUD_HEIGHT, effectiveHudHeight, isNarrowHud } from './constants.js';
+import { HUD_HEIGHT, HUD_HEIGHT_TALL } from './constants.js';
 import { displayClass } from './progression.js';
 import { isShielded, selectedSpell, canCastSelected } from './spells.js';
 
@@ -21,9 +22,45 @@ const HUD_FONT = "bold 13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif
 const HUD_PARCHMENT = 'rgba(230, 215, 170, 0.95)';
 const HUD_GOLD = 'rgba(190, 155, 85, 0.9)';
 
+// Single-row layout x-coordinates — kept in sync between the measurement
+// helper and the renderer below so the "does it fit?" check matches what
+// will actually be drawn.
+const CLASS_LABEL_X = 398;
+const SINGLE_ROW_MISSION_X = 580;
+const MISSION_RIGHT_PAD = 12;
+const MIN_MISSION_WIDTH = 40;
+
+/**
+ * True when the single-row HUD layout would clip — i.e. the class label
+ * already overruns the mission slot, or the remaining space to the left
+ * of the close button isn't enough for the current quest text. Pure
+ * function of the canvas context, game state, and screen width.
+ */
+export function hudNeedsTwoRows(ctx, state, screenW) {
+  const prevFont = ctx.font;
+  ctx.font = HUD_FONT;
+  let needs = false;
+  const classW = ctx.measureText(displayClass(state)).width;
+  const classEndX = CLASS_LABEL_X + classW;
+  if (classEndX + 14 > SINGLE_ROW_MISSION_X) {
+    needs = true;
+  } else {
+    const closeBtn = getCloseButtonRect(screenW);
+    const available = closeBtn.x - SINGLE_ROW_MISSION_X - MISSION_RIGHT_PAD;
+    if (available < MIN_MISSION_WIDTH) {
+      needs = true;
+    } else if (state.mission) {
+      const questW = ctx.measureText(`Quest: ${state.mission}`).width;
+      if (questW > available) needs = true;
+    }
+  }
+  ctx.font = prevFont;
+  return needs;
+}
+
 export function renderHUD(ctx, state, screenW) {
-  const hudH = effectiveHudHeight(screenW);
-  const twoRow = isNarrowHud(screenW);
+  const twoRow = !!state.hudTall;
+  const hudH = twoRow ? HUD_HEIGHT_TALL : HUD_HEIGHT;
 
   // Panel background: dark aged wood with vertical gradient.
   const grad = ctx.createLinearGradient(0, 0, 0, hudH);
@@ -107,10 +144,10 @@ export function renderHUD(ctx, state, screenW) {
   // Current quest uses the parchment-green; next quest is dimmer so it
   // reads as a preview, not a competing goal.
   const closeBtn = getCloseButtonRect(screenW);
-  const missionX = twoRow ? 14 : 580;
+  const missionX = twoRow ? 14 : SINGLE_ROW_MISSION_X;
   const missionMaxW = twoRow
-    ? screenW - missionX - 12
-    : closeBtn.x - missionX - 12;
+    ? screenW - missionX - MISSION_RIGHT_PAD
+    : closeBtn.x - missionX - MISSION_RIGHT_PAD;
   const missionTextY = twoRow ? row2TextY : row1TextY;
   if (missionMaxW > 40 && state.mission) {
     ctx.save();

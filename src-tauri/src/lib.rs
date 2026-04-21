@@ -5,20 +5,35 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Extra strip above the terminal window reserved for the HUD. Narrow
-/// terminals use the taller strip so HUD items can wrap onto two rows.
-/// Must stay in sync with HUD_HEIGHT / HUD_HEIGHT_TALL / HUD_NARROW_THRESHOLD
-/// in src/constants.js.
+/// Extra strip above the terminal window reserved for the HUD. The short
+/// strip fits a single row; the tall strip fits two rows so HUD items
+/// don't get clipped off the right edge. Must stay in sync with
+/// HUD_HEIGHT / HUD_HEIGHT_TALL / HUD_NARROW_THRESHOLD in src/constants.js.
+///
+/// The narrow-terminal width threshold here is only used before the
+/// frontend has reported a measured `hud_tall` decision. Once JS has had
+/// a frame to measure actual HUD content width, it pushes the real answer
+/// via `set_hud_tall` and that value takes over.
 const HUD_HEIGHT: u32 = 32;
 const HUD_HEIGHT_TALL: u32 = 60;
 const HUD_NARROW_THRESHOLD: u32 = 720;
 
-fn hud_height_for(w: u32) -> u32 {
-    if w < HUD_NARROW_THRESHOLD { HUD_HEIGHT_TALL } else { HUD_HEIGHT }
+fn hud_height_for(w: u32, tall_known: bool, tall: bool) -> u32 {
+    if tall_known {
+        if tall { HUD_HEIGHT_TALL } else { HUD_HEIGHT }
+    } else if w < HUD_NARROW_THRESHOLD {
+        HUD_HEIGHT_TALL
+    } else {
+        HUD_HEIGHT
+    }
 }
 
-fn apply_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
-    let hud = hud_height_for(w);
+fn apply_bounds(
+    window: &tauri::WebviewWindow,
+    x: i32, y: i32, w: u32, h: u32,
+    tall_known: bool, tall: bool,
+) {
+    let hud = hud_height_for(w, tall_known, tall);
     let _ = window.set_position(tauri::Position::Logical(
         tauri::LogicalPosition::new(x as f64, (y - hud as i32) as f64),
     ));
@@ -27,10 +42,13 @@ fn apply_bounds(window: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
     ));
 }
 
-/// Shared state: the terminal PID and the last known window bounds.
+/// Shared state: the terminal PID, the last known window bounds, and the
+/// HUD tall/short flag reported by the frontend renderer.
 struct TerminalState {
     pid: u32,
     bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
+    hud_tall: Arc<AtomicBool>,
+    hud_tall_known: Arc<AtomicBool>,
 }
 
 #[tauri::command]
@@ -76,6 +94,24 @@ fn quit_app(app_handle: tauri::AppHandle) {
     app_handle.exit(0);
 }
 
+/// Frontend reports whether the HUD needs the tall (two-row) strip.
+/// Updates the shared flag and immediately re-applies the last known
+/// bounds so the window resizes to match the new reserve.
+#[tauri::command]
+fn set_hud_tall(
+    tall: bool,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, TerminalState>,
+) {
+    let prev_known = state.hud_tall_known.swap(true, Ordering::Relaxed);
+    let prev_tall = state.hud_tall.swap(tall, Ordering::Relaxed);
+    if prev_known && prev_tall == tall {
+        return;
+    }
+    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    apply_bounds(&window, x, y, w, h, true, tall);
+}
+
 fn pid_file_path() -> std::path::PathBuf {
     std::env::temp_dir().join("stick-around.pid")
 }
@@ -104,6 +140,14 @@ pub fn run() {
     let shared_bounds = Arc::new(Mutex::new(initial_bounds.unwrap_or((0, 0, 800, 600))));
     let poll_bounds = shared_bounds.clone();
 
+    // HUD tall/short flag. Starts in `unknown` state — the frontend pushes
+    // the measured value via `set_hud_tall` once it has a canvas context;
+    // until then, `apply_bounds` falls back to the width-threshold heuristic.
+    let hud_tall = Arc::new(AtomicBool::new(false));
+    let hud_tall_known = Arc::new(AtomicBool::new(false));
+    let poll_hud_tall = hud_tall.clone();
+    let poll_hud_tall_known = hud_tall_known.clone();
+
     // Capture a stable identifier for the launch-time terminal window so the
     // overlay follows *this specific window*, not "any window of this PID."
     // Position heuristics can't disambiguate two same-PID windows — if the
@@ -118,6 +162,8 @@ pub fn run() {
     let state = TerminalState {
         pid,
         bounds: shared_bounds,
+        hud_tall: hud_tall.clone(),
+        hud_tall_known: hud_tall_known.clone(),
     };
 
     tauri::Builder::default()
@@ -136,7 +182,7 @@ pub fn run() {
             }
 
             if let Some((x, y, w, h)) = initial_bounds {
-                apply_bounds(&window, x, y, w, h);
+                apply_bounds(&window, x, y, w, h, false, false);
             }
 
             // Start in passive mode: clicks pass through to whatever is underneath,
@@ -235,7 +281,9 @@ pub fn run() {
 
                     if let Some(b) = next {
                         if b != last_bounds {
-                            apply_bounds(&win_track, b.0, b.1, b.2, b.3);
+                            let tall_known = poll_hud_tall_known.load(Ordering::Relaxed);
+                            let tall = poll_hud_tall.load(Ordering::Relaxed);
+                            apply_bounds(&win_track, b.0, b.1, b.2, b.3, tall_known, tall);
                             last_bounds = b;
                             *poll_bounds.lock().unwrap() = b;
                         }
@@ -299,7 +347,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app])
+        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app, set_hud_tall])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 

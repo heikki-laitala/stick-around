@@ -6,14 +6,25 @@ export const FRIC = 0.88;
 export const MAXV = 250;
 
 // Overlay layout
-// Extra strip above the terminal window reserved for the HUD. Narrow
-// terminals use the taller strip so HUD items can wrap onto two rows
-// without being squeezed off-screen by the quest text. Must stay in sync
-// with the HUD_HEIGHT / HUD_HEIGHT_TALL / HUD_NARROW_THRESHOLD constants
-// in src-tauri/src/lib.rs.
+// Extra strip above the terminal window reserved for the HUD. The tall
+// strip fits two rows so HUD items don't get clipped off the right edge.
+// The decision between short/tall is made dynamically in the renderer by
+// measuring whether the HUD content fits on a single row; the width
+// threshold below is only used as the initial guess before the first
+// measurement (and by mission code that doesn't have `state.hudTall`
+// handy yet). Must stay in sync with the matching constants in
+// src-tauri/src/lib.rs.
 export const HUD_HEIGHT = 32;
 export const HUD_HEIGHT_TALL = 60;
 export const HUD_NARROW_THRESHOLD = 720;
+
+/**
+ * Runtime HUD strip height for a given game state. Reads `state.hudTall`,
+ * which the render loop keeps in sync with what actually fits on one row.
+ */
+export function hudStripHeight(state) {
+  return state && state.hudTall ? HUD_HEIGHT_TALL : HUD_HEIGHT;
+}
 
 export function effectiveHudHeight(screenW) {
   return typeof screenW === 'number' && screenW < HUD_NARROW_THRESHOLD
