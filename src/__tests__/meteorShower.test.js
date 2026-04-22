@@ -50,6 +50,30 @@ describe('METEOR_SHOWER_MISSION.onEnter', () => {
     expect(s.missionScene.survived).toBe(false);
     expect(s.missionScene.requestRestart).toBe(false);
   });
+
+  it('teleports the man back to the prompt-box spawn point', () => {
+    const s = makeState({
+      gx: 123,
+      feetY: 360,
+      faceR: true,
+      gvx: 40,
+      gvy: -200,
+      rope: { state: 'aiming' },
+      posture: 'crouching',
+      promptArea: { x: 20, y: 480, w: 700, h: 16 },
+    });
+    METEOR_SHOWER_MISSION.onEnter(s);
+    // Spawn formula: textOffsetX + textWidth - 20*SCALE - 20
+    // = 20 + 700 - 7 - 20 = 693
+    expect(s.gx).toBeCloseTo(693, 0);
+    expect(s.feetY).toBe(480);
+    expect(s.faceR).toBe(false);
+    // Reset-player side effects so the teleport isn't mid-jump / mid-swing.
+    expect(s.gvx).toBe(0);
+    expect(s.gvy).toBe(0);
+    expect(s.rope).toBeNull();
+    expect(s.posture).toBe('standing');
+  });
 });
 
 describe('METEOR_SHOWER_MISSION.update — timing and spawning', () => {

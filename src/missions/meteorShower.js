@@ -1,6 +1,7 @@
 import { effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
+import { resetPlayer } from '../physics.js';
 import { isShielded, lightningStrikesPoint } from '../spells.js';
 
 /**
@@ -54,6 +55,10 @@ export const METEOR_SHOWER_MISSION = {
     scene.survived = false;
     scene.requestRestart = false;
     state.gameOver = false;
+    // Teleport to the prompt-box spawn so every run of the meteor shower
+    // starts from the same familiar spot regardless of where the player
+    // finished the previous mission.
+    resetPlayer(state);
   },
 
   check(state) {
