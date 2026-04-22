@@ -11,6 +11,9 @@ import {
   initialSpells, cycleSpell, castSpell, releaseCast,
   adjustLightningAim, cancelLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
+import {
+  adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,
+} from './missions/aloneInDark.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -343,12 +346,11 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyR') {
-    if (state.gameOver) {
-      restartActiveMission(state);
-      resetPlayer(state);
-    } else {
-      resetPlayer(state);
-    }
+    // R always restarts the active mission — reseeds its scene (items,
+    // hazards, timers) and teleports the man back to spawn. Works mid-run,
+    // not only from a game-over screen.
+    restartActiveMission(state);
+    resetPlayer(state);
     return;
   }
   if (e.code === 'Tab') {
@@ -476,6 +478,9 @@ function loop(now) {
           const AIM_SPEED = 2.0;
           if (keys.has('ArrowLeft'))  adjustLightningAim(state, -AIM_SPEED * dt);
           if (keys.has('ArrowRight')) adjustLightningAim(state,  AIM_SPEED * dt);
+        } else if (isAloneInDarkActive(state)) {
+          if (keys.has('ArrowLeft'))  adjustFlashlightAim(state, -FLASH_AIM_SPEED * dt);
+          if (keys.has('ArrowRight')) adjustFlashlightAim(state,  FLASH_AIM_SPEED * dt);
         }
         tickSpells(state, dt);
         tickActiveMission(state, dt);

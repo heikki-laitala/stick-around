@@ -44,6 +44,12 @@ function completeRealMissions(s) {
       s.missionScene.survived = true;
       continue;
     }
+    if (m.id === 'alone-in-dark' && s.missionScene) {
+      // Test states don't carry platforms, so seedItems returns []. Force a
+      // completed inventory so the check passes and the ladder advances.
+      s.missionScene.items = [{ kind: 'key', picked: true }];
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }

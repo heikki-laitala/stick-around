@@ -173,9 +173,11 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (state.rope && state.rope.state === 'swinging') return;
 
   const aiming = (state.rope && state.rope.state === 'aiming') || !!state.lightningAim;
-  const left = !aiming && (keys.has('KeyA') || keys.has('ArrowLeft'));
-  const right = !aiming && (keys.has('KeyD') || keys.has('ArrowRight'));
-  const jump = !aiming && (keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Space'));
+  // WASD + Space drive the man. Arrow keys are reserved for item/spell use
+  // (rope swing, lightning aim, flashlight aim) so they never fight walking.
+  const left = !aiming && keys.has('KeyA');
+  const right = !aiming && keys.has('KeyD');
+  const jump = !aiming && (keys.has('KeyW') || keys.has('Space'));
 
   if (state.dropThrough > 0) state.dropThrough -= dt;
 

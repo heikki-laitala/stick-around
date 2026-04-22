@@ -37,6 +37,7 @@
  * which mission is active.
  */
 
+import { ALONE_IN_DARK_MISSION } from './missions/aloneInDark.js';
 import { ESCAPE_LAVA_MISSION } from './missions/escapeLava.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 
@@ -57,6 +58,7 @@ export const MISSIONS = [
   },
   ESCAPE_LAVA_MISSION,
   METEOR_SHOWER_MISSION,
+  ALONE_IN_DARK_MISSION,
 ];
 
 const ALL_DONE_MISSION = 'All missions complete!';

@@ -13,7 +13,7 @@
  */
 
 import { HUD_HEIGHT, HUD_HEIGHT_TALL } from './constants.js';
-import { displayClass } from './progression.js';
+import { displayClass, getActiveMission } from './progression.js';
 import { isShielded, selectedSpell, canCastSelected } from './spells.js';
 
 const CLOSE_BTN_MARGIN = 6;
@@ -50,7 +50,12 @@ export function hudNeedsTwoRows(ctx, state, screenW) {
     if (available < MIN_MISSION_WIDTH) {
       needs = true;
     } else if (state.mission) {
-      const questW = ctx.measureText(`Quest: ${state.mission}`).width;
+      const active = getActiveMission(state);
+      const suffix = active?.questSuffix?.(state);
+      const label = suffix
+        ? `Quest: ${state.mission} ${suffix}`
+        : `Quest: ${state.mission}`;
+      const questW = ctx.measureText(label).width;
       if (questW > available) needs = true;
     }
   }
@@ -157,7 +162,11 @@ export function renderHUD(ctx, state, screenW) {
     ctx.rect(missionX, clipY, missionMaxW, clipH);
     ctx.clip();
     ctx.fillStyle = 'rgba(195, 230, 180, 0.95)';
-    const questLabel = `Quest: ${state.mission}`;
+    const active = getActiveMission(state);
+    const suffix = active?.questSuffix?.(state);
+    const questLabel = suffix
+      ? `Quest: ${state.mission} ${suffix}`
+      : `Quest: ${state.mission}`;
     ctx.fillText(questLabel, missionX, missionTextY);
     if (state.nextMission) {
       const questW = ctx.measureText(questLabel).width;
