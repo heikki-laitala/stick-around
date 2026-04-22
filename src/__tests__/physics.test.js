@@ -108,7 +108,33 @@ describe('updateMovement', () => {
 });
 
 describe('updateRope', () => {
-  it('adjusts aim angle with W key', () => {
+  it('adjusts aim angle leftward with ArrowLeft', () => {
+    const s = makeState({
+      rope: {
+        state: 'aiming', angle: -Math.PI / 2,
+        tipX: 0, tipY: 0, hitX: 0, hitY: 0,
+        ropeLen: 0, swingAngle: 0, swingVel: 0,
+      },
+    });
+    const angleBefore = s.rope.angle;
+    updateRope(s, 0.016, makeKeys('ArrowLeft'));
+    expect(s.rope.angle).toBeLessThan(angleBefore);
+  });
+
+  it('adjusts aim angle rightward with ArrowRight', () => {
+    const s = makeState({
+      rope: {
+        state: 'aiming', angle: -Math.PI / 2,
+        tipX: 0, tipY: 0, hitX: 0, hitY: 0,
+        ropeLen: 0, swingAngle: 0, swingVel: 0,
+      },
+    });
+    const angleBefore = s.rope.angle;
+    updateRope(s, 0.016, makeKeys('ArrowRight'));
+    expect(s.rope.angle).toBeGreaterThan(angleBefore);
+  });
+
+  it('does not aim when W is held (W stays reserved for jump/move)', () => {
     const s = makeState({
       rope: {
         state: 'aiming', angle: -Math.PI / 2,
@@ -118,7 +144,7 @@ describe('updateRope', () => {
     });
     const angleBefore = s.rope.angle;
     updateRope(s, 0.016, makeKeys('KeyW'));
-    expect(s.rope.angle).toBeLessThan(angleBefore);
+    expect(s.rope.angle).toBe(angleBefore);
   });
 
   it('moves tip along angle when flying', () => {

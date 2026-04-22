@@ -33,8 +33,12 @@ export function updateRope(state, dt, keys) {
   if (!state.rope) return;
 
   if (state.rope.state === 'aiming') {
-    if (keys.has('ArrowUp') || keys.has('KeyW')) state.rope.angle -= ROPE_AIM_SPEED * dt;
-    if (keys.has('ArrowDown') || keys.has('KeyS')) state.rope.angle += ROPE_AIM_SPEED * dt;
+    // Left/Right sweep the aim along the upper arc, mirroring the
+    // lightning spell's controls so the player only has to learn one
+    // aiming scheme. Left rotates toward the left horizon (more
+    // negative angle), Right toward the right.
+    if (keys.has('ArrowLeft')) state.rope.angle -= ROPE_AIM_SPEED * dt;
+    if (keys.has('ArrowRight')) state.rope.angle += ROPE_AIM_SPEED * dt;
     state.rope.angle = Math.max(-Math.PI * 0.95, Math.min(-Math.PI * 0.05, state.rope.angle));
     state.ropeAngle = state.rope.angle;
   } else if (state.rope.state === 'flying') {

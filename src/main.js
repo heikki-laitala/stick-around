@@ -474,8 +474,8 @@ function loop(now) {
         // (see physics.js), so no conflict with the walk keys.
         if (isLightningAiming(state)) {
           const AIM_SPEED = 2.0;
-          if (keys.has('ArrowLeft')  || keys.has('KeyA')) adjustLightningAim(state, -AIM_SPEED * dt);
-          if (keys.has('ArrowRight') || keys.has('KeyD')) adjustLightningAim(state,  AIM_SPEED * dt);
+          if (keys.has('ArrowLeft'))  adjustLightningAim(state, -AIM_SPEED * dt);
+          if (keys.has('ArrowRight')) adjustLightningAim(state,  AIM_SPEED * dt);
         }
         tickSpells(state, dt);
         tickActiveMission(state, dt);
