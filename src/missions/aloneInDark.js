@@ -1,4 +1,3 @@
-import { effectiveHudHeight } from '../constants.js';
 import { jointWorldPos, STANDING_HEIGHT } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { LIGHTNING_RANGE } from '../spells.js';
@@ -23,6 +22,8 @@ export const CANDLE_HALF_ANGLE = 0.78;     // ~45° half-angle after candle pick
 export const BASE_CONE_LEN = 260;
 export const BATTERY_EMPTY_LEN = 40;       // cone shrinks to this when battery dead
 export const BATTERY_DRAIN_RATE = 1 / 120; // full → empty in 2 minutes
+export const BATTERY_RECHARGE_PER_BALL = 0.25; // glowing ball = ~30 seconds of light
+export const DESPERATION_SECS = 30;            // below this, glowing balls reveal themselves
 export const PICKUP_RADIUS = 26;
 export const ITEM_Y_OFFSET = 10;           // item sits this far above its platform
 export const LIGHTNING_CORRIDOR_W = 36;    // destination-out strip width along bolt
@@ -89,6 +90,21 @@ export function adjustFlashlightAim(state, delta) {
   const scene = state.missionScene;
   if (!scene || typeof scene.coneAngle !== 'number') return;
   scene.coneAngle += delta;
+}
+
+// Manual recharge: spend one glowing ball from the HUD counter in exchange
+// for the same top-up a field-collected ball gives. Refuses when the
+// player is out of balls OR the battery is already full, so a press
+// doesn't silently waste a ball.
+export function spendBallForBattery(state) {
+  const scene = state.missionScene;
+  if (!scene) return false;
+  if ((state.score || 0) <= 0) return false;
+  const charge = typeof scene.battery === 'number' ? scene.battery : 0;
+  if (charge >= 1) return false;
+  state.score -= 1;
+  scene.battery = Math.min(1, charge + BATTERY_RECHARGE_PER_BALL);
+  return true;
 }
 
 export function syncItemPositions(state) {
@@ -249,11 +265,24 @@ export const ALONE_IN_DARK_MISSION = {
     return scene.items.every((i) => i.picked);
   },
 
+  // Called by the collectibles system whenever the man walks into a glowing
+  // ball. In this mission balls double as spare batteries — one ball buys
+  // another ~30 seconds of light on top of the score increment.
+  onCollectibleCollected(state) {
+    const scene = state.missionScene;
+    if (!scene) return;
+    const charge = typeof scene.battery === 'number' ? scene.battery : 0;
+    scene.battery = Math.min(1, charge + BATTERY_RECHARGE_PER_BALL);
+  },
+
   questSuffix(state) {
-    const items = state.missionScene?.items;
+    const scene = state.missionScene;
+    const items = scene?.items;
     if (!items || !items.length) return '';
     const picked = items.filter((i) => i.picked).length;
-    return `(${picked}/${items.length})`;
+    const charge = Math.max(0, Math.min(1, scene.battery ?? 0));
+    const secsLeft = Math.ceil(charge / BATTERY_DRAIN_RATE);
+    return `(${picked}/${items.length} · ${secsLeft}s)`;
   },
 
   update(state, dt) {
@@ -288,7 +317,6 @@ export const ALONE_IN_DARK_MISSION = {
     }
 
     drawDarkness(ctx, state, scene, W, H, paused);
-    drawInventoryHud(ctx, state, scene, W);
   },
 };
 
@@ -323,6 +351,7 @@ function drawDarkness(ctx, state, scene, W, H, paused) {
   dctx.globalCompositeOperation = 'destination-out';
   carveFlashlightCone(dctx, state, scene);
   carveLightningCorridor(dctx, state);
+  carveCollectibleHalos(dctx, state, scene);
   dctx.globalCompositeOperation = 'source-over';
 
   ctx.drawImage(off, 0, 0);
@@ -359,6 +388,39 @@ function carveFlashlightCone(dctx, state, scene) {
   dctx.beginPath();
   dctx.arc(origin.x, origin.y, poolR, 0, Math.PI * 2);
   dctx.fill();
+}
+
+// Glowing balls pierce the darkness as emergency beacons — but ONLY once
+// the flashlight is in its final DESPERATION_SECS. Before that the player
+// is expected to ration light with the main cone and the ArrowUp spend;
+// the balls only reveal themselves when the situation gets dire, turning
+// the last 30 seconds into a desperate scramble for salvage light.
+// Halo alpha ramps in as charge crosses the threshold so they fade into
+// view rather than popping on instantly.
+function carveCollectibleHalos(dctx, state, scene) {
+  const balls = state.collectibles;
+  if (!balls || balls.length === 0) return;
+  const charge = Math.max(0, Math.min(1, scene.battery ?? 0));
+  const secsLeft = charge / BATTERY_DRAIN_RATE;
+  if (secsLeft > DESPERATION_SECS) return;
+  // Fade-in over the final 5 seconds of the threshold (from 30s → 25s of
+  // remaining light the beacons ramp from invisible to fully visible).
+  const reveal = Math.max(0, Math.min(1, (DESPERATION_SECS - secsLeft) / 5));
+  for (const c of balls) {
+    const fadeIn = Math.min(1, (c.age || 0) * 2);
+    const fadeOut = (c.age || 0) > 7 ? Math.max(0, 1 - ((c.age || 0) - 7) / 3) : 1;
+    const alpha = fadeIn * fadeOut * reveal;
+    if (alpha <= 0.01) continue;
+    const r = 34;
+    const cy = c.y - 6; // match the orb's platform-surface offset in render.js
+    const grad = dctx.createRadialGradient(c.x, cy, 0, c.x, cy, r);
+    grad.addColorStop(0, `rgba(0,0,0,${alpha})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    dctx.fillStyle = grad;
+    dctx.beginPath();
+    dctx.arc(c.x, cy, r, 0, Math.PI * 2);
+    dctx.fill();
+  }
 }
 
 function carveLightningCorridor(dctx, state) {
@@ -502,56 +564,6 @@ function drawScroll(ctx, x, y) {
   ctx.moveTo(x - 4, y);     ctx.lineTo(x + 3, y);
   ctx.moveTo(x - 4, y + 2); ctx.lineTo(x + 2, y + 2);
   ctx.stroke();
-}
-
-function drawInventoryHud(ctx, state, scene, W) {
-  const hudY = effectiveHudHeight(state.screenW) + 4;
-  const iconSize = 18;
-  const gap = 6;
-  const totalW = ITEM_KINDS.length * iconSize + (ITEM_KINDS.length - 1) * gap;
-  let x = W / 2 - totalW / 2;
-  const y = hudY;
-  ctx.save();
-
-  for (const kind of ITEM_KINDS) {
-    const item = scene.items.find((i) => i.kind === kind);
-    const picked = !!item?.picked;
-    ctx.fillStyle = picked ? 'rgba(40, 20, 10, 0.85)' : 'rgba(40, 20, 10, 0.55)';
-    ctx.fillRect(x, y, iconSize, iconSize);
-    ctx.strokeStyle = picked ? 'rgba(255, 220, 120, 0.95)' : 'rgba(120, 90, 50, 0.7)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, iconSize - 1, iconSize - 1);
-    if (picked) drawItem(ctx, { kind, x: x + iconSize / 2, y: y + iconSize / 2 });
-    x += iconSize + gap;
-  }
-
-  // Battery meter beside the inventory row.
-  const barW = 60, barH = 6;
-  const bx = W / 2 + totalW / 2 + 10;
-  const by = y + (iconSize - barH) / 2;
-  ctx.fillStyle = 'rgba(40, 20, 10, 0.8)';
-  ctx.fillRect(bx, by, barW, barH);
-  const charge = Math.max(0, Math.min(1, scene.battery));
-  ctx.fillStyle = charge > 0.25
-    ? 'rgba(120, 220, 120, 0.95)'
-    : 'rgba(240, 140, 80, 0.95)';
-  ctx.fillRect(bx + 1, by + 1, (barW - 2) * charge, barH - 2);
-  ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(bx + 0.5, by + 0.5, barW - 1, barH - 1);
-
-  // Countdown — seconds of light remaining at current drain rate.
-  const secsLeft = Math.max(0, Math.ceil(charge / BATTERY_DRAIN_RATE));
-  ctx.font = "bold 12px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  ctx.fillStyle = charge > 0.25
-    ? 'rgba(220, 240, 210, 0.95)'
-    : 'rgba(255, 180, 120, 0.95)';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur = 3;
-  ctx.fillText(`${secsLeft}s`, bx + barW + 6, by + barH / 2);
-  ctx.restore();
 }
 
 let _offscreen = null;

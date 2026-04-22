@@ -13,6 +13,7 @@ import {
 } from './spells.js';
 import {
   adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,
+  spendBallForBattery,
 } from './missions/aloneInDark.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -363,6 +364,15 @@ document.addEventListener('keydown', e => {
 
   if (e.code === 'KeyX') { cycleSpell(state); return; }
   if (e.code === 'KeyZ') { castSpell(state); return; }
+
+  // Spend one glowing ball to top up the flashlight battery during the
+  // alone-in-dark mission. Silently refused when out of balls or already
+  // at full charge — no wasted balls.
+  if (e.code === 'ArrowUp' && isAloneInDarkActive(state)) {
+    spendBallForBattery(state);
+    e.preventDefault();
+    return;
+  }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {

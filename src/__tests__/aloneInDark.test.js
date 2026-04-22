@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ALONE_IN_DARK_MISSION,
   BATTERY_DRAIN_RATE,
+  BATTERY_RECHARGE_PER_BALL,
   CANDLE_HALF_ANGLE,
   BASE_HALF_ANGLE,
   ITEM_KINDS,
@@ -11,6 +12,7 @@ import {
   adjustFlashlightAim,
   isAloneInDarkActive,
   isInCone,
+  spendBallForBattery,
   syncItemPositions,
 } from '../missions/aloneInDark.js';
 
@@ -101,6 +103,75 @@ describe('ALONE_IN_DARK_MISSION.update — battery', () => {
     s.missionScene.battery = 0.01;
     ALONE_IN_DARK_MISSION.update(s, 10);
     expect(s.missionScene.battery).toBe(0);
+  });
+});
+
+describe('spendBallForBattery', () => {
+  it('decrements score and tops up battery when the player spends a ball', () => {
+    const s = makeState({ score: 3 });
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.score = 3;
+    s.missionScene.battery = 0.2;
+    const spent = spendBallForBattery(s);
+    expect(spent).toBe(true);
+    expect(s.score).toBe(2);
+    expect(s.missionScene.battery).toBeCloseTo(0.2 + BATTERY_RECHARGE_PER_BALL, 5);
+  });
+
+  it('returns false and changes nothing when the player has no balls', () => {
+    const s = makeState({ score: 0 });
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.score = 0;
+    s.missionScene.battery = 0.2;
+    const spent = spendBallForBattery(s);
+    expect(spent).toBe(false);
+    expect(s.score).toBe(0);
+    expect(s.missionScene.battery).toBe(0.2);
+  });
+
+  it('returns false when the battery is already full (no wasted ball)', () => {
+    const s = makeState({ score: 5 });
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.score = 5;
+    s.missionScene.battery = 1;
+    const spent = spendBallForBattery(s);
+    expect(spent).toBe(false);
+    expect(s.score).toBe(5);
+    expect(s.missionScene.battery).toBe(1);
+  });
+
+  it('clamps battery at 1.0 when the top-up would overshoot', () => {
+    const s = makeState({ score: 2 });
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.score = 2;
+    s.missionScene.battery = 0.9;
+    spendBallForBattery(s);
+    expect(s.missionScene.battery).toBe(1);
+    expect(s.score).toBe(1);
+  });
+});
+
+describe('ALONE_IN_DARK_MISSION.onCollectibleCollected', () => {
+  it('tops up the battery by BATTERY_RECHARGE_PER_BALL when a glowing ball is collected', () => {
+    const s = makeState();
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.missionScene.battery = 0.3;
+    ALONE_IN_DARK_MISSION.onCollectibleCollected(s);
+    expect(s.missionScene.battery).toBeCloseTo(0.3 + BATTERY_RECHARGE_PER_BALL, 5);
+  });
+
+  it('clamps battery at 1.0 when already near full', () => {
+    const s = makeState();
+    ALONE_IN_DARK_MISSION.onEnter(s);
+    s.missionScene.battery = 0.9;
+    ALONE_IN_DARK_MISSION.onCollectibleCollected(s);
+    expect(s.missionScene.battery).toBe(1);
+  });
+
+  it('is a no-op if missionScene is missing', () => {
+    const s = makeState();
+    s.missionScene = null;
+    expect(() => ALONE_IN_DARK_MISSION.onCollectibleCollected(s)).not.toThrow();
   });
 });
 

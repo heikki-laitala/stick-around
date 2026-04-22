@@ -1,4 +1,5 @@
 import { stepItemPhysics } from './itemPhysics.js';
+import { getActiveMission } from './progression.js';
 
 const MAX_COLLECTIBLES = 5;
 const COLLECT_RADIUS = 15;
@@ -78,6 +79,7 @@ export function updateCollectibles(state, dt) {
     if (Math.hypot(dx, dy) < COLLECT_RADIUS) {
       state.collectibles.splice(i, 1);
       state.score += 1;
+      getActiveMission(state)?.onCollectibleCollected?.(state);
       if (state.particles) {
         for (let j = 0; j < 8; j++) {
           const angle = Math.random() * Math.PI * 2;
