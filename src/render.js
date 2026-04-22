@@ -483,38 +483,94 @@ export function wandTip(handX, handY, angle) {
   };
 }
 
+// Hat dimensions in screen pixels — sized against the drawn stick man
+// (~32px tall), not the pea-sized headR, so the hat actually reads on
+// screen instead of melting into the head dot.
+const HAT_BRIM_W = 6;     // half-brim width
+const HAT_BRIM_H = 1.5;   // brim thickness (ellipse minor axis)
+const HAT_CONE_H = 10;    // cone height above the brim
+const HAT_CONE_BASE = 4.5;// cone's half-width where it meets the brim
+
 function drawWizardHat(ctx, headX, headY, headR, fl) {
-  // Slight backward tilt so the hat looks perched, not stabbed down.
-  const tilt = -0.25 * fl;
+  // Slight backward tilt so the hat looks perched and the droopy tip
+  // flops toward the facing direction.
+  const tilt = -0.18 * fl;
   ctx.save();
-  ctx.translate(headX, headY - headR * 0.6);
+  ctx.translate(headX, headY - headR * 0.3);
   ctx.rotate(tilt);
-  // Brim — thin dark ellipse sitting on the head.
-  ctx.fillStyle = '#1a0e2a';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, headR * 1.8, headR * 0.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Cone body — tall triangle with a gentle curve.
+
+  // Cone body with a droopy tip that flops forward. Bezier from the
+  // base-left up over the crown and back down to base-right, with the
+  // tip hooked in the facing direction.
+  const tipX = HAT_CONE_BASE * 0.55 * fl;
+  const tipY = -HAT_CONE_H;
   ctx.fillStyle = '#2d1b4e';
   ctx.strokeStyle = '#4a2d7a';
-  ctx.lineWidth = 0.8;
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(-headR * 1.3, 0);
-  ctx.lineTo(headR * 1.3, 0);
-  ctx.quadraticCurveTo(headR * 1.0, -headR * 1.2, headR * 0.5 * fl, -headR * 3.0);
-  ctx.quadraticCurveTo(-headR * 0.2 * fl, -headR * 2.5, -headR * 1.3, 0);
+  ctx.moveTo(-HAT_CONE_BASE, 0);
+  ctx.bezierCurveTo(
+    -HAT_CONE_BASE * 0.6, -HAT_CONE_H * 0.4,
+    -HAT_CONE_BASE * 0.1, -HAT_CONE_H * 0.8,
+    tipX, tipY,
+  );
+  // Flop hook at the tip — pinch inward so the point droops instead of
+  // stabbing straight up.
+  ctx.quadraticCurveTo(
+    tipX + 5 * fl, tipY + 2,
+    tipX + 2 * fl, tipY + 5,
+  );
+  ctx.bezierCurveTo(
+    HAT_CONE_BASE * 0.3, -HAT_CONE_H * 0.55,
+    HAT_CONE_BASE * 0.7, -HAT_CONE_H * 0.2,
+    HAT_CONE_BASE, 0,
+  );
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // Gold band along the brim.
-  ctx.fillStyle = '#d9a73a';
-  ctx.fillRect(-headR * 1.25, -headR * 0.3, headR * 2.5, headR * 0.35);
-  // Tiny star on the cone.
-  ctx.fillStyle = '#ffd866';
+
+  // Brim — wide, squashed ellipse.
+  ctx.fillStyle = '#1a0e2a';
   ctx.beginPath();
-  ctx.arc(headR * 0.15 * fl, -headR * 1.6, 1.2, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, HAT_BRIM_W, HAT_BRIM_H, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = '#4a2d7a';
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+
+  // Gold band with a square buckle sitting just above the brim.
+  ctx.fillStyle = '#d9a73a';
+  ctx.fillRect(-HAT_CONE_BASE * 0.95, -HAT_BRIM_H * 0.85, HAT_CONE_BASE * 1.9, HAT_BRIM_H * 0.9);
+  ctx.fillStyle = '#2d1b4e';
+  ctx.fillRect(-1.4, -HAT_BRIM_H * 0.85, 2.8, HAT_BRIM_H * 0.9);
+  ctx.strokeStyle = '#ffd866';
+  ctx.lineWidth = 0.6;
+  ctx.strokeRect(-1.4, -HAT_BRIM_H * 0.85, 2.8, HAT_BRIM_H * 0.9);
+
+  // Sprinkle of little stars on the cone — gives it that enchanted look.
+  ctx.shadowColor = 'rgba(255, 216, 102, 0.9)';
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = '#ffd866';
+  drawStar(ctx,  HAT_CONE_BASE * 0.1 * fl, -HAT_CONE_H * 0.55, 1.6);
+  drawStar(ctx, -HAT_CONE_BASE * 0.15 * fl, -HAT_CONE_H * 0.78, 1.1);
+  drawStar(ctx,  HAT_CONE_BASE * 0.3 * fl, -HAT_CONE_H * 0.3, 1.0);
+  ctx.shadowBlur = 0;
+
   ctx.restore();
+}
+
+function drawStar(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const rad = i % 2 === 0 ? r : r * 0.45;
+    const x = cx + Math.cos(a) * rad;
+    const y = cy + Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawWand(ctx, handX, handY, angle) {
