@@ -5,7 +5,7 @@
 <h1 align="center">Stick Around</h1>
 
 <p align="center">
-  <strong>Your terminal is a platformer now.</strong>
+  <strong>A tiny RPG that lives on top of your terminal.</strong>
 </p>
 
 <p align="center">
@@ -20,15 +20,16 @@
 
 Your next Claude Code task is going to take ninety seconds. You could
 watch the spinner. Or — hear us out — you could take control of a
-wizard-hat stick man, jump across platforms made of *your own log
-output*, fire a grappling rope off an `npm install` line, mine a glowing
-mana crystal out of the ceiling, and zap lightning at a falling meteor.
+wizard-hat stick hero, swing a grappling rope off a `npm install` line,
+mine a glowing mana crystal out of the ceiling, zap lightning at a
+falling meteor, and earn titles on the way.
 
-Stick Around is an overlay game for iTerm2 and Terminal.app. It reads
-your terminal contents in real time and turns every line of output into
-solid ground. When Claude streams new output, the floor rearranges
-under your feet. You adapt. Or you fall into the void and get sent back
-to spawn.
+Stick Around is an overlay RPG for iTerm2 and Terminal.app. Your terrain
+is your terminal: every line of output is solid ground you can run,
+jump, and rope-swing across. When Claude streams new output, the world
+rearranges itself underneath you. You adapt — cast a shield, mine a
+crystal, push on to the next mission — or you fall into the void and
+respawn at the start.
 
 ## Features
 

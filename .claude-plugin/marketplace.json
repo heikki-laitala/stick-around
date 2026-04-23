@@ -7,7 +7,7 @@
     {
       "name": "stick-around",
       "source": "./",
-      "description": "A stick man runner game to play while Claude Code works"
+      "description": "A tiny stick-man RPG to play on top of your terminal while Claude Code works"
     }
   ]
 }

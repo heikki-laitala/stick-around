@@ -1,6 +1,6 @@
 {
   "name": "stick-around",
-  "description": "A stick man runner game to play while Claude Code works",
+  "description": "A tiny stick-man RPG to play on top of your terminal while Claude Code works",
   "version": "1.0.0",
   "author": {
     "name": "Heikki Laitala"
@@ -8,6 +8,6 @@
   "homepage": "https://github.com/heikki-laitala/stick-around",
   "repository": "https://github.com/heikki-laitala/stick-around",
   "license": "MIT",
-  "keywords": ["game", "overlay", "stick-figure", "terminal", "fun"],
+  "keywords": ["rpg", "game", "overlay", "stick-figure", "terminal", "fun"],
   "icon": "src-tauri/icons/icon.png"
 }
