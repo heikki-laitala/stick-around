@@ -37,13 +37,22 @@ Then from inside Claude Code:
 On first launch, macOS will ask you to authorise the binary for
 Accessibility. Grant it, then re-run `/stick-around:play`.
 
+## Taking and releasing focus
+
+The overlay floats above the terminal and only grabs your keyboard when
+it has focus. You toggle between the two:
+
+- **Shift + click** anywhere on the overlay — grabs focus so keys go to
+  the game.
+- **Cmd + Shift + G** — same thing, without the mouse.
+- **Esc** — releases focus back to the terminal so you can keep typing.
+  The stick man carries on; he just stops listening to your keys until
+  you grab focus again.
+
 ## Quitting
 
 - Click the **✕** button in the top-right of the HUD, or
-- Press **Q** at any time.
-
-Pressing **Esc** does *not* quit — it just releases keyboard focus back
-to the terminal so you can keep typing while the stick man carries on.
+- Press **Q** while the overlay has focus.
 
 ## Movement
 
