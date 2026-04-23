@@ -80,7 +80,7 @@ You carry a spellbook. Cycle through spells with `X`, cast with `Z`.
 - **Lightning** — *hold* `Z` to aim (sweep with arrow keys), *release*
   `Z` to fire. Costs 2 mana per bolt.
 
-Mana regenerates slowly. Mine mana crystals (see below) to top up faster.
+Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
 ## Tools and HUD
 
