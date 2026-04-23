@@ -32,20 +32,18 @@ to spawn.
 
 ## Features
 
-- 🧱 **Platforms made from your terminal.** Every log line is a platform.
+- **Platforms made from your terminal.** Every log line is a platform.
   Run across diffs. Stand on prompts. Surf a streaming build log.
-- 🧙 **Rope, spells, and an axe.** Swing a grappling rope off ceilings.
+- **Rope, spells, and an axe.** Swing a grappling rope off ceilings.
   Mine mana crystals. Hold lightning to aim, release to fire. Raise a
   shield when the world turns hostile.
-- 🎯 **Five missions.** Collect glowing balls → mine crystals → escape
+- **Five missions.** Collect glowing balls → mine crystals → escape
   rising lava → survive a meteor shower → fight through a pitch-black
   level with only a flashlight.
-- 🏃 **Give up whenever.** `Esc` hands focus back to the terminal and
-  the stick man carries on without you. `Shift+click` to take over
-  again.
-- 🆓 **Zero impact on Claude.** The game runs in its own process. You
-  are not slowing the spinner down. You are just refusing to be bored
-  by it.
+- **Give up whenever.** `Esc` hands focus back to the terminal and the
+  stick man carries on without you. `Shift+click` to take over again.
+- **Zero impact on Claude.** The game runs in its own process. You are
+  not slowing the spinner down. You are just refusing to be bored by it.
 
 ## Requirements
 
