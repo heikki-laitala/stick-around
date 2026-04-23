@@ -9,6 +9,10 @@ and work through the mission progression instead of staring at a spinner.
   <img src="src-tauri/icons/icon.png" width="160" alt="Stick Around icon" />
 </p>
 
+<p align="center">
+  <img src="gameplay.gif" alt="Gameplay demo" />
+</p>
+
 ## Requirements
 
 - **macOS on Apple Silicon (arm64)** — the overlay reads terminal contents
