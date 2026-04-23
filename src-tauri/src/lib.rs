@@ -116,6 +116,11 @@ fn pid_file_path() -> std::path::PathBuf {
     std::env::temp_dir().join("stick-around.pid")
 }
 
+#[tauri::command]
+fn get_version() -> &'static str {
+    env!("STICK_VERSION")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let pid_file = pid_file_path();
@@ -350,7 +355,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app, set_hud_tall])
+        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app, set_hud_tall, get_version])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 

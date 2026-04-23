@@ -46,6 +46,10 @@ const state = {
   curPose: JSON.parse(JSON.stringify(IDLE)),
   hasSpawned: false,
   overlayActive: false, // true while the overlay is key/focused (user can drive the man)
+
+  // Splash screen shown on first activation until the user dismisses it.
+  splashActive: true,
+  version: '',
   posture: 'standing', // 'standing' | 'crouching' | 'prone'
 
   // HUD
@@ -277,6 +281,9 @@ if (window.__TAURI__) {
   window.__TAURI__.event.listen('terminal-content', (ev) => {
     handleTerminalContent(ev.payload);
   });
+  window.__TAURI__.core.invoke('get_version')
+    .then((v) => { if (typeof v === 'string') state.version = v; })
+    .catch(() => {});
 }
 
 // Track overlay focus so the HUD can be hidden when the user can't drive
@@ -300,8 +307,11 @@ window.addEventListener('blur', () => { state.overlayActive = false; });
 // mouse events pass through to the terminal beneath).
 window.addEventListener('click', (e) => {
   if (!state.overlayActive) return;
-  if (!isInCloseButton(e.clientX, e.clientY, W())) return;
-  if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
+  if (isInCloseButton(e.clientX, e.clientY, W())) {
+    if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
+    return;
+  }
+  if (state.splashActive) state.splashActive = false;
 });
 window.addEventListener('mousemove', (e) => {
   state.mouseX = e.clientX;
@@ -321,6 +331,12 @@ document.addEventListener('keydown', e => {
       window.__TAURI__.core.invoke('deactivate_overlay').catch(() => {});
       return;
     }
+  }
+
+  if (state.splashActive) {
+    state.splashActive = false;
+    e.preventDefault();
+    return;
   }
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }

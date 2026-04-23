@@ -8,6 +8,7 @@ import {
 } from './spells.js';
 import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
+import { renderSplash } from './renderSplash.js';
 
 // Re-export HUD helpers so existing `import { ... } from './render.js'`
 // callers (main.js, tests) keep working without plumbing updates.
@@ -29,6 +30,11 @@ function drawLimb(ctx, ax, ay, bx, by) {
  */
 export function render(ctx, state, screenW, screenH) {
   ctx.clearRect(0, 0, screenW, screenH);
+
+  if (state.splashActive) {
+    renderSplash(ctx, state, screenW, screenH);
+    return;
+  }
 
   if (!state.hasSpawned) {
     if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
