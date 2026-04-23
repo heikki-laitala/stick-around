@@ -1012,54 +1012,56 @@ fn detect_terminal_regions(text_lines: &[&str]) -> (Option<usize>, Option<usize>
         return (None, None);
     }
 
-    // Scan bottom-up collecting all separator line indices
+    // Collect every separator line in the visible content. Claude Code has
+    // exactly one prompt box, but tool output / markdown rules can add more
+    // separators above it, so we scan the whole frame and then pick the
+    // bottom-most valid pair.
     let mut separators: Vec<usize> = Vec::new();
-    for i in (0..len).rev() {
-        let trimmed = text_lines[i].trim();
-        if is_separator_line(trimmed) {
+    for i in 0..len {
+        if is_separator_line(text_lines[i].trim()) {
             separators.push(i);
-        }
-        // Stop after finding 2 separators (we only need the bottom pair)
-        if separators.len() >= 2 {
-            break;
         }
     }
 
-    match separators.len() {
-        0 => {
-            // No separators — fall back to prompt character detection
-            let mut prompt_idx = None;
-            for i in (0..len).rev() {
-                let trimmed = text_lines[i].trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                if is_prompt_line(trimmed) {
-                    prompt_idx = Some(i);
-                    break;
-                }
+    // Maximum plausible gap between the top and bottom borders of the prompt
+    // box. Claude Code's box is 1 prompt line; tool boxes can be larger but
+    // we still want to tolerate a multi-line input buffer.
+    const MAX_PROMPT_GAP: usize = 12;
+
+    // Walk separators from the bottom up looking for a pair (top, bottom)
+    // where `top < bottom` and they are close enough to plausibly frame a
+    // prompt box. The first such pair is the lowest on screen.
+    for b in (0..separators.len()).rev() {
+        let bottom = separators[b];
+        for t in (0..b).rev() {
+            let top = separators[t];
+            let gap = bottom - top;
+            if gap >= 2 && gap <= MAX_PROMPT_GAP {
+                let footer = if bottom + 1 < len { Some(bottom + 1) } else { None };
+                return (Some(top), footer);
             }
-            (prompt_idx, None)
-        }
-        1 => {
-            // One separator found — treat it as the top border of the prompt box
-            // The bottom border might be styled differently or missing
-            let top_border = separators[0];
-            // Look for a footer line below: scan down for the next non-empty line
-            // that isn't a prompt line, or infer footer from remaining lines
-            let footer = if top_border + 2 < len { Some(top_border + 2) } else { None };
-            (Some(top_border), footer)
-        }
-        _ => {
-            // Two separators — top and bottom borders of the prompt box
-            // separators[0] is the bottom one (found first scanning up)
-            // separators[1] is the top one
-            let bottom_border = separators[0];
-            let top_border = separators[1];
-            let footer = if bottom_border + 1 < len { Some(bottom_border + 1) } else { None };
-            (Some(top_border), footer)
         }
     }
+
+    // No valid separator pair found. If there are no separators at all, try
+    // the shell prompt-character fallback (for plain bash/zsh, not Claude
+    // Code). Otherwise return (None, None) and let the frontend keep using
+    // the cached last-known position — a lone or far-apart separator is
+    // almost always a markdown rule or a scrolled-off tool box, and treating
+    // it as the prompt top would render a huge, obviously-wrong footer rect
+    // covering the lower half of the terminal.
+    if separators.is_empty() {
+        for i in (0..len).rev() {
+            let trimmed = text_lines[i].trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if is_prompt_line(trimmed) {
+                return (Some(i), None);
+            }
+        }
+    }
+    (None, None)
 }
 
 /// Check if a trimmed line looks like a shell prompt.
@@ -1306,4 +1308,100 @@ pub fn get_name_by_pid(pid: u32) -> Option<String> {
         pid
     );
     run_osascript(&script).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_bottom_prompt_box_when_multiple_separator_pairs_present() {
+        // Tool output box followed by the real prompt box.
+        let lines = vec![
+            "some history",
+            "╭──── tool output ────╮",
+            "│ tool line 1         │",
+            "│ tool line 2         │",
+            "╰─────────────────────╯",
+            "more history",
+            "╭─────────────────────╮", // real prompt top (idx 6)
+            "│ >                   │",
+            "╰─────────────────────╯", // real prompt bottom (idx 8)
+            "  ? for shortcuts",       // footer (idx 9)
+        ];
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, Some(6), "input_line should be the lower prompt box top");
+        assert_eq!(footer, Some(9), "footer should be the line after the lower box");
+    }
+
+    #[test]
+    fn picks_single_prompt_box() {
+        let lines = vec![
+            "history line",
+            "╭─────╮",
+            "│ >   │",
+            "╰─────╯",
+            "footer",
+        ];
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, Some(1));
+        assert_eq!(footer, Some(4));
+    }
+
+    #[test]
+    fn ignores_far_apart_separators_that_cannot_be_one_box() {
+        // A single stray separator far above a real prompt box must not pair.
+        let mut lines = vec!["───────"]; // stray at idx 0
+        for _ in 0..20 {
+            lines.push("content");
+        }
+        lines.push("╭─────╮"); // idx 21
+        lines.push("│ >   │");
+        lines.push("╰─────╯"); // idx 23
+        lines.push("footer");
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, Some(21));
+        assert_eq!(footer, Some(24));
+    }
+
+    #[test]
+    fn returns_none_for_empty_input() {
+        let lines: Vec<&str> = vec![];
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, None);
+        assert_eq!(footer, None);
+    }
+
+    #[test]
+    fn returns_none_when_only_a_stray_separator_is_visible() {
+        // Claude Code "processing" state — no prompt box visible, just a lone
+        // separator from a tool output bottom. Must not be treated as prompt
+        // top, since that would produce a huge false footer rect.
+        let mut lines = vec![];
+        for _ in 0..10 {
+            lines.push("history content");
+        }
+        lines.push("╰─ end of tool ─╯"); // idx 10 (lone separator)
+        for _ in 0..15 {
+            lines.push("status text");
+        }
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, None);
+        assert_eq!(footer, None);
+    }
+
+    #[test]
+    fn returns_none_when_separators_are_too_far_apart() {
+        // Two stray separators far apart (e.g. markdown rule + tool bottom)
+        // must not be fused into one huge prompt box.
+        let mut lines = vec!["───────"]; // stray at idx 0
+        for _ in 0..25 {
+            lines.push("content");
+        }
+        lines.push("╰─────╯"); // idx 26 — also stray
+        lines.push("more text");
+        let (input, footer) = detect_terminal_regions(&lines);
+        assert_eq!(input, None);
+        assert_eq!(footer, None);
+    }
 }
