@@ -9,7 +9,7 @@ import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
   initialSpells, cycleSpell, castSpell, releaseCast,
-  adjustLightningAim, cancelLightningAim, isLightningAiming, tickSpells,
+  adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
   adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,

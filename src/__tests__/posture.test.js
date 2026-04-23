@@ -3,6 +3,7 @@ import { findCeiling } from '../platforms.js';
 import { STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, CROUCH, PRONE, CROUCH_WALK, PRONE_CRAWL } from '../poses.js';
 import { updatePosture, updateMovement, updatePose } from '../physics.js';
 import { IDLE } from '../poses.js';
+import { JUMP_V } from '../constants.js';
 
 describe('posture heights', () => {
   it('STANDING_HEIGHT > CROUCH_HEIGHT > PRONE_HEIGHT', () => {
@@ -389,7 +390,6 @@ describe('movement blocked when space too tight', () => {
     // any overhead ceiling, which made jumps under a content-line ceiling
     // (common mid-screen) much taller than jumps on the open floor. The
     // rule now: only the footer-escape branch boosts jumps.
-    const { JUMP_V } = require('../constants.js');
     const mkFloor = () => ({ y: 300, x: 0, w: 400, hash: 2 });
     const openField = makeState({
       feetY: 300, gx: 100, posture: 'standing', gvy: 0,

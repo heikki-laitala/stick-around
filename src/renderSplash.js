@@ -3,10 +3,6 @@
 // shield with a gold star, raised wooden sword, goofy grin. The bottom
 // band is intentionally left as a stub for future keyboard hints.
 
-// Splash fills the entire overlay — matches the terminal + HUD area
-// so there's no mismatched "card in the middle of a window" look.
-const PANEL_RADIUS = 0;
-
 const COL_BG_TOP = 'rgba(78, 50, 147, 0.82)';
 const COL_BG_BOT = 'rgba(255, 140, 120, 0.82)';
 const COL_MOUNTAIN = '#3c285a';
