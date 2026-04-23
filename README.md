@@ -1,17 +1,51 @@
-# Stick Around
+<p align="center">
+  <img src="src-tauri/icons/icon.png" width="140" alt="Stick Around icon" />
+</p>
 
-A tiny stick-man overlay game for Claude Code. While Claude is busy chewing
-through a task, a stick man wanders across the top of your terminal — you
-can take over, run across log lines, mine mana crystals, throw lightning,
-and work through the mission progression instead of staring at a spinner.
+<h1 align="center">Stick Around</h1>
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="160" alt="Stick Around icon" />
+  <strong>Your terminal is a platformer now.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml"><img src="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml/badge.svg" alt="ci" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20arm64-lightgrey.svg" alt="platform: macOS arm64" />
 </p>
 
 <p align="center">
   <img src="gameplay.gif" alt="Gameplay demo" />
 </p>
+
+Your next Claude Code task is going to take ninety seconds. You could
+watch the spinner. Or — hear us out — you could take control of a
+wizard-hat stick man, jump across platforms made of *your own log
+output*, fire a grappling rope off an `npm install` line, mine a glowing
+mana crystal out of the ceiling, and zap lightning at a falling meteor.
+
+Stick Around is an overlay game for iTerm2 and Terminal.app. It reads
+your terminal contents in real time and turns every line of output into
+solid ground. When Claude streams new output, the floor rearranges
+under your feet. You adapt. Or you fall into the void and get sent back
+to spawn.
+
+## Features
+
+- 🧱 **Platforms made from your terminal.** Every log line is a platform.
+  Run across diffs. Stand on prompts. Surf a streaming build log.
+- 🧙 **Rope, spells, and an axe.** Swing a grappling rope off ceilings.
+  Mine mana crystals. Hold lightning to aim, release to fire. Raise a
+  shield when the world turns hostile.
+- 🎯 **Five missions.** Collect glowing balls → mine crystals → escape
+  rising lava → survive a meteor shower → fight through a pitch-black
+  level with only a flashlight.
+- 🏃 **Give up whenever.** `Esc` hands focus back to the terminal and
+  the stick man carries on without you. `Shift+click` to take over
+  again.
+- 🆓 **Zero impact on Claude.** The game runs in its own process. You
+  are not slowing the spinner down. You are just refusing to be bored
+  by it.
 
 ## Requirements
 
