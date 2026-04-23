@@ -284,6 +284,10 @@ if (window.__TAURI__) {
   window.__TAURI__.core.invoke('get_version')
     .then((v) => { if (typeof v === 'string') state.version = v; })
     .catch(() => {});
+  // Grab focus on launch so the splash's "Any key" hint actually works.
+  // Without this, the overlay stays in passive (click-through, unfocused)
+  // mode and keystrokes go to the terminal beneath.
+  window.__TAURI__.core.invoke('activate_overlay').catch(() => {});
 }
 
 // Track overlay focus so the HUD can be hidden when the user can't drive
