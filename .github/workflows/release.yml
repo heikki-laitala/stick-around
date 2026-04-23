@@ -1,0 +1,40 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release binary
+        run: make build
+
+      - name: Ad-hoc codesign
+        run: codesign --force --sign - ./stick-around
+
+      - name: Package binary
+        run: |
+          tar -czf stick-around-macos-arm64.tar.gz stick-around
+          shasum -a 256 stick-around-macos-arm64.tar.gz > stick-around-macos-arm64.tar.gz.sha256
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            stick-around-macos-arm64.tar.gz
+            stick-around-macos-arm64.tar.gz.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

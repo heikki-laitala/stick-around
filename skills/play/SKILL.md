@@ -21,4 +21,4 @@ Do NOT use `run_in_background` for this command — the script already backgroun
 
 If the output contains `STICK_AROUND_RUNNING`, tell the user: "Stick Around is running! A stick man is now walking on your screen. Controls: WASD/Arrow keys to move, Space/W to jump, Escape to quit." Note: the game continues running as a separate process even after the command finishes.
 
-If the output contains `STICK_AROUND_FAILED`, or the binary is not found, tell the user to rebuild it by running `npm run build` in the plugin directory.
+If the output contains `STICK_AROUND_FAILED`, or the binary is not found, tell the user to rebuild it by running `make dev` in the plugin directory.
