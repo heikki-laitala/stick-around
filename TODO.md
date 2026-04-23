@@ -5,31 +5,7 @@ Findings from a full-codebase review (April 2026). Ordered by impact;
 
 ## Do first
 
-### 1. Split `src/render.js` (1042 lines) into focused modules
-The file covers stick-man anatomy, rope, particles, HUD, shield aura,
-and icons. Extract:
-
-- `src/renderHud.js` — `renderHUD`, `drawSeparator`, `drawGlowingBallIcon`,
-  `drawPotionIcon`, `drawPouchIcon`, `drawSparkleIcon`, `drawCrownIcon`,
-  `getCloseButtonRect`, `isInCloseButton`, `drawCloseButton`.
-- `src/renderShield.js` — `drawShieldAura`, `drawHex`, `shieldNoise`.
-
-**Impact:** maintainability. The next render feature adds complexity we
-won't want to drop into a 1000-line file.
-
-### 2. Add full-lifecycle tests for scene-driven missions
-Existing tests cover `update` in isolation but not the
-`onEnter → update → check → onExit` transitions. Add for `escapeLava` and
-`meteorShower`:
-
-- enter the mission → verify `missionScene` populated.
-- tick to win → verify `check()` returns true and `onExit` ran cleanly.
-- trigger a fail path (`gameOver` / `requestRestart`) → verify restart
-  clears the scene and re-entering works.
-
-**Impact:** prevents regressions as the mission system grows.
-
-### 3. Hoist shared mission scaffolding (Rule of Three)
+### 1. Hoist shared mission scaffolding (Rule of Three)
 `escapeLava`, `meteorShower`, and any future mission repeat:
 
 - HUD-height floor fallback via `textOffsetY || effectiveHudHeight`.
@@ -42,8 +18,8 @@ Extract to `src/missions/lib.js` with `missionFloorY(state)`,
 
 **Impact:** maintainability. Stops drift between mission files.
 
-### 4. Replace `.lock().unwrap()` in `src-tauri/src/lib.rs`
-Three threads (around lines 61, 229, 246) call `.lock().unwrap()` on the
+### 2. Replace `.lock().unwrap()` in `src-tauri/src/lib.rs`
+Four call sites (lines 88, 111, 296, 314) call `.lock().unwrap()` on the
 shared bounds Mutex. A panic anywhere under the lock poisons it and
 kills the whole overlay on the next tick. Cheap fix:
 
@@ -56,7 +32,7 @@ if let Ok(guard) = bounds.lock() { /* use guard */ }
 
 ## Nice to have
 
-### 5. Consolidate newly-added HUD/shield magic numbers
+### 3. Consolidate newly-added HUD/shield magic numbers
 Recent HUD + shield work left literals scattered in `render.js`:
 
 - HUD row centers `15` / `hudH - 15`, separator tick half-height `9`,
@@ -70,14 +46,14 @@ Move to a `HUD_*` constants block (ideally near `HUD_HEIGHT`) and a
 
 **Impact:** tuneability. Next visual pass becomes grep-free.
 
-### 6. Stop deep-cloning static poses via JSON
+### 4. Stop deep-cloning static poses via JSON
 `src/physics.js:388` and `src/main.js:38` use
 `JSON.parse(JSON.stringify(IDLE))` to copy a small static pose object.
 Swap to `{ ...IDLE }` (shallow) or a tiny `clonePose(p)` helper.
 
 **Impact:** code smell only — poses are small and this runs rarely.
 
-### 7. Pose interpolation duplication in `updatePose`
+### 5. Pose interpolation duplication in `updatePose`
 `src/physics.js:330-371` has 3–4 near-identical branches that advance
 `walkPh`, wrap to [0, 1), index into a WALK cycle, and lerp poses.
 Extract `advanceWalkAnimation(state, speed, frames)`.
@@ -85,13 +61,13 @@ Extract `advanceWalkAnimation(state, speed, frames)`.
 **Impact:** maintainability only. Small payoff unless a new pose cycle
 is being added.
 
-### 8. Collectibles and mana mines share update patterns
+### 6. Collectibles and mana mines share update patterns
 Both manage age, lifetime, removal, and call into
 `stepItemPhysics`. If a third item type appears, the duplication will
 bite. Not urgent today — defer until the third type actually arrives
 (Rule of Three).
 
-### 9. Document the mission-state contract
+### 7. Document the mission-state contract
 Missions are expected to only mutate `state.missionScene` and not reach
 into `state.score`, `state.mana`, or other gameplay globals. This
 convention isn't written down anywhere; a future mission could violate
@@ -120,8 +96,18 @@ analysis:
   pragmatic mutation pattern is fine for a single-threaded game loop.
   Adding a class boundary would cost more than it earns.
 
+## Done since this list was written
+
+- **Split `src/render.js` into focused modules.** Now
+  `renderHud.js` (373), `renderShield.js` (165), `renderSplash.js` (381);
+  `render.js` is down from 1042 → 831 lines.
+- **Full-lifecycle tests for scene-driven missions.** `escapeLava.test.js`,
+  `meteorShower.test.js`, and `aloneInDark.test.js` cover `onEnter`,
+  `update` edge cases, `check`, and the restart/reset path.
+
 ## Overall health
 
-Shipping-quality for its scope. The single meaningful risk surface is
-`render.js` size plus the missing mission-lifecycle tests — address
-those and the rest can wait.
+Shipping-quality for its scope. The two biggest risk surfaces from the
+original review — `render.js` size and missing mission-lifecycle tests —
+are addressed. Remaining items are maintainability polish and one safety
+fix (`.lock().unwrap()`); none block a release.
