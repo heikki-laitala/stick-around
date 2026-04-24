@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  build-macos:
     runs-on: macos-14
     permissions:
       contents: write
@@ -37,4 +37,45 @@ jobs:
             stick-around-macos-arm64.tar.gz
             stick-around-macos-arm64.tar.gz.sha256
           generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release binary
+        run: make build
+
+      - name: Package binary
+        run: |
+          tar -czf stick-around-linux-x86_64.tar.gz stick-around
+          sha256sum stick-around-linux-x86_64.tar.gz > stick-around-linux-x86_64.tar.gz.sha256
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            stick-around-linux-x86_64.tar.gz
+            stick-around-linux-x86_64.tar.gz.sha256
           fail_on_unmatched_files: true
