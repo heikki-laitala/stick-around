@@ -29,6 +29,17 @@ export const ITEM_Y_OFFSET = 10;           // item sits this far above its platf
 export const LIGHTNING_CORRIDOR_W = 36;    // destination-out strip width along bolt
 export const AIM_SPEED = 1.8;              // radians/sec while aiming the flashlight
 
+// Active-mission darkness fill. Windows WebView2 lets noticeably more
+// light through a partly-opaque canvas layer than macOS's NSPanel does,
+// so terminal text remains readable behind a 0.94 alpha that reads as
+// fully black on macOS. Detect once and bake into a constant — webview
+// platform doesn't change at runtime.
+const IS_WINDOWS = typeof navigator !== 'undefined'
+  && /Windows/i.test(navigator.userAgent || '');
+const DARKNESS_ACTIVE_FILL = IS_WINDOWS
+  ? 'rgba(0, 0, 0, 1)'
+  : 'rgba(0, 0, 0, 0.94)';
+
 export const SHADOW_MAX = 6;
 export const SHADOW_SPAWN_INTERVAL = 1.2;  // seconds between spawn attempts
 export const SHADOW_DRIFT_SPEED = 28;      // idle drift speed
@@ -345,7 +356,14 @@ function drawDarkness(ctx, state, scene, W, H, paused) {
   const off = getOffscreen(W, H);
   const dctx = off.getContext('2d');
   dctx.clearRect(0, 0, W, H);
-  dctx.fillStyle = paused ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.94)';
+  // Windows WebView2 composites transparency differently than macOS's
+  // NSPanel: at 0.94 alpha enough light leaks through that terminal
+  // contents remain readable behind the overlay. Bump to fully opaque on
+  // Windows only — the macOS aesthetic at 0.94 (a faint sense of the
+  // world being still there, just barely) is preserved.
+  dctx.fillStyle = paused
+    ? 'rgba(0, 0, 0, 0.45)'
+    : DARKNESS_ACTIVE_FILL;
   dctx.fillRect(0, 0, W, H);
 
   dctx.globalCompositeOperation = 'destination-out';
