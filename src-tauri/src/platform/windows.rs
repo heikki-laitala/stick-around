@@ -442,7 +442,7 @@ unsafe fn measure_line_range_rect(
 /// etc.) — the JS frontend already handles a missing event by keeping the
 /// previous content.
 pub fn get_terminal_content(
-    _pid: u32,
+    pid: u32,
     target_xy: Option<(i32, i32)>,
     _app_name: &str,
 ) -> Option<TerminalContent> {
@@ -450,15 +450,26 @@ pub fn get_terminal_content(
         let uia = ensure_uia()?;
 
         // Pin to the same window the overlay is tracking. `target_xy` is the
-        // current top-left of the tracked window (from poll_bounds) — we
-        // resolve it back to an HWND so multi-window terminal apps don't
-        // accidentally feed us text from a different window.
+        // current top-left of the tracked window (from poll_bounds); we
+        // resolve it back to an HWND **owned by `pid`** so multi-window
+        // terminal apps don't feed us text from a different window — and so
+        // unrelated processes that happen to share the same origin (two
+        // maximized windows on the same monitor, etc.) don't get bound to
+        // either. Fall back to the foreground HWND if nothing matches, but
+        // only when its PID matches too — we'd rather emit no event than
+        // bind to the wrong process's text.
         let hwnd = target_xy
-            .and_then(|(tx, ty)| hwnd_at_position(tx, ty))
+            .and_then(|(tx, ty)| hwnd_at_position(pid, tx, ty))
             .or_else(|| {
                 let fg = GetForegroundWindow();
-                if fg.is_invalid() { None } else { Some(fg) }
-            })?;
+                if fg.is_invalid() {
+                    return None;
+                }
+                let mut fg_pid: u32 = 0;
+                GetWindowThreadProcessId(fg, Some(&mut fg_pid));
+                if fg_pid == pid { Some(fg) } else { None }
+            })
+            .or_else(|| enum_windows_for_pid(pid).first().map(|(h, ..)| *h))?;
 
         let element = uia.ElementFromHandle(hwnd).ok()?;
         let text_elem = find_terminal_text_element(&uia, &element)?;
@@ -692,13 +703,16 @@ pub fn get_terminal_content(
     }
 }
 
-/// Resolve a window position back to an HWND. Used to keep the content reader
-/// pinned to the launch-time window when the user has multiple terminals open
-/// for the same PID.
-unsafe fn hwnd_at_position(x: i32, y: i32) -> Option<HWND> {
+/// Resolve a window position back to an HWND owned by `pid`. Used to keep the
+/// content reader pinned to the launch-time window when the user has multiple
+/// terminals open for the same PID, AND to make sure we don't accidentally
+/// bind to a different process's window that happens to share the same origin
+/// (maximized windows on the same monitor often do).
+unsafe fn hwnd_at_position(pid: u32, x: i32, y: i32) -> Option<HWND> {
     // Walk all top-level windows; `enum_windows_for_pid` requires a PID, so we
     // can't reuse it here. Inline a small enum instead.
     struct Ctx {
+        target_pid: u32,
         target_x: i32,
         target_y: i32,
         result: Option<HWND>,
@@ -706,6 +720,11 @@ unsafe fn hwnd_at_position(x: i32, y: i32) -> Option<HWND> {
     unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let ctx = &mut *(lparam.0 as *mut Ctx);
         if !is_real_top_level(hwnd) {
+            return TRUE;
+        }
+        let mut wnd_pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut wnd_pid));
+        if wnd_pid != ctx.target_pid {
             return TRUE;
         }
         if let Some(r) = visible_window_rect(hwnd) {
@@ -716,7 +735,12 @@ unsafe fn hwnd_at_position(x: i32, y: i32) -> Option<HWND> {
         }
         TRUE
     }
-    let mut ctx = Ctx { target_x: x, target_y: y, result: None };
+    let mut ctx = Ctx {
+        target_pid: pid,
+        target_x: x,
+        target_y: y,
+        result: None,
+    };
     let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize));
     ctx.result
 }
