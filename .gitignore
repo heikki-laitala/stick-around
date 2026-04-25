@@ -3,4 +3,5 @@ src-tauri/target/
 src-tauri/gen/
 .DS_Store
 /stick-around
+/stick-around.exe
 gameplay-*.mov

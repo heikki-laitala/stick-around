@@ -1,18 +1,25 @@
+ifeq ($(OS),Windows_NT)
+EXE := .exe
+else
+EXE :=
+endif
+
 PLUGIN_CACHE := $(HOME)/.claude/plugins/cache/stick-around/stick-around/1.0.0
-BINARY_SRC   := stick-around
-BINARY_DST   := $(PLUGIN_CACHE)/stick-around
+BINARY_SRC   := stick-around$(EXE)
+BINARY_DST   := $(PLUGIN_CACHE)/stick-around$(EXE)
 
 .PHONY: build install dev clean test lint
 
 ## Build the Tauri overlay binary (release mode)
 build:
 	cargo build --release --manifest-path src-tauri/Cargo.toml
-	cp src-tauri/target/release/stick-around ./stick-around
-	chmod +x ./stick-around
+	cp src-tauri/target/release/stick-around$(EXE) ./stick-around$(EXE)
+	chmod +x ./stick-around$(EXE)
 
 ## Copy binary and skills to the plugin cache
 install: $(BINARY_SRC)
 	@echo "Syncing binary to plugin cache..."
+	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop
 	cp $(BINARY_SRC) $(BINARY_DST)
 	chmod +x $(BINARY_DST)
 	@echo "Syncing skills to plugin cache..."
