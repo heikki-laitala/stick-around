@@ -38,13 +38,22 @@ fn apply_bounds(
     // Windows: GetWindowRect returns physical pixels, so feed Tauri physical
     // units to bypass its DPI-scaling conversion. macOS/Linux platform layers
     // return logical points, so they keep the Logical path.
+    //
+    // `hud` is in *logical* pixels (HUD_HEIGHT=32 here matches the same
+    // constant the JS frontend uses for canvas math). Multiply by the
+    // window's DPI scale before adding it to the physical bounds, otherwise
+    // at non-100% scaling the HUD reservation is shorter than the JS canvas
+    // expects and every platform draws at a y offset that's off by
+    // (1 - 1/scale) × HUD_HEIGHT — visible as a downward drift even at row 0.
     #[cfg(target_os = "windows")]
     {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let hud_phys = (hud as f64 * scale).round() as i32;
         let _ = window.set_position(tauri::Position::Physical(
-            tauri::PhysicalPosition::new(x, y - hud as i32),
+            tauri::PhysicalPosition::new(x, y - hud_phys),
         ));
         let _ = window.set_size(tauri::Size::Physical(
-            tauri::PhysicalSize::new(w, h + hud),
+            tauri::PhysicalSize::new(w, (h as i32 + hud_phys).max(0) as u32),
         ));
     }
     #[cfg(not(target_os = "windows"))]
