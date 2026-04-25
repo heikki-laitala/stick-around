@@ -34,12 +34,28 @@ fn apply_bounds(
     tall_known: bool, tall: bool,
 ) {
     let hud = hud_height_for(w, tall_known, tall);
-    let _ = window.set_position(tauri::Position::Logical(
-        tauri::LogicalPosition::new(x as f64, (y - hud as i32) as f64),
-    ));
-    let _ = window.set_size(tauri::Size::Logical(
-        tauri::LogicalSize::new(w as f64, (h + hud) as f64),
-    ));
+
+    // Windows: GetWindowRect returns physical pixels, so feed Tauri physical
+    // units to bypass its DPI-scaling conversion. macOS/Linux platform layers
+    // return logical points, so they keep the Logical path.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition::new(x, y - hud as i32),
+        ));
+        let _ = window.set_size(tauri::Size::Physical(
+            tauri::PhysicalSize::new(w, h + hud),
+        ));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window.set_position(tauri::Position::Logical(
+            tauri::LogicalPosition::new(x as f64, (y - hud as i32) as f64),
+        ));
+        let _ = window.set_size(tauri::Size::Logical(
+            tauri::LogicalSize::new(w as f64, (h + hud) as f64),
+        ));
+    }
 }
 
 /// Shared state: the terminal PID, the last known window bounds, and the
@@ -225,7 +241,7 @@ pub fn run() {
             // Shift+left-click on the overlay area: activate without first clicking
             // through via the mouse (which would normally require the overlay to
             // already have focus).
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 let click_window = window.clone();
                 let click_bounds = poll_bounds.clone();
@@ -237,6 +253,14 @@ pub fn run() {
                         });
                     });
                 }
+            }
+
+            // Windows: show in the taskbar so the user has a visible indicator
+            // that the overlay is running and a way to summon it back. macOS
+            // uses the Dock icon set above; Linux behaviour is left as-is.
+            #[cfg(target_os = "windows")]
+            {
+                let _ = window.set_skip_taskbar(false);
             }
 
             // Second handle to the shared bounds for the content-poll thread

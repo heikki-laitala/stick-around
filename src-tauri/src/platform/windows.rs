@@ -1,17 +1,23 @@
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::core::PWSTR;
-use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, RECT, TRUE};
+use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowLongW, GetWindowRect,
-    GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
-    ShowWindow, GWL_EXSTYLE, SW_RESTORE, WS_EX_TOOLWINDOW,
+    BringWindowToTop, CallNextHookEx, DispatchMessageW, EnumWindows, GetForegroundWindow,
+    GetMessageW, GetWindowLongW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
+    IsWindowVisible, SetForegroundWindow, SetWindowsHookExW, ShowWindow, TranslateMessage,
+    GWL_EXSTYLE, HHOOK, MSG, MSLLHOOKSTRUCT, SW_RESTORE, WH_MOUSE_LL, WM_LBUTTONDOWN,
+    WS_EX_TOOLWINDOW,
 };
 
 struct EnumCtx {
@@ -35,13 +41,37 @@ unsafe fn is_real_top_level(hwnd: HWND) -> bool {
     GetWindowTextLengthW(hwnd) > 0
 }
 
+/// Get the window's *visible* frame bounds. `GetWindowRect` returns a rect
+/// padded by the invisible DWM resize-handle border (~7 px each side on
+/// Windows 10/11), which makes the overlay sit slightly wider/taller than the
+/// terminal. `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` returns the
+/// rect users actually perceive. Falls back to `GetWindowRect` if the DWM
+/// call fails (e.g. desktop or other unmanaged HWNDs).
+unsafe fn visible_window_rect(hwnd: HWND) -> Option<RECT> {
+    let mut rect = RECT::default();
+    let dwm_ok = DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_EXTENDED_FRAME_BOUNDS,
+        &mut rect as *mut _ as *mut std::ffi::c_void,
+        std::mem::size_of::<RECT>() as u32,
+    )
+    .is_ok();
+    if dwm_ok {
+        return Some(rect);
+    }
+    let mut fallback = RECT::default();
+    if GetWindowRect(hwnd, &mut fallback).is_ok() {
+        return Some(fallback);
+    }
+    None
+}
+
 unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let ctx = &mut *(lparam.0 as *mut EnumCtx);
     let mut wnd_pid: u32 = 0;
     GetWindowThreadProcessId(hwnd, Some(&mut wnd_pid));
     if wnd_pid == ctx.pid && is_real_top_level(hwnd) {
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_ok() {
+        if let Some(rect) = visible_window_rect(hwnd) {
             let x = rect.left;
             let y = rect.top;
             let w = (rect.right - rect.left).max(0) as u32;
@@ -78,8 +108,7 @@ pub fn get_front_window_bounds(pid: u32) -> Option<(i32, i32, u32, u32)> {
         let mut wnd_pid: u32 = 0;
         unsafe { GetWindowThreadProcessId(fg, Some(&mut wnd_pid)) };
         if wnd_pid == pid {
-            let mut rect = RECT::default();
-            if unsafe { GetWindowRect(fg, &mut rect) }.is_ok() {
+            if let Some(rect) = unsafe { visible_window_rect(fg) } {
                 let x = rect.left;
                 let y = rect.top;
                 let w = (rect.right - rect.left).max(0) as u32;
@@ -156,6 +185,81 @@ pub fn get_terminal_content(
     // hosts. Neither is hooked up yet, so the overlay runs without the
     // prompt/footer rectangles on Windows.
     None
+}
+
+type ClickCallback = Arc<dyn Fn() + Send + Sync + 'static>;
+
+struct HookState {
+    bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
+    callback: ClickCallback,
+}
+
+static HOOK_STATE: OnceLock<HookState> = OnceLock::new();
+
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 && wparam.0 as u32 == WM_LBUTTONDOWN {
+        // GetAsyncKeyState's high bit set => key currently down. VK_SHIFT covers
+        // both left and right shift; we don't care which.
+        let shift_held = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+        if shift_held {
+            if let Some(state) = HOOK_STATE.get() {
+                let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+                let pt = info.pt;
+                let (bx, by, bw, bh) = *state.bounds.lock().unwrap();
+                if pt.x >= bx
+                    && pt.x < bx + bw as i32
+                    && pt.y >= by
+                    && pt.y < by + bh as i32
+                {
+                    (state.callback)();
+                    // Don't consume — match the macOS global monitor's behaviour
+                    // and let the click also reach whatever's underneath.
+                }
+            }
+        }
+    }
+    CallNextHookEx(HHOOK::default(), code, wparam, lparam)
+}
+
+/// Install a global low-level mouse hook that fires `callback` when the user
+/// shift+left-clicks anywhere inside the tracked terminal window. The hook
+/// runs on a dedicated thread with its own message pump so it stays responsive
+/// regardless of what the main thread is doing.
+pub unsafe fn install_shift_click_monitor<F>(
+    bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
+    callback: F,
+) where
+    F: Fn() + Send + Sync + 'static,
+{
+    let _ = HOOK_STATE.set(HookState {
+        bounds,
+        callback: Arc::new(callback),
+    });
+
+    std::thread::spawn(|| unsafe {
+        let module = GetModuleHandleW(None).unwrap_or_default();
+        let hook = match SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), module, 0) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("[stick-around] failed to install WH_MOUSE_LL hook: {:?}", e);
+                return;
+            }
+        };
+
+        let mut msg = MSG::default();
+        // GetMessageW returns >0 for a real message, 0 on WM_QUIT, -1 on error.
+        // We only care that the loop services hook callbacks; messages get
+        // dispatched but no real window owns them.
+        loop {
+            let ret = GetMessageW(&mut msg, HWND::default(), 0, 0);
+            if ret.0 <= 0 {
+                break;
+            }
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        let _ = windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(hook);
+    });
 }
 
 pub fn get_name_by_pid(pid: u32) -> Option<String> {
