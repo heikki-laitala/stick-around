@@ -33,9 +33,10 @@ export const AIM_SPEED = 1.8;              // radians/sec while aiming the flash
 // light through a partly-opaque canvas layer than macOS's NSPanel does,
 // so terminal text remains readable behind a 0.94 alpha that reads as
 // fully black on macOS. Detect once and bake into a constant — webview
-// platform doesn't change at runtime.
-const IS_WINDOWS = typeof navigator !== 'undefined'
-  && /Windows/i.test(navigator.userAgent || '');
+// platform doesn't change at runtime. Read userAgent via `window` (which
+// is in the eslint globals) rather than the bare `navigator` identifier.
+const IS_WINDOWS = typeof window !== 'undefined'
+  && /Windows/i.test(window.navigator?.userAgent || '');
 const DARKNESS_ACTIVE_FILL = IS_WINDOWS
   ? 'rgba(0, 0, 0, 1)'
   : 'rgba(0, 0, 0, 0.94)';
