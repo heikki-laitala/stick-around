@@ -22,8 +22,7 @@ use windows::Win32::System::Ole::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-    IUIAutomationTextRange, TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start,
-    TextUnit_Character, TextUnit_Line, UIA_TextPatternId,
+    IUIAutomationTextRange, TextPatternRangeEndpoint_End, TextUnit_Line, UIA_TextPatternId,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
@@ -400,9 +399,20 @@ unsafe fn read_bounding_rects_union(
 }
 
 /// Measure the screen-space bounding box of `line_span` lines starting at
-/// `line_idx` in `visible_range`. Builds a sub-range by cloning, collapsing
-/// to start, then walking the start endpoint forward by `line_idx` lines and
-/// the end endpoint forward by `line_span` lines from there.
+/// `line_idx` in `visible_range`.
+///
+/// `TextRange::Move(Line, n)` is the right primitive here: per the UIA spec
+/// it collapses the range to its start *atomically*, then moves it forward
+/// by `n` lines — leaving us a degenerate range at the start of line N.
+/// From there a single `MoveEndpointByUnit(End, Line, span)` extends the
+/// end to cover the requested span.
+///
+/// (An earlier version manipulated Start and End separately and re-collapsed
+/// after each move. That's broken: when an endpoint move would cross the
+/// other endpoint, UIA drags the other endpoint along, so collapsing End
+/// after walking Start forward dragged Start back to position 0 and we
+/// ended up measuring the first N lines of the document instead of lines
+/// `line_idx..line_idx+span`.)
 unsafe fn measure_line_range_rect(
     visible_range: &IUIAutomationTextRange,
     line_idx: usize,
@@ -410,25 +420,10 @@ unsafe fn measure_line_range_rect(
 ) -> Option<(f64, f64, f64, f64)> {
     let range = visible_range.Clone().ok()?;
 
-    // Collapse end to start.
-    let _ = range.MoveEndpointByUnit(
-        TextPatternRangeEndpoint_End,
-        TextUnit_Character,
-        i32::MIN,
-    );
-    // Walk start forward by line_idx lines.
-    let _ = range.MoveEndpointByUnit(
-        TextPatternRangeEndpoint_Start,
-        TextUnit_Line,
-        line_idx as i32,
-    );
-    // End may now be before start — collapse end to start again, then walk
-    // forward by line_span lines.
-    let _ = range.MoveEndpointByUnit(
-        TextPatternRangeEndpoint_End,
-        TextUnit_Character,
-        i32::MIN,
-    );
+    // Collapse to start and walk forward by line_idx lines.
+    let _ = range.Move(TextUnit_Line, line_idx as i32);
+
+    // Extend end forward by line_span lines from the (now collapsed) start.
     let _ = range.MoveEndpointByUnit(
         TextPatternRangeEndpoint_End,
         TextUnit_Line,
@@ -510,9 +505,7 @@ pub fn get_terminal_content(
         let to_logical = |v: f64| v / scale;
 
         let text_offset_x = to_logical_x(text_rect.left as f64).max(0.0);
-        let text_offset_y = to_logical_y(text_rect.top as f64).max(0.0);
         let text_width = to_logical((text_rect.right - text_rect.left).max(0) as f64);
-        let text_height = to_logical((text_rect.bottom - text_rect.top).max(0) as f64);
 
         let text_lines: Vec<&str> = text.lines().collect();
 
@@ -546,33 +539,117 @@ pub fn get_terminal_content(
 
         let (input_line, footer_line) = detect_terminal_regions(&text_lines);
 
-        // Pixel-accurate prompt and footer rects via UIA. JS prefers these
-        // over its row arithmetic in `buildPlatforms` when present, so the
-        // prompt overlay sits exactly on the rendered box and the footer
-        // ends exactly where the status line ends. Per-platform y positions
-        // still come from the text_height / term_rows arithmetic, which is
-        // off by at most a fraction of a row but kept platforms aligned;
-        // measuring per-line bounds for every row would be more accurate but
-        // costs an extra UIA round-trip per line per poll.
-        let prompt_rect = visible_range_for_measure
-            .as_ref()
-            .zip(input_line)
-            .and_then(|(r, input)| {
-                let span = footer_line
-                    .map(|f| f.saturating_sub(input).max(1))
-                    .unwrap_or(1);
-                measure_line_range_rect(r, input, span)
-            })
-            .map(|(x, y, w, h)| (to_logical_x(x), to_logical_y(y), to_logical(w), to_logical(h)));
+        // Derive accurate vertical geometry from UIA. Two complications:
+        //
+        // 1. `GetVisibleRanges` returns only the *non-empty* rows in the
+        //    text element — Windows Terminal omits leading empty rows. So
+        //    `lines.len()` is smaller than the textarea's actual row count.
+        // 2. A single line's `GetBoundingRectangles` returns the *glyph*
+        //    rect, not the row-spacing-inclusive height.
+        //
+        // Measuring two lines and dividing by the index gap gives the real
+        // row spacing. Empty lines return zero-area rects (filtered out by
+        // `read_bounding_rects_union` → `None`), so we pick samples that
+        // are guaranteed to have content: the prompt input line and footer
+        // line found by `detect_terminal_regions`. Falls back to first and
+        // last non-empty lines when those aren't detected.
+        // Returns the (top y, glyph height) of a single line's measured rect.
+        // Top is the *glyph* top (below the row top by ~leading/2 pixels);
+        // height is the glyph height (less than full row height by the
+        // combined leading). Both values feed into the row-spacing math
+        // below — measuring the gap cancels the leading bias from `top`,
+        // and we recover the bias by comparing row spacing vs glyph height.
+        let measure_top_and_height = |line_idx: usize| -> Option<(f64, f64)> {
+            visible_range_for_measure
+                .as_ref()
+                .and_then(|r| measure_line_range_rect(r, line_idx, 1))
+                .map(|(_x, y, _w, h)| (to_logical_y(y), to_logical(h)))
+        };
 
-        let footer_rect = visible_range_for_measure
-            .as_ref()
-            .zip(footer_line)
-            .and_then(|(r, footer)| {
-                let span = text_lines.len().saturating_sub(footer).max(1);
-                measure_line_range_rect(r, footer, span)
+        let (sample_a_idx, sample_b_idx) = match (input_line, footer_line) {
+            (Some(i), Some(f)) if f > i => (i, f),
+            _ => {
+                let first = text_lines
+                    .iter()
+                    .position(|l| !l.trim().is_empty())
+                    .unwrap_or(0);
+                let last = text_lines
+                    .iter()
+                    .rposition(|l| !l.trim().is_empty())
+                    .unwrap_or(first);
+                (first, last)
+            }
+        };
+        let sample_a = measure_top_and_height(sample_a_idx);
+        let sample_b = measure_top_and_height(sample_b_idx);
+
+        let row_height = match (sample_a, sample_b) {
+            (Some((a_top, _)), Some((b_top, _)))
+                if sample_b_idx > sample_a_idx && b_top > a_top =>
+            {
+                (b_top - a_top) / (sample_b_idx - sample_a_idx) as f64
+            }
+            _ => to_logical((text_rect.bottom - text_rect.top).max(0) as f64)
+                / term_rows.max(1) as f64,
+        };
+
+        // Leading: the vertical gap between the row top and the glyph top.
+        // Inferred from `row_height - glyph_height` and split evenly above
+        // and below. Without this correction `text_offset_y` is `leading/2`
+        // too low and every platform sits a few pixels below its actual row.
+        let leading = sample_a
+            .map(|(_, h)| ((row_height - h) / 2.0).max(0.0))
+            .unwrap_or(0.0);
+
+        let text_offset_y = sample_a
+            .map(|(y, _)| (y - leading - sample_a_idx as f64 * row_height).max(0.0))
+            .unwrap_or_else(|| to_logical_y(text_rect.top as f64).max(0.0));
+
+        let text_height = row_height * term_rows as f64;
+
+        // Pixel-accurate prompt and footer rects: top y measured directly,
+        // height = span × row_height so the bottom edge lands exactly on the
+        // top of the next region (no glyph-bound overshoot from a multi-line
+        // `GetBoundingRectangles` union).
+        let prompt_rect = input_line.and_then(|input| {
+            let span = footer_line
+                .map(|f| f.saturating_sub(input).max(1))
+                .unwrap_or(1);
+            let top = if input == sample_a_idx {
+                sample_a.map(|(y, _)| y)
+            } else if input == sample_b_idx {
+                sample_b.map(|(y, _)| y)
+            } else {
+                measure_top_and_height(input).map(|(y, _)| y)
+            };
+            top.map(|t| {
+                (
+                    text_offset_x,
+                    (t - leading).max(0.0),
+                    text_width,
+                    row_height * span as f64,
+                )
             })
-            .map(|(x, y, w, h)| (to_logical_x(x), to_logical_y(y), to_logical(w), to_logical(h)));
+        });
+
+        let footer_rect = footer_line.and_then(|footer| {
+            let span = text_lines.len().saturating_sub(footer).max(1);
+            let top = if footer == sample_a_idx {
+                sample_a.map(|(y, _)| y)
+            } else if footer == sample_b_idx {
+                sample_b.map(|(y, _)| y)
+            } else {
+                measure_top_and_height(footer).map(|(y, _)| y)
+            };
+            top.map(|t| {
+                (
+                    text_offset_x,
+                    (t - leading).max(0.0),
+                    text_width,
+                    row_height * span as f64,
+                )
+            })
+        });
 
         let total = text_lines.len();
         let start = if total > 8 { total - 8 } else { 0 };
