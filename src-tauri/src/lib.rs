@@ -142,10 +142,18 @@ pub fn run() {
     let pid_file = pid_file_path();
     std::fs::write(&pid_file, std::process::id().to_string()).ok();
 
-    // Detect the terminal PID (frontmost process at launch). This runs
-    // before tauri::Builder so the terminal still owns focus — the overlay
-    // window hasn't been created yet.
-    let pid = match platform::get_frontmost_pid() {
+    // Detect the terminal PID. On macOS / Linux the frontmost process at
+    // launch IS the terminal — the overlay window hasn't been created yet
+    // so focus hasn't shifted. On Windows we additionally tolerate the user
+    // having a non-terminal app (browser, IDE in editor mode) momentarily
+    // foreground at launch by walking visible windows for a known terminal
+    // host as fallback.
+    #[cfg(target_os = "windows")]
+    let pid_opt = platform::find_terminal_pid();
+    #[cfg(not(target_os = "windows"))]
+    let pid_opt = platform::get_frontmost_pid();
+
+    let pid = match pid_opt {
         Some(p) => p,
         None => {
             eprintln!("[stick-around] could not detect terminal PID");
