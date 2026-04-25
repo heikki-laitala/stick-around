@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml"><img src="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml/badge.svg" alt="ci" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20arm64-lightgrey.svg" alt="platform: macOS arm64" />
+  <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows-lightgrey.svg" alt="platform: macOS arm64 | Windows" />
 </p>
 
 <p align="center">
@@ -24,12 +24,12 @@ wizard-hat stick hero, swing a grappling rope off a `npm install` line,
 mine a glowing mana crystal out of the ceiling, zap lightning at a
 falling meteor, and earn titles on the way.
 
-Stick Around is an overlay RPG for iTerm2 and Terminal.app. Your terrain
-is your terminal: every line of output is solid ground you can run,
-jump, and rope-swing across. When Claude streams new output, the world
-rearranges itself underneath you. You adapt — cast a shield, mine a
-crystal, push on to the next mission — or you fall into the void and
-respawn at the start.
+Stick Around is an overlay RPG for iTerm2, Terminal.app, and Windows
+Terminal. Your terrain is your terminal: every line of output is solid
+ground you can run, jump, and rope-swing across. When Claude streams new
+output, the world rearranges itself underneath you. You adapt — cast a
+shield, mine a crystal, push on to the next mission — or you fall into
+the void and respawn at the start.
 
 ## Features
 
@@ -48,13 +48,24 @@ respawn at the start.
 
 ## Requirements
 
-- **macOS on Apple Silicon (arm64)** — the overlay reads terminal contents
-  through the macOS Accessibility API. Intel Macs aren't built yet.
-- **iTerm2 or Terminal.app** as the host terminal.
-- **Accessibility permission** — the first launch will prompt you to grant
-  the binary access under *System Settings → Privacy & Security →
+**macOS** (Apple Silicon, arm64):
+
+- **iTerm2 or Terminal.app** as the host terminal. Intel Macs aren't
+  built yet.
+- **Accessibility permission** — the first launch will prompt you to
+  grant the binary access under *System Settings → Privacy & Security →
   Accessibility*. Without it the overlay can't read the terminal content
   and will exit.
+
+**Windows** (Windows 10 / 11):
+
+- The overlay reads terminal text via UI Automation's `TextPattern`.
+  Tested with **PowerShell** — that's the shell that's been put through
+  real use. Any host that exposes `TextPattern` (Windows Terminal,
+  modern conhost / console, VS Code's integrated terminal) should work,
+  but combinations beyond PowerShell are unverified. Legacy hosts
+  without UIA text support aren't supported.
+- No special permission grant is required.
 
 ## Install
 
@@ -71,8 +82,9 @@ Then from inside Claude Code:
 /stick-around:play
 ```
 
-On first launch, macOS will ask you to authorise the binary for
-Accessibility. Grant it, then re-run `/stick-around:play`.
+On macOS, the first launch will ask you to authorise the binary for
+Accessibility. Grant it, then re-run `/stick-around:play`. On Windows no
+extra setup is needed.
 
 ## Taking and releasing focus
 
@@ -81,7 +93,8 @@ it has focus. You toggle between the two:
 
 - **Shift + click** anywhere on the overlay — grabs focus so keys go to
   the game.
-- **Cmd + Shift + G** — same thing, without the mouse.
+- **Cmd/Win + Shift + G** — same thing, without the mouse. (Cmd on
+  macOS, Windows key on Windows.)
 - **Esc** — releases focus back to the terminal so you can keep typing.
   The stick man carries on; he just stops listening to your keys until
   you grab focus again.
