@@ -15,9 +15,15 @@ use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::System::Com::SAFEARRAY;
+use windows::Win32::System::Ole::{
+    SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetLBound, SafeArrayGetUBound,
+    SafeArrayUnaccessData,
+};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-    UIA_TextPatternId,
+    IUIAutomationTextRange, TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start,
+    TextUnit_Character, TextUnit_Line, UIA_TextPatternId,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
@@ -352,6 +358,89 @@ unsafe fn find_terminal_text_element(
     all.into_iter().max_by_key(|(_, area)| *area).map(|(el, _)| el)
 }
 
+/// Read a SAFEARRAY of doubles produced by `GetBoundingRectangles` and return
+/// the bounding box of all rectangles in physical screen coordinates.
+/// `GetBoundingRectangles` reports per-line rects for multi-line ranges as
+/// groups of 4 doubles `(x, y, w, h)` — we union them into one outer rect.
+unsafe fn read_bounding_rects_union(
+    safe_array: *mut SAFEARRAY,
+) -> Option<(f64, f64, f64, f64)> {
+    let lbound = SafeArrayGetLBound(safe_array, 1).ok()?;
+    let ubound = SafeArrayGetUBound(safe_array, 1).ok()?;
+    let count = (ubound - lbound + 1).max(0) as usize;
+    if count < 4 {
+        return None;
+    }
+
+    let mut data_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    SafeArrayAccessData(safe_array, &mut data_ptr).ok()?;
+    let doubles = std::slice::from_raw_parts(data_ptr as *const f64, count);
+
+    let mut min_l = f64::INFINITY;
+    let mut min_t = f64::INFINITY;
+    let mut max_r = f64::NEG_INFINITY;
+    let mut max_b = f64::NEG_INFINITY;
+    for chunk in doubles.chunks_exact(4) {
+        let (x, y, w, h) = (chunk[0], chunk[1], chunk[2], chunk[3]);
+        if w > 0.0 && h > 0.0 {
+            min_l = min_l.min(x);
+            min_t = min_t.min(y);
+            max_r = max_r.max(x + w);
+            max_b = max_b.max(y + h);
+        }
+    }
+
+    let _ = SafeArrayUnaccessData(safe_array);
+
+    if max_r > min_l && max_b > min_t {
+        Some((min_l, min_t, max_r - min_l, max_b - min_t))
+    } else {
+        None
+    }
+}
+
+/// Measure the screen-space bounding box of `line_span` lines starting at
+/// `line_idx` in `visible_range`. Builds a sub-range by cloning, collapsing
+/// to start, then walking the start endpoint forward by `line_idx` lines and
+/// the end endpoint forward by `line_span` lines from there.
+unsafe fn measure_line_range_rect(
+    visible_range: &IUIAutomationTextRange,
+    line_idx: usize,
+    line_span: usize,
+) -> Option<(f64, f64, f64, f64)> {
+    let range = visible_range.Clone().ok()?;
+
+    // Collapse end to start.
+    let _ = range.MoveEndpointByUnit(
+        TextPatternRangeEndpoint_End,
+        TextUnit_Character,
+        i32::MIN,
+    );
+    // Walk start forward by line_idx lines.
+    let _ = range.MoveEndpointByUnit(
+        TextPatternRangeEndpoint_Start,
+        TextUnit_Line,
+        line_idx as i32,
+    );
+    // End may now be before start — collapse end to start again, then walk
+    // forward by line_span lines.
+    let _ = range.MoveEndpointByUnit(
+        TextPatternRangeEndpoint_End,
+        TextUnit_Character,
+        i32::MIN,
+    );
+    let _ = range.MoveEndpointByUnit(
+        TextPatternRangeEndpoint_End,
+        TextUnit_Line,
+        line_span as i32,
+    );
+
+    let safe_array = range.GetBoundingRectangles().ok()?;
+    let result = read_bounding_rects_union(safe_array);
+    let _ = SafeArrayDestroy(safe_array);
+    result
+}
+
 /// Read the visible terminal text via UI Automation TextPattern. Works for
 /// Windows Terminal, modern conhost, and most TextPattern-aware terminal
 /// hosts. Returns `None` if any step fails (no text element, COM error,
@@ -389,11 +478,15 @@ pub fn get_terminal_content(
         let visible = text_pattern.GetVisibleRanges().ok()?;
         let count = visible.Length().ok().unwrap_or(0);
         let mut text = String::new();
+        let mut visible_range_for_measure: Option<IUIAutomationTextRange> = None;
         for i in 0..count {
             let range = match visible.GetElement(i) {
                 Ok(r) => r,
                 Err(_) => continue,
             };
+            if visible_range_for_measure.is_none() {
+                visible_range_for_measure = Some(range.clone());
+            }
             // -1 = no max, return entire range
             let s: BSTR = match range.GetText(-1) {
                 Ok(s) => s,
@@ -405,23 +498,21 @@ pub fn get_terminal_content(
             text.push_str(&s.to_string());
         }
 
-        // Geometry: text element's screen rect → window-relative offset.
-        // Both `CurrentBoundingRectangle` and `GetWindowRect` (via
-        // `visible_window_rect`) return PHYSICAL pixels on Windows. The Tauri
-        // webview's canvas is sized in CSS (logical) pixels, so JS would
-        // place platforms hundreds of pixels off-screen on any DPI scaling
-        // other than 100%. Divide by the window's DPI scale here so the
-        // numbers we hand to JS are already in CSS pixels.
+        // Geometry: physical → logical conversion for Tauri's CSS-pixel canvas.
         let text_rect = text_elem.CurrentBoundingRectangle().ok()?;
         let win_rect = visible_window_rect(hwnd)?;
 
         let dpi = GetDpiForWindow(hwnd);
         let scale = if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 };
 
-        let text_offset_x = ((text_rect.left - win_rect.left).max(0) as f64) / scale;
-        let text_offset_y = ((text_rect.top - win_rect.top).max(0) as f64) / scale;
-        let text_width = ((text_rect.right - text_rect.left).max(0) as f64) / scale;
-        let text_height = ((text_rect.bottom - text_rect.top).max(0) as f64) / scale;
+        let to_logical_x = |sx: f64| (sx - win_rect.left as f64) / scale;
+        let to_logical_y = |sy: f64| (sy - win_rect.top as f64) / scale;
+        let to_logical = |v: f64| v / scale;
+
+        let text_offset_x = to_logical_x(text_rect.left as f64).max(0.0);
+        let text_offset_y = to_logical_y(text_rect.top as f64).max(0.0);
+        let text_width = to_logical((text_rect.right - text_rect.left).max(0) as f64);
+        let text_height = to_logical((text_rect.bottom - text_rect.top).max(0) as f64);
 
         let text_lines: Vec<&str> = text.lines().collect();
 
@@ -450,18 +541,38 @@ pub fn get_terminal_content(
             hashes.push(h);
         }
 
-        // Derive term_rows/term_cols from the data we have, not from a
-        // hardcoded font-size guess. JS computes `lineHeight = text_height /
-        // term_rows`, so getting term_rows wrong puts every platform at the
-        // wrong vertical position. Using `lines.len()` as the row count
-        // assumes the visible text fills the textarea — true for full-screen
-        // TUIs like Claude Code, and acceptable for plain shells (prompt
-        // detection still picks the right line, only the empty rows get
-        // stretched to fill the viewport).
-        let term_rows = lines.len().max(1);
+        let term_rows = text_lines.len().max(1);
         let term_cols = lines.iter().copied().max().unwrap_or(80).max(80);
 
         let (input_line, footer_line) = detect_terminal_regions(&text_lines);
+
+        // Pixel-accurate prompt and footer rects via UIA. JS prefers these
+        // over its row arithmetic in `buildPlatforms` when present, so the
+        // prompt overlay sits exactly on the rendered box and the footer
+        // ends exactly where the status line ends. Per-platform y positions
+        // still come from the text_height / term_rows arithmetic, which is
+        // off by at most a fraction of a row but kept platforms aligned;
+        // measuring per-line bounds for every row would be more accurate but
+        // costs an extra UIA round-trip per line per poll.
+        let prompt_rect = visible_range_for_measure
+            .as_ref()
+            .zip(input_line)
+            .and_then(|(r, input)| {
+                let span = footer_line
+                    .map(|f| f.saturating_sub(input).max(1))
+                    .unwrap_or(1);
+                measure_line_range_rect(r, input, span)
+            })
+            .map(|(x, y, w, h)| (to_logical_x(x), to_logical_y(y), to_logical(w), to_logical(h)));
+
+        let footer_rect = visible_range_for_measure
+            .as_ref()
+            .zip(footer_line)
+            .and_then(|(r, footer)| {
+                let span = text_lines.len().saturating_sub(footer).max(1);
+                measure_line_range_rect(r, footer, span)
+            })
+            .map(|(x, y, w, h)| (to_logical_x(x), to_logical_y(y), to_logical(w), to_logical(h)));
 
         let total = text_lines.len();
         let start = if total > 8 { total - 8 } else { 0 };
@@ -498,13 +609,8 @@ pub fn get_terminal_content(
             line_offsets,
             hashes,
             debug_lines,
-            // UIA exposes per-range bounding rectangles, but precise
-            // prompt/footer pixel rects aren't needed for parity with the
-            // Mac AX path's row-arithmetic fallback. Leaving these None keeps
-            // the JS path on its line-index based math, which is good enough
-            // for a first cut and avoids extra UIA traversal per poll.
-            prompt_rect: None,
-            footer_rect: None,
+            prompt_rect,
+            footer_rect,
         })
     }
 }
