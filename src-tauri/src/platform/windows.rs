@@ -19,6 +19,7 @@ use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
     UIA_TextPatternId,
 };
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CallNextHookEx, DispatchMessageW, EnumWindows, GetForegroundWindow,
@@ -405,13 +406,22 @@ pub fn get_terminal_content(
         }
 
         // Geometry: text element's screen rect → window-relative offset.
+        // Both `CurrentBoundingRectangle` and `GetWindowRect` (via
+        // `visible_window_rect`) return PHYSICAL pixels on Windows. The Tauri
+        // webview's canvas is sized in CSS (logical) pixels, so JS would
+        // place platforms hundreds of pixels off-screen on any DPI scaling
+        // other than 100%. Divide by the window's DPI scale here so the
+        // numbers we hand to JS are already in CSS pixels.
         let text_rect = text_elem.CurrentBoundingRectangle().ok()?;
         let win_rect = visible_window_rect(hwnd)?;
 
-        let text_offset_x = (text_rect.left - win_rect.left).max(0) as f64;
-        let text_offset_y = (text_rect.top - win_rect.top).max(0) as f64;
-        let text_width = (text_rect.right - text_rect.left).max(0) as f64;
-        let text_height = (text_rect.bottom - text_rect.top).max(0) as f64;
+        let dpi = GetDpiForWindow(hwnd);
+        let scale = if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 };
+
+        let text_offset_x = ((text_rect.left - win_rect.left).max(0) as f64) / scale;
+        let text_offset_y = ((text_rect.top - win_rect.top).max(0) as f64) / scale;
+        let text_width = ((text_rect.right - text_rect.left).max(0) as f64) / scale;
+        let text_height = ((text_rect.bottom - text_rect.top).max(0) as f64) / scale;
 
         let text_lines: Vec<&str> = text.lines().collect();
 
