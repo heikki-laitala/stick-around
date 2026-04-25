@@ -38,6 +38,8 @@ pub struct TerminalContent {
     pub footer_rect: Option<(f64, f64, f64, f64)>,
 }
 
+mod text_analysis;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

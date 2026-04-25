@@ -1,15 +1,23 @@
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use windows::core::PWSTR;
+use windows::core::{Interface, BSTR, PWSTR};
 use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
+    UIA_TextPatternId,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -19,6 +27,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, HHOOK, MSG, MSLLHOOKSTRUCT, SW_RESTORE, WH_MOUSE_LL, WM_LBUTTONDOWN,
     WS_EX_TOOLWINDOW,
 };
+
+use super::text_analysis::{detect_terminal_regions, is_wide_char};
+use super::TerminalContent;
 
 struct EnumCtx {
     pid: u32,
@@ -133,6 +144,90 @@ pub fn get_frontmost_pid() -> Option<u32> {
     if pid > 0 { Some(pid) } else { None }
 }
 
+/// Process names that own a terminal/console window. Matched
+/// case-insensitively against the file stem returned by `get_name_by_pid`.
+/// Includes IDE-integrated terminals where the whole IDE process owns the
+/// window — there's no way to single out the terminal pane, so we accept
+/// the IDE window as "the terminal" and let the overlay sit over the editor.
+const TERMINAL_PROCESS_NAMES: &[&str] = &[
+    "WindowsTerminal", // Windows Terminal
+    "conhost",         // legacy console host
+    "OpenConsole",     // modern console host
+    "powershell",      // Windows PowerShell (when it owns its own window)
+    "pwsh",            // PowerShell 7+
+    "cmd",             // Command Prompt
+    "Code",            // VS Code (integrated terminal)
+    "Cursor",          // Cursor editor (VS Code fork)
+    "alacritty",
+    "mintty",          // Git Bash
+    "wezterm-gui",
+    "ConEmu",
+    "ConEmu64",
+    "Tabby",
+    "FluentTerminal",
+    "Hyper",
+    "kitty",
+];
+
+fn is_terminal_process(name: &str) -> bool {
+    TERMINAL_PROCESS_NAMES
+        .iter()
+        .any(|t| name.eq_ignore_ascii_case(t))
+}
+
+/// Pick a terminal PID for the overlay to follow. Tries, in order:
+/// 1. The foreground process, if it's a known terminal/console host.
+/// 2. The largest visible window owned by a known terminal/console host.
+/// 3. Foreground PID as last-resort fallback (lets the user retry without
+///    failing the launch outright).
+///
+/// This hardens the launch flow against the common case where the user
+/// invokes the overlay while a browser, IDE, or other app happens to own
+/// foreground focus — without it we'd pin to the wrong process and the
+/// overlay would track the wrong window for the rest of the session.
+pub fn find_terminal_pid() -> Option<u32> {
+    let fg_pid = get_frontmost_pid()?;
+    if let Some(name) = get_name_by_pid(fg_pid) {
+        if is_terminal_process(&name) {
+            return Some(fg_pid);
+        }
+    }
+
+    struct Ctx {
+        results: Vec<(u32, u64)>,
+    }
+    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut Ctx);
+        if !is_real_top_level(hwnd) {
+            return TRUE;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return TRUE;
+        }
+        let Some(name) = get_name_by_pid(pid) else {
+            return TRUE;
+        };
+        if !is_terminal_process(&name) {
+            return TRUE;
+        }
+        if let Some(rect) = visible_window_rect(hwnd) {
+            let w = (rect.right - rect.left).max(0) as u64;
+            let h = (rect.bottom - rect.top).max(0) as u64;
+            ctx.results.push((pid, w * h));
+        }
+        TRUE
+    }
+
+    let mut ctx = Ctx { results: vec![] };
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize));
+    }
+    ctx.results.sort_by(|a, b| b.1.cmp(&a.1));
+    ctx.results.first().map(|(pid, _)| *pid).or(Some(fg_pid))
+}
+
 /// Bring `hwnd` to the foreground, working around Win32's focus-stealing
 /// prevention by briefly attaching our thread's input queue to the current
 /// foreground thread. Without this, `SetForegroundWindow` is silently
@@ -174,17 +269,263 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
     }
 }
 
+// Per-thread cached IUIAutomation instance. Initialising COM and creating the
+// automation object is non-trivial; we want it once per polling thread, not
+// once per 50 ms tick. RefCell is fine — UIAutomation isn't Send and each
+// thread that needs it lazily creates its own.
+thread_local! {
+    static UIA: RefCell<Option<IUIAutomation>> = const { RefCell::new(None) };
+}
+
+unsafe fn ensure_uia() -> Option<IUIAutomation> {
+    UIA.with(|cell| {
+        if let Some(existing) = cell.borrow().as_ref() {
+            return Some(existing.clone());
+        }
+        // CoInitializeEx returns S_OK or S_FALSE (already initialized) — both
+        // are fine. RPC_E_CHANGED_MODE means another caller picked STA on this
+        // thread; UIA still works for our read-only queries so just continue.
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        match CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
+            Ok(uia) => {
+                *cell.borrow_mut() = Some(uia.clone());
+                Some(uia)
+            }
+            Err(_) => None,
+        }
+    })
+}
+
+/// Walk the UIA subtree under `root` and return every descendant element
+/// that exposes TextPattern, paired with its bounding-rect area. The caller
+/// picks the largest — that's the actual terminal viewport, while the small
+/// matches are tab titles, search boxes, status indicators, etc.
+unsafe fn collect_text_pattern_elements(
+    uia: &IUIAutomation,
+    root: &IUIAutomationElement,
+    max_depth: usize,
+    out: &mut Vec<(IUIAutomationElement, i64)>,
+) {
+    if max_depth == 0 {
+        return;
+    }
+    if root
+        .GetCurrentPattern(UIA_TextPatternId)
+        .ok()
+        .and_then(|p| p.cast::<IUIAutomationTextPattern>().ok())
+        .is_some()
+    {
+        let area = root
+            .CurrentBoundingRectangle()
+            .map(|r| {
+                let w = (r.right - r.left).max(0) as i64;
+                let h = (r.bottom - r.top).max(0) as i64;
+                w * h
+            })
+            .unwrap_or(0);
+        out.push((root.clone(), area));
+    }
+    let walker = match uia.RawViewWalker() {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+    let mut child = match walker.GetFirstChildElement(root) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    loop {
+        collect_text_pattern_elements(uia, &child, max_depth - 1, out);
+        match walker.GetNextSiblingElement(&child) {
+            Ok(next) => child = next,
+            Err(_) => return,
+        }
+    }
+}
+
+unsafe fn find_terminal_text_element(
+    uia: &IUIAutomation,
+    root: &IUIAutomationElement,
+) -> Option<IUIAutomationElement> {
+    let mut all = Vec::new();
+    collect_text_pattern_elements(uia, root, 10, &mut all);
+    all.into_iter().max_by_key(|(_, area)| *area).map(|(el, _)| el)
+}
+
+/// Read the visible terminal text via UI Automation TextPattern. Works for
+/// Windows Terminal, modern conhost, and most TextPattern-aware terminal
+/// hosts. Returns `None` if any step fails (no text element, COM error,
+/// etc.) — the JS frontend already handles a missing event by keeping the
+/// previous content.
 pub fn get_terminal_content(
     _pid: u32,
-    _target_xy: Option<(i32, i32)>,
+    target_xy: Option<(i32, i32)>,
     _app_name: &str,
-) -> Option<super::TerminalContent> {
-    // Reading visible terminal text on Windows would mean wiring up either
-    // UI Automation against the terminal's TextPattern (works for Windows
-    // Terminal / conhost) or a console-screen-buffer reader for legacy
-    // hosts. Neither is hooked up yet, so the overlay runs without the
-    // prompt/footer rectangles on Windows.
-    None
+) -> Option<TerminalContent> {
+    unsafe {
+        let uia = ensure_uia()?;
+
+        // Pin to the same window the overlay is tracking. `target_xy` is the
+        // current top-left of the tracked window (from poll_bounds) — we
+        // resolve it back to an HWND so multi-window terminal apps don't
+        // accidentally feed us text from a different window.
+        let hwnd = target_xy
+            .and_then(|(tx, ty)| hwnd_at_position(tx, ty))
+            .or_else(|| {
+                let fg = GetForegroundWindow();
+                if fg.is_invalid() { None } else { Some(fg) }
+            })?;
+
+        let element = uia.ElementFromHandle(hwnd).ok()?;
+        let text_elem = find_terminal_text_element(&uia, &element)?;
+        let text_pattern = text_elem
+            .GetCurrentPattern(UIA_TextPatternId)
+            .ok()
+            .and_then(|p| p.cast::<IUIAutomationTextPattern>().ok())?;
+
+        // Visible ranges = the text rows currently on screen. We concatenate
+        // their text into one string (newline-separated) so the existing
+        // line-splitting code path applies unchanged.
+        let visible = text_pattern.GetVisibleRanges().ok()?;
+        let count = visible.Length().ok().unwrap_or(0);
+        let mut text = String::new();
+        for i in 0..count {
+            let range = match visible.GetElement(i) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            // -1 = no max, return entire range
+            let s: BSTR = match range.GetText(-1) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if i > 0 {
+                text.push('\n');
+            }
+            text.push_str(&s.to_string());
+        }
+
+        // Geometry: text element's screen rect → window-relative offset.
+        let text_rect = text_elem.CurrentBoundingRectangle().ok()?;
+        let win_rect = visible_window_rect(hwnd)?;
+
+        let text_offset_x = (text_rect.left - win_rect.left).max(0) as f64;
+        let text_offset_y = (text_rect.top - win_rect.top).max(0) as f64;
+        let text_width = (text_rect.right - text_rect.left).max(0) as f64;
+        let text_height = (text_rect.bottom - text_rect.top).max(0) as f64;
+
+        let text_lines: Vec<&str> = text.lines().collect();
+
+        let mut lines: Vec<usize> = Vec::with_capacity(text_lines.len());
+        let mut line_offsets: Vec<usize> = Vec::with_capacity(text_lines.len());
+        let mut hashes: Vec<u32> = Vec::with_capacity(text_lines.len());
+        for l in &text_lines {
+            let leading: usize = l
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .map(|c| if is_wide_char(c) { 2 } else { 1 })
+                .sum();
+            line_offsets.push(leading);
+            let trimmed = l.trim();
+            let width: usize = trimmed
+                .chars()
+                .map(|c| if is_wide_char(c) { 2 } else { 1 })
+                .sum();
+            lines.push(width);
+            // FNV-1a, same constants as macOS path.
+            let mut h: u32 = 2166136261;
+            for b in l.bytes() {
+                h ^= b as u32;
+                h = h.wrapping_mul(16777619);
+            }
+            hashes.push(h);
+        }
+
+        // Derive term_rows/term_cols from the data we have, not from a
+        // hardcoded font-size guess. JS computes `lineHeight = text_height /
+        // term_rows`, so getting term_rows wrong puts every platform at the
+        // wrong vertical position. Using `lines.len()` as the row count
+        // assumes the visible text fills the textarea — true for full-screen
+        // TUIs like Claude Code, and acceptable for plain shells (prompt
+        // detection still picks the right line, only the empty rows get
+        // stretched to fill the viewport).
+        let term_rows = lines.len().max(1);
+        let term_cols = lines.iter().copied().max().unwrap_or(80).max(80);
+
+        let (input_line, footer_line) = detect_terminal_regions(&text_lines);
+
+        let total = text_lines.len();
+        let start = if total > 8 { total - 8 } else { 0 };
+        let debug_lines: Vec<String> = text_lines[start..]
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let idx = start + i;
+                let escaped: String = l
+                    .chars()
+                    .take(60)
+                    .map(|c| {
+                        if c.is_ascii_graphic() || c == ' ' {
+                            c.to_string()
+                        } else {
+                            format!("U+{:04X}", c as u32)
+                        }
+                    })
+                    .collect();
+                format!("[{}] {}", idx, escaped)
+            })
+            .collect();
+
+        Some(TerminalContent {
+            text_offset_y,
+            text_offset_x,
+            text_height,
+            text_width,
+            term_cols,
+            term_rows,
+            footer_line,
+            input_line,
+            lines,
+            line_offsets,
+            hashes,
+            debug_lines,
+            // UIA exposes per-range bounding rectangles, but precise
+            // prompt/footer pixel rects aren't needed for parity with the
+            // Mac AX path's row-arithmetic fallback. Leaving these None keeps
+            // the JS path on its line-index based math, which is good enough
+            // for a first cut and avoids extra UIA traversal per poll.
+            prompt_rect: None,
+            footer_rect: None,
+        })
+    }
+}
+
+/// Resolve a window position back to an HWND. Used to keep the content reader
+/// pinned to the launch-time window when the user has multiple terminals open
+/// for the same PID.
+unsafe fn hwnd_at_position(x: i32, y: i32) -> Option<HWND> {
+    // Walk all top-level windows; `enum_windows_for_pid` requires a PID, so we
+    // can't reuse it here. Inline a small enum instead.
+    struct Ctx {
+        target_x: i32,
+        target_y: i32,
+        result: Option<HWND>,
+    }
+    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam.0 as *mut Ctx);
+        if !is_real_top_level(hwnd) {
+            return TRUE;
+        }
+        if let Some(r) = visible_window_rect(hwnd) {
+            if r.left == ctx.target_x && r.top == ctx.target_y {
+                ctx.result = Some(hwnd);
+                return BOOL(0); // stop enumeration
+            }
+        }
+        TRUE
+    }
+    let mut ctx = Ctx { target_x: x, target_y: y, result: None };
+    let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize));
+    ctx.result
 }
 
 type ClickCallback = Arc<dyn Fn() + Send + Sync + 'static>;
