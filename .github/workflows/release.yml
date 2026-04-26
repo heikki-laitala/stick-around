@@ -79,3 +79,35 @@ jobs:
             stick-around-linux-x86_64.tar.gz
             stick-around-linux-x86_64.tar.gz.sha256
           fail_on_unmatched_files: true
+
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release binary
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Package binary
+        shell: pwsh
+        run: |
+          Copy-Item src-tauri/target/release/stick-around.exe stick-around.exe
+          Compress-Archive -Path stick-around.exe -DestinationPath stick-around-windows-x86_64.zip
+          $hash = (Get-FileHash stick-around-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  stick-around-windows-x86_64.zip" | Out-File -Encoding ascii stick-around-windows-x86_64.zip.sha256
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            stick-around-windows-x86_64.zip
+            stick-around-windows-x86_64.zip.sha256
+          fail_on_unmatched_files: true
