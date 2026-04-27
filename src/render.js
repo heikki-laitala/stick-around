@@ -29,7 +29,16 @@ function drawLimb(ctx, ax, ay, bx, by) {
  * @param {number} screenH
  */
 export function render(ctx, state, screenW, screenH) {
-  ctx.clearRect(0, 0, screenW, screenH);
+  // WebKit2GTK on XWayland leaves stale pixels in the canvas backing
+  // buffer after ctx.clearRect — visible as the splash bleeding through
+  // once the HUD draws on top. Using a 'copy' composite forces the
+  // browser to fully replace destination pixels with the (transparent)
+  // source, which the buggy path does respect.
+  ctx.save();
+  ctx.globalCompositeOperation = 'copy';
+  ctx.fillStyle = 'rgba(0,0,0,0)';
+  ctx.fillRect(0, 0, screenW, screenH);
+  ctx.restore();
 
   if (state.splashActive) {
     renderSplash(ctx, state, screenW, screenH);
