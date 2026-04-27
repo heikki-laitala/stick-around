@@ -3,9 +3,6 @@
 // Wayland clients can't query other apps' windows. This extension runs
 // inside gnome-shell (where Meta has full access) and re-exports the
 // window-tracking primitives the overlay needs over the session bus.
-//
-// Phase A: D-Bus interface declared, methods are stubs. Phase B fills
-// them in against Meta.Display / Meta.Window.
 
 import Gio from 'gi://Gio';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -72,25 +69,61 @@ export default class StickAroundExtension extends Extension {
         }
     }
 
+    // Identify windows by their stable sequence — a per-window monotonic
+    // ID Mutter assigns at creation, stable for the window's lifetime on
+    // both X11 and Wayland. `Meta.Window.get_id()` is X11-window-ID-based
+    // and not portable to Wayland.
+    _findWindow(windowId) {
+        const target = Number(windowId);
+        for (const actor of global.get_window_actors()) {
+            const win = actor.meta_window;
+            if (win && win.get_stable_sequence() === target) {
+                return win;
+            }
+        }
+        return null;
+    }
+
     GetFrontmostPid() {
-        return 0;
+        const win = global.display.focus_window;
+        return win ? win.get_pid() : 0;
     }
 
     GetFocusedWindow() {
-        return [0, 0, 0, 0, 0, 0];
+        const win = global.display.focus_window;
+        if (!win) return [0, 0, 0, 0, 0, 0];
+        const r = win.get_frame_rect();
+        return [win.get_stable_sequence(), win.get_pid(), r.x, r.y, r.width, r.height];
     }
 
-    GetWindowGeometry(_windowId) {
-        return [0, 0, 0, 0];
+    GetWindowGeometry(windowId) {
+        const win = this._findWindow(windowId);
+        if (!win) return [0, 0, 0, 0];
+        const r = win.get_frame_rect();
+        return [r.x, r.y, r.width, r.height];
     }
 
-    GetWindowsForPid(_pid) {
-        return [];
+    GetWindowsForPid(pid) {
+        const target = Number(pid);
+        const out = [];
+        for (const actor of global.get_window_actors()) {
+            const win = actor.meta_window;
+            if (!win || win.get_pid() !== target) continue;
+            const r = win.get_frame_rect();
+            out.push([win.get_stable_sequence(), r.x, r.y, r.width, r.height]);
+        }
+        return out;
     }
 
-    RaiseWindow(_windowId) {
+    RaiseWindow(windowId) {
+        const win = this._findWindow(windowId);
+        if (win) win.activate(global.get_current_time());
     }
 
-    SetAlwaysOnTop(_windowId, _enabled) {
+    SetAlwaysOnTop(windowId, enabled) {
+        const win = this._findWindow(windowId);
+        if (!win) return;
+        if (enabled && !win.is_above()) win.make_above();
+        else if (!enabled && win.is_above()) win.unmake_above();
     }
 }

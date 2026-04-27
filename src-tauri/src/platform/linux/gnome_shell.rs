@@ -36,8 +36,7 @@ pub struct GnomeShellHelper {
 impl GnomeShellHelper {
     pub fn connect() -> zbus::Result<Self> {
         let connection = Connection::session()?;
-        let proxy = Proxy::new(&connection, BUS_NAME, OBJECT_PATH, INTERFACE)?
-            .into_owned();
+        let proxy = Proxy::new(&connection, BUS_NAME, OBJECT_PATH, INTERFACE)?;
         Ok(Self { proxy })
     }
 
