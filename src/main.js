@@ -290,6 +290,15 @@ if (window.__TAURI__) {
   window.__TAURI__.core.invoke('activate_overlay').catch(() => {});
 }
 
+// Auto-dismiss the splash after a few seconds. On some setups (Linux
+// XWayland with fractional scaling, in particular) the keydown/click
+// path that normally dismisses it doesn't reliably reach the canvas,
+// leaving the user stuck behind it. The timer is a hard ceiling — any
+// input still dismisses immediately via the handlers above.
+setTimeout(() => {
+  if (state.splashActive) state.splashActive = false;
+}, 4000);
+
 // Track overlay focus so the HUD can be hidden when the user can't drive
 // the man. Tauri's non-activating panel translates NSWindow key state into
 // DOM focus/blur events on the webview window.
