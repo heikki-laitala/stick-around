@@ -2,6 +2,6 @@
   "uuid": "stick-around@stickaround.dev",
   "name": "Stick Around Helper",
   "description": "Exposes window geometry and focus controls over D-Bus so the Stick Around overlay can track terminal windows under Wayland.",
-  "shell-version": ["45", "46", "47", "48"],
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/heikki-laitala/stick-around"
 }
