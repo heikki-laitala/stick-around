@@ -290,14 +290,23 @@ if (window.__TAURI__) {
   window.__TAURI__.core.invoke('activate_overlay').catch(() => {});
 }
 
+// Dismiss the splash from any of the input/timeout paths below. Under
+// WebKit2GTK on XWayland the canvas backing buffer holds stale pixels
+// even after `ctx.clearRect`, so just toggling state.splashActive isn't
+// enough — re-running resize() forces a full canvas reset that the
+// next render frame draws into clean.
+function dismissSplash() {
+  if (!state.splashActive) return;
+  state.splashActive = false;
+  resize();
+}
+
 // Auto-dismiss the splash after a few seconds. On some setups (Linux
 // XWayland with fractional scaling, in particular) the keydown/click
 // path that normally dismisses it doesn't reliably reach the canvas,
 // leaving the user stuck behind it. The timer is a hard ceiling — any
 // input still dismisses immediately via the handlers above.
-setTimeout(() => {
-  if (state.splashActive) state.splashActive = false;
-}, 4000);
+setTimeout(dismissSplash, 4000);
 
 // Track overlay focus so the HUD can be hidden when the user can't drive
 // the man. Tauri's non-activating panel translates NSWindow key state into
@@ -323,7 +332,7 @@ window.addEventListener('blur', () => { state.overlayActive = false; });
 window.addEventListener('click', (e) => {
   if (!state.overlayActive) return;
   if (state.splashActive) {
-    state.splashActive = false;
+    dismissSplash();
     return;
   }
   if (isInCloseButton(e.clientX, e.clientY, W())) {
@@ -345,7 +354,7 @@ document.addEventListener('keydown', e => {
   // quit/deactivate shortcuts so a user pressing Q to clear the splash
   // doesn't accidentally exit the app.
   if (state.splashActive) {
-    state.splashActive = false;
+    dismissSplash();
     e.preventDefault();
     return;
   }
