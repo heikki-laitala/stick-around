@@ -65,6 +65,15 @@ fn apply_bounds(
             tauri::LogicalSize::new(w as f64, (h + hud) as f64),
         ));
     }
+
+    // Linux/Wayland: Tauri's set_position is silently a no-op under
+    // xdg-shell, and unreliable even under XWayland. The platform layer
+    // talks directly to the GNOME Shell helper extension, which has
+    // compositor-side authority and can actually move windows.
+    #[cfg(target_os = "linux")]
+    {
+        platform::set_overlay_geometry(x, y - hud as i32, w, h + hud);
+    }
 }
 
 /// Shared state: the terminal PID, the last known window bounds, and the
