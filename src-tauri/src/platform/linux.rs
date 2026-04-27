@@ -1,6 +1,23 @@
 use std::process::Command;
+use std::sync::OnceLock;
 
 mod gnome_shell;
+
+use gnome_shell::GnomeShellHelper;
+
+// Cached connection to the GNOME Shell helper extension. Connecting to
+// the session bus is fast but not free; we do it once and reuse. None
+// means we couldn't reach the bus at all (rare — only happens when the
+// process is launched outside a desktop session); a connection that
+// succeeds but whose target service isn't running just makes per-call
+// invocations fail, which the public functions handle by falling back
+// to xdotool.
+fn helper() -> Option<&'static GnomeShellHelper> {
+    static HELPER: OnceLock<Option<GnomeShellHelper>> = OnceLock::new();
+    HELPER
+        .get_or_init(|| GnomeShellHelper::connect().ok())
+        .as_ref()
+}
 
 fn run_cmd(program: &str, args: &[&str]) -> Option<String> {
     Command::new(program)
@@ -11,7 +28,7 @@ fn run_cmd(program: &str, args: &[&str]) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn get_window_geometry(wid: &str) -> Option<(i32, i32, u32, u32)> {
+fn xdotool_geometry(wid: &str) -> Option<(i32, i32, u32, u32)> {
     let output = run_cmd("xdotool", &["getwindowgeometry", "--shell", wid])?;
     let mut x = 0i32;
     let mut y = 0i32;
@@ -36,40 +53,80 @@ fn get_window_geometry(wid: &str) -> Option<(i32, i32, u32, u32)> {
 }
 
 pub fn get_all_window_bounds(pid: u32) -> Vec<(i32, i32, u32, u32)> {
+    if let Some(h) = helper() {
+        if let Ok(rows) = h.windows_for_pid(pid) {
+            if !rows.is_empty() {
+                return rows
+                    .into_iter()
+                    .map(|(_, x, y, w, height)| (x, y, w, height))
+                    .collect();
+            }
+        }
+    }
     let output = match run_cmd("xdotool", &["search", "--pid", &pid.to_string()]) {
         Some(o) => o,
         None => return vec![],
     };
     output
         .lines()
-        .filter_map(|wid| get_window_geometry(wid.trim()))
+        .filter_map(|wid| xdotool_geometry(wid.trim()))
         .collect()
 }
 
 pub fn get_front_window_bounds(pid: u32) -> Option<(i32, i32, u32, u32)> {
+    if let Some(h) = helper() {
+        if let Ok((_id, focused_pid, x, y, w, height)) = h.focused_window() {
+            if focused_pid == pid && w > 0 && height > 0 {
+                return Some((x, y, w, height));
+            }
+        }
+        if let Ok(rows) = h.windows_for_pid(pid) {
+            if let Some((_, x, y, w, height)) = rows.into_iter().next() {
+                return Some((x, y, w, height));
+            }
+        }
+    }
     let active = run_cmd("xdotool", &["getactivewindow"])?;
     let active_pid = run_cmd("xdotool", &["getwindowpid", active.trim()])?;
     if active_pid.trim().parse::<u32>().ok() == Some(pid) {
-        return get_window_geometry(active.trim());
+        return xdotool_geometry(active.trim());
     }
-    // Fallback: first window of the PID
     get_all_window_bounds(pid).into_iter().next()
 }
 
 pub fn get_frontmost_pid() -> Option<u32> {
+    if let Some(h) = helper() {
+        if let Ok(pid) = h.frontmost_pid() {
+            if pid != 0 {
+                return Some(pid);
+            }
+        }
+    }
     let wid = run_cmd("xdotool", &["getactivewindow"])?;
     let pid_str = run_cmd("xdotool", &["getwindowpid", wid.trim()])?;
     pid_str.trim().parse().ok()
 }
 
 pub fn raise_window_at(pid: u32, x: i32, y: i32) {
+    if let Some(h) = helper() {
+        if let Ok(rows) = h.windows_for_pid(pid) {
+            let target = rows
+                .iter()
+                .find(|(_, wx, wy, _, _)| *wx == x && *wy == y)
+                .or_else(|| rows.first());
+            if let Some((id, _, _, _, _)) = target {
+                let _ = h.raise_window(*id);
+                return;
+            }
+        }
+    }
     let output = match run_cmd("xdotool", &["search", "--pid", &pid.to_string()]) {
         Some(o) => o,
         None => return,
     };
     for wid in output.lines() {
         let wid = wid.trim();
-        if let Some((wx, wy, _, _)) = get_window_geometry(wid) {
+        if let Some((wx, wy, _, _)) = xdotool_geometry(wid) {
             if wx == x && wy == y {
                 let _ = Command::new("xdotool")
                     .args(["windowactivate", wid])
@@ -78,7 +135,6 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
             }
         }
     }
-    // Fallback: activate the first window of the PID
     if let Some(wid) = output.lines().next() {
         let _ = Command::new("xdotool")
             .args(["windowactivate", wid.trim()])
@@ -91,12 +147,15 @@ pub fn get_terminal_content(
     _target_xy: Option<(i32, i32)>,
     _app_name: &str,
 ) -> Option<super::TerminalContent> {
-    // TODO: implement terminal text reading for Linux
     None
 }
 
 pub fn get_name_by_pid(pid: u32) -> Option<String> {
     let output = run_cmd("ps", &["-p", &pid.to_string(), "-o", "comm="])?;
     let name = output.trim();
-    if name.is_empty() { None } else { Some(name.to_string()) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
 }
