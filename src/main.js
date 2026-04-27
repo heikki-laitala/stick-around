@@ -317,14 +317,19 @@ window.addEventListener('focus', () => {
 window.addEventListener('blur', () => { state.overlayActive = false; });
 
 // HUD close button — only reachable when the overlay is active (otherwise
-// mouse events pass through to the terminal beneath).
+// mouse events pass through to the terminal beneath). While the splash is
+// up, any click dismisses the splash first; users shouldn't accidentally
+// hit the close button trying to clear it.
 window.addEventListener('click', (e) => {
   if (!state.overlayActive) return;
+  if (state.splashActive) {
+    state.splashActive = false;
+    return;
+  }
   if (isInCloseButton(e.clientX, e.clientY, W())) {
     if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
     return;
   }
-  if (state.splashActive) state.splashActive = false;
 });
 window.addEventListener('mousemove', (e) => {
   state.mouseX = e.clientX;
@@ -335,6 +340,16 @@ window.addEventListener('mousemove', (e) => {
 const keys = new Set();
 
 document.addEventListener('keydown', e => {
+  // While the splash is up, "any key" must mean any key — including Q
+  // and Esc. Dismissing the splash takes priority over the global
+  // quit/deactivate shortcuts so a user pressing Q to clear the splash
+  // doesn't accidentally exit the app.
+  if (state.splashActive) {
+    state.splashActive = false;
+    e.preventDefault();
+    return;
+  }
+
   if (window.__TAURI__) {
     if (e.code === 'KeyQ') {
       window.__TAURI__.core.invoke('quit_app').catch(() => {});
@@ -344,12 +359,6 @@ document.addEventListener('keydown', e => {
       window.__TAURI__.core.invoke('deactivate_overlay').catch(() => {});
       return;
     }
-  }
-
-  if (state.splashActive) {
-    state.splashActive = false;
-    e.preventDefault();
-    return;
   }
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }

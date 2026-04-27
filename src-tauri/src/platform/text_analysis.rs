@@ -6,6 +6,11 @@
 //! horizontal separators, and measuring CJK / emoji column widths. Keeping
 //! one canonical implementation here means a fix in one place applies
 //! everywhere.
+//!
+//! Linux does not yet implement `get_terminal_content`, so these helpers
+//! are dead code on that target until Phase C lands.
+
+#![cfg_attr(target_os = "linux", allow(dead_code))]
 
 /// Locate the prompt box and footer line in a screen of terminal text.
 ///
