@@ -1,5 +1,5 @@
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 mod gnome_shell;
 
@@ -17,6 +17,44 @@ fn helper() -> Option<&'static GnomeShellHelper> {
     HELPER
         .get_or_init(|| GnomeShellHelper::connect().ok())
         .as_ref()
+}
+
+// Cached stable_sequence of the overlay's own window, looked up via the
+// extension on first access. We can't cache "None" — the window is
+// realized asynchronously after Tauri startup, so a too-early lookup
+// would otherwise pin us to the unhelpful answer.
+static OVERLAY_WINDOW_ID: Mutex<Option<u64>> = Mutex::new(None);
+
+fn overlay_window_id() -> Option<u64> {
+    let mut guard = OVERLAY_WINDOW_ID.lock().ok()?;
+    if let Some(id) = *guard {
+        return Some(id);
+    }
+    let h = helper()?;
+    let pid = std::process::id();
+    let rows = h.windows_for_pid(pid).ok()?;
+    let id = rows.into_iter().next().map(|(id, ..)| id)?;
+    *guard = Some(id);
+    Some(id)
+}
+
+/// Move/resize the overlay's own window through the GNOME Shell helper.
+/// Wayland's xdg-shell forbids client-initiated window moves, so the
+/// regular `tauri::WebviewWindow::set_position` path silently drops the
+/// request on Wayland (and behaves unreliably under XWayland too). The
+/// extension runs inside `gnome-shell` and can drive Mutter directly.
+///
+/// Returns `true` when the call landed on the bus. `false` means either
+/// the helper isn't reachable or the overlay window hasn't been realized
+/// yet — both are expected during the first few ticks after launch.
+pub fn set_overlay_geometry(x: i32, y: i32, width: u32, height: u32) -> bool {
+    let Some(h) = helper() else {
+        return false;
+    };
+    let Some(id) = overlay_window_id() else {
+        return false;
+    };
+    h.set_window_geometry(id, x, y, width, height).is_ok()
 }
 
 fn run_cmd(program: &str, args: &[&str]) -> Option<String> {

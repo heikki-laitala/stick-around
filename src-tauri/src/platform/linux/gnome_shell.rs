@@ -68,4 +68,16 @@ impl GnomeShellHelper {
     pub fn set_always_on_top(&self, window_id: WindowId, enabled: bool) -> zbus::Result<()> {
         self.proxy.call("SetAlwaysOnTop", &(window_id, enabled))
     }
+
+    pub fn set_window_geometry(
+        &self,
+        window_id: WindowId,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> zbus::Result<()> {
+        self.proxy
+            .call("SetWindowGeometry", &(window_id, x, y, width, height))
+    }
 }

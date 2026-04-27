@@ -42,6 +42,13 @@ const INTERFACE_XML = `
       <arg type="t" direction="in" name="window_id"/>
       <arg type="b" direction="in" name="enabled"/>
     </method>
+    <method name="SetWindowGeometry">
+      <arg type="t" direction="in" name="window_id"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="u" direction="in" name="width"/>
+      <arg type="u" direction="in" name="height"/>
+    </method>
   </interface>
 </node>
 `;
@@ -125,5 +132,16 @@ export default class StickAroundExtension extends Extension {
         if (!win) return;
         if (enabled && !win.is_above()) win.make_above();
         else if (!enabled && win.is_above()) win.unmake_above();
+    }
+
+    // Move-and-resize a window via Mutter directly. Wayland clients can't
+    // reposition their own windows (xdg-shell forbids it), so the overlay
+    // app proxies its position updates through here. `user_op = true`
+    // marks the change as user-initiated so Mutter doesn't fight us with
+    // its own placement heuristics.
+    SetWindowGeometry(windowId, x, y, width, height) {
+        const win = this._findWindow(windowId);
+        if (!win) return;
+        win.move_resize_frame(true, x, y, width, height);
     }
 }
