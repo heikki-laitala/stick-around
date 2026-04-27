@@ -9,6 +9,7 @@ import {
 import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 import { renderSplash } from './renderSplash.js';
+import { IS_LINUX } from './platform-info.js';
 
 // Re-export HUD helpers so existing `import { ... } from './render.js'`
 // callers (main.js, tests) keep working without plumbing updates.
@@ -29,16 +30,20 @@ function drawLimb(ctx, ax, ay, bx, by) {
  * @param {number} screenH
  */
 export function render(ctx, state, screenW, screenH) {
-  // WebKit2GTK on XWayland leaves stale pixels in the canvas backing
-  // buffer after ctx.clearRect — visible as the splash bleeding through
-  // once the HUD draws on top. Using a 'copy' composite forces the
-  // browser to fully replace destination pixels with the (transparent)
-  // source, which the buggy path does respect.
-  ctx.save();
-  ctx.globalCompositeOperation = 'copy';
-  ctx.fillStyle = 'rgba(0,0,0,0)';
-  ctx.fillRect(0, 0, screenW, screenH);
-  ctx.restore();
+  if (IS_LINUX) {
+    // WebKit2GTK on XWayland leaves stale pixels in the canvas backing
+    // buffer after ctx.clearRect — visible as the splash bleeding
+    // through once the HUD draws on top. Using a 'copy' composite
+    // forces the browser to fully replace destination pixels with the
+    // (transparent) source, which the buggy path does respect.
+    ctx.save();
+    ctx.globalCompositeOperation = 'copy';
+    ctx.fillStyle = 'rgba(0,0,0,0)';
+    ctx.fillRect(0, 0, screenW, screenH);
+    ctx.restore();
+  } else {
+    ctx.clearRect(0, 0, screenW, screenH);
+  }
 
   if (state.splashActive) {
     renderSplash(ctx, state, screenW, screenH);

@@ -15,6 +15,7 @@ import {
   adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,
   spendBallForBattery,
 } from './missions/aloneInDark.js';
+import { IS_LINUX } from './platform-info.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -290,23 +291,25 @@ if (window.__TAURI__) {
   window.__TAURI__.core.invoke('activate_overlay').catch(() => {});
 }
 
-// Dismiss the splash from any of the input/timeout paths below. Under
-// WebKit2GTK on XWayland the canvas backing buffer holds stale pixels
-// even after `ctx.clearRect`, so just toggling state.splashActive isn't
-// enough — re-running resize() forces a full canvas reset that the
-// next render frame draws into clean.
+// Dismiss the splash from any of the input/timeout paths below. The
+// resize() call inside is a Linux-only workaround: WebKit2GTK on
+// XWayland leaves stale pixels in the canvas backing buffer after
+// ctx.clearRect, so toggling state.splashActive alone isn't enough —
+// reassigning canvas.width forces a full backing reset.
 function dismissSplash() {
   if (!state.splashActive) return;
   state.splashActive = false;
-  resize();
+  if (IS_LINUX) resize();
 }
 
-// Auto-dismiss the splash after a few seconds. On some setups (Linux
-// XWayland with fractional scaling, in particular) the keydown/click
-// path that normally dismisses it doesn't reliably reach the canvas,
-// leaving the user stuck behind it. The timer is a hard ceiling — any
-// input still dismisses immediately via the handlers above.
-setTimeout(dismissSplash, 4000);
+// Linux-only: auto-dismiss the splash after a few seconds. On XWayland
+// with fractional scaling, the keydown/click path that normally
+// dismisses the splash doesn't reliably reach the canvas, leaving the
+// user stuck behind it. The timer is a hard ceiling. macOS and Windows
+// dismiss interactively as designed.
+if (IS_LINUX) {
+  setTimeout(dismissSplash, 4000);
+}
 
 // Track overlay focus so the HUD can be hidden when the user can't drive
 // the man. Tauri's non-activating panel translates NSWindow key state into
@@ -326,12 +329,13 @@ window.addEventListener('focus', () => {
 window.addEventListener('blur', () => { state.overlayActive = false; });
 
 // HUD close button — only reachable when the overlay is active (otherwise
-// mouse events pass through to the terminal beneath). While the splash is
-// up, any click dismisses the splash first; users shouldn't accidentally
-// hit the close button trying to clear it.
+// mouse events pass through to the terminal beneath). On Linux the
+// splash dismiss takes priority over the close button so users can't
+// accidentally quit while trying to clear the splash; on macOS/Windows
+// the original ordering is preserved.
 window.addEventListener('click', (e) => {
   if (!state.overlayActive) return;
-  if (state.splashActive) {
+  if (IS_LINUX && state.splashActive) {
     dismissSplash();
     return;
   }
@@ -339,6 +343,7 @@ window.addEventListener('click', (e) => {
     if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
     return;
   }
+  if (state.splashActive) state.splashActive = false;
 });
 window.addEventListener('mousemove', (e) => {
   state.mouseX = e.clientX;
@@ -349,11 +354,13 @@ window.addEventListener('mousemove', (e) => {
 const keys = new Set();
 
 document.addEventListener('keydown', e => {
-  // While the splash is up, "any key" must mean any key — including Q
-  // and Esc. Dismissing the splash takes priority over the global
-  // quit/deactivate shortcuts so a user pressing Q to clear the splash
-  // doesn't accidentally exit the app.
-  if (state.splashActive) {
+  // Linux: the splash hint says "any key dismisses" but the original
+  // ordering matched Q (quit) and Esc (deactivate) first, so users
+  // pressing Q to clear the splash quit the app instead. On Linux the
+  // splash dismiss takes priority. Other platforms keep the original
+  // ordering since their focus / key delivery behaves differently and
+  // we don't want to change behavior there.
+  if (IS_LINUX && state.splashActive) {
     dismissSplash();
     e.preventDefault();
     return;
@@ -368,6 +375,12 @@ document.addEventListener('keydown', e => {
       window.__TAURI__.core.invoke('deactivate_overlay').catch(() => {});
       return;
     }
+  }
+
+  if (state.splashActive) {
+    state.splashActive = false;
+    e.preventDefault();
+    return;
   }
 
   if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }

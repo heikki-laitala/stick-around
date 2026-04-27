@@ -7,9 +7,12 @@ export default [
       globals: {
         window: 'readonly',
         document: 'readonly',
+        navigator: 'readonly',
         devicePixelRatio: 'readonly',
         performance: 'readonly',
         requestAnimationFrame: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         console: 'readonly',
         Infinity: 'readonly',
       },
