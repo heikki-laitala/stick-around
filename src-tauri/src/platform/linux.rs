@@ -1,5 +1,7 @@
 use std::process::Command;
 
+mod gnome_shell;
+
 fn run_cmd(program: &str, args: &[&str]) -> Option<String> {
     Command::new(program)
         .args(args)
