@@ -209,9 +209,9 @@ pub fn run() {
     // having a non-terminal app (browser, IDE in editor mode) momentarily
     // foreground at launch by walking visible windows for a known terminal
     // host as fallback.
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let pid_opt = platform::find_terminal_pid();
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     let pid_opt = platform::get_frontmost_pid();
 
     let pid = match pid_opt {

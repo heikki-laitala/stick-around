@@ -206,6 +206,30 @@ fn locate_terminal_for_pid(pid: u32) -> Option<(String, String)> {
     None
 }
 
+/// Whether the app at `pid` exposes a `role=terminal` accessible node.
+/// Cheap-ish check used at launch time so we don't pin to a non-terminal
+/// foreground process (browser / IDE / IM) by accident.
+pub fn has_terminal_for_pid(pid: u32) -> bool {
+    locate_terminal_for_pid(pid).is_some()
+}
+
+/// Walk the AT-SPI registry looking for any app whose tree contains a
+/// terminal accessible. Returns the OS PID of the first such app, or
+/// None if no a11y-exposing terminal is currently running. Used as a
+/// fallback when the foreground process at launch isn't a terminal.
+pub fn any_terminal_pid() -> Option<u32> {
+    let bus = bus()?;
+    let apps = bus.children(REGISTRY_BUS, REGISTRY_PATH).ok()?;
+    for (app_bus, app_path) in apps {
+        if find_terminal_under(bus, &app_bus, &app_path, 0).is_some() {
+            if let Ok(pid) = bus.pid_for_bus_name(&app_bus) {
+                return Some(pid);
+            }
+        }
+    }
+    None
+}
+
 /// Pull the focused terminal's text + window-relative geometry.
 /// Caches the AT-SPI node by PID so subsequent calls skip the tree
 /// walk. Skips the text re-fetch when CharacterCount is unchanged.
