@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml"><img src="https://github.com/heikki-laitala/stick-around/actions/workflows/ci.yml/badge.svg" alt="ci" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows-lightgrey.svg" alt="platform: macOS arm64 | Windows" />
+  <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20%7C%20Linux%20(GNOME)-lightgrey.svg" alt="platform: macOS arm64 | Windows | Linux (GNOME)" />
 </p>
 
 <p align="center">
@@ -67,6 +67,28 @@ the void and respawn at the start.
   without UIA text support aren't supported.
 - No special permission grant is required.
 
+**Linux** (GNOME / Wayland):
+
+- **GNOME Shell** (Wayland session) on Mutter 45+. Tested on Ubuntu 25.10
+  with Ptyxis. Other VTE-based terminals (GNOME Terminal, kgx) and any
+  terminal that exposes a `role=terminal` AT-SPI accessible should work,
+  but only Ptyxis has been put through real use. Non-GNOME compositors
+  aren't supported — Wayland's security model means the overlay needs
+  the GNOME Shell helper extension to track terminal windows, register
+  the activation shortcut, and bypass `XGrabKey`.
+- **GNOME helper extension** must be installed and enabled. Build from
+  source and run `make install-extension` (Wayland reload requires
+  log out / log back in), then `gnome-extensions enable
+  stick-around@stickaround.dev`.
+- **Dock icon** — run `make install-desktop` once to drop a
+  `stick-around.desktop` plus a 512 px icon under `~/.local/share` so
+  the dock matches the running window's `wm_class` to the bundled art
+  instead of a generic placeholder.
+- No accessibility permission prompt — Linux uses AT-SPI, which is
+  available without a per-app grant on most distros (Ubuntu defaults
+  `org.gnome.desktop.interface.toolkit-accessibility` to `false` but
+  GTK4 apps like Ptyxis still expose their text widget).
+
 ## Install
 
 With Claude Code:
@@ -84,7 +106,8 @@ Then from inside Claude Code:
 
 On macOS, the first launch will ask you to authorise the binary for
 Accessibility. Grant it, then re-run `/stick-around:play`. On Windows no
-extra setup is needed.
+extra setup is needed. On Linux, install the GNOME helper extension and
+the desktop entry first (see the Linux section in *Requirements*).
 
 ## Taking and releasing focus
 
@@ -92,9 +115,13 @@ The overlay floats above the terminal and only grabs your keyboard when
 it has focus. You toggle between the two:
 
 - **Shift + click** anywhere on the overlay — grabs focus so keys go to
-  the game.
-- **Cmd/Win + Shift + G** — same thing, without the mouse. (Cmd on
-  macOS, Windows key on Windows.)
+  the game. *macOS / Windows only* — Wayland blocks global click
+  monitoring from clients, so on Linux click-to-focus works only when
+  you click directly on the HUD strip.
+- **Cmd/Win/Super + Shift + G** — same thing, without the mouse. (Cmd
+  on macOS, Windows key on Windows, Super on Linux. The Linux binding
+  is owned by the GNOME helper extension via Mutter, so it works on
+  Wayland where the macOS/Windows `XGrabKey` path is rejected.)
 - **Esc** — releases focus back to the terminal so you can keep typing.
   The stick man carries on; he just stops listening to your keys until
   you grab focus again.
@@ -168,15 +195,24 @@ sets an objective shown in the HUD:
 ## Development
 
 ```bash
-make dev      # build the Tauri binary and install into the plugin cache
-make test     # vitest
-make lint     # eslint
+make dev                 # build the Tauri binary and install into the plugin cache
+make test                # vitest
+make lint                # eslint
+make install-extension   # Linux: install GNOME helper, requires Wayland session restart
+make install-desktop     # Linux: install .desktop entry + dock icon
 ```
 
 The Rust backend lives in `src-tauri/`; the canvas game code is in `src/`.
 `make dev` is the round-trip — it rebuilds the binary and copies it to the
 plugin cache used by the `/stick-around:play` skill, so a relaunch picks up
 the new build.
+
+The Linux GNOME extension lives in `gnome-extension/`. It exposes window
+tracking, geometry control, and the activation keybinding over D-Bus
+because Wayland's security model blocks regular clients from doing those
+things directly. Set `STICK_AROUND_DEBUG=1` in the environment when
+launching the binary to dump per-snapshot AT-SPI geometry to
+`/tmp/sa-atspi.log` — useful when prompt-rect detection misbehaves.
 
 Version strings are stamped at build time from `build.rs` (`v<YYYY.MM.DD>`)
 and exposed to the frontend via the `get_version` Tauri command.
