@@ -7,3 +7,4 @@ src-tauri/gen/
 /stick-around
 /stick-around.exe
 gameplay-*.mov
+gnome-extension/schemas/gschemas.compiled

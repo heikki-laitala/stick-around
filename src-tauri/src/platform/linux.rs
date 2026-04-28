@@ -57,6 +57,33 @@ pub fn set_overlay_geometry(x: i32, y: i32, width: u32, height: u32) -> bool {
     h.set_window_geometry(id, x, y, width, height).is_ok()
 }
 
+/// Toggle Mutter's "always on top" flag for the overlay window. Tauri's
+/// `set_always_on_top` is unreliable under xdg-shell — Wayland clients
+/// can't promise their own stacking order — so we drive Mutter through
+/// the helper, which has compositor-side authority.
+pub fn set_overlay_always_on_top(enabled: bool) -> bool {
+    let Some(h) = helper() else {
+        return false;
+    };
+    let Some(id) = overlay_window_id() else {
+        return false;
+    };
+    h.set_always_on_top(id, enabled).is_ok()
+}
+
+/// Raise the overlay above its siblings without taking focus away from
+/// the terminal. Used after a deactivate so the strip doesn't sink behind
+/// the terminal once `make_above` is toggled or stacking re-evaluated.
+pub fn raise_overlay_window() -> bool {
+    let Some(h) = helper() else {
+        return false;
+    };
+    let Some(id) = overlay_window_id() else {
+        return false;
+    };
+    h.raise_window(id).is_ok()
+}
+
 fn run_cmd(program: &str, args: &[&str]) -> Option<String> {
     Command::new(program)
         .args(args)
@@ -186,6 +213,20 @@ pub fn get_terminal_content(
     _app_name: &str,
 ) -> Option<super::TerminalContent> {
     None
+}
+
+/// Subscribe to the GNOME Shell helper extension's `ActivateOverlay`
+/// signal and run `callback` each time it fires. The extension owns
+/// the activation keybinding (Super+Shift+G by default) through
+/// Mutter's authoritative path, working around Wayland's rejection of
+/// the overlay's own XGrabKey-based registration.
+///
+/// Silently does nothing if the helper extension isn't running.
+pub fn install_activation_keybinding<F>(callback: F)
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    GnomeShellHelper::subscribe_activate_overlay(callback);
 }
 
 pub fn get_name_by_pid(pid: u32) -> Option<String> {

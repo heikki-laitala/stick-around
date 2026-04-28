@@ -1,14 +1,21 @@
 // Stick Around helper extension.
 //
-// Wayland clients can't query other apps' windows. This extension runs
-// inside gnome-shell (where Meta has full access) and re-exports the
-// window-tracking primitives the overlay needs over the session bus.
+// Wayland clients can't query other apps' windows or register global
+// keyboard shortcuts. This extension runs inside gnome-shell (where
+// Meta has full access) and re-exports the missing primitives over the
+// session bus.
 
+import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const BUS_NAME = 'dev.stickaround.GnomeShellHelper';
 const OBJECT_PATH = '/dev/stickaround/GnomeShellHelper';
+const SCHEMA_ID = 'org.gnome.shell.extensions.stick-around';
+const ACTIVATE_KEY = 'activate-overlay';
 
 const INTERFACE_XML = `
 <node>
@@ -49,6 +56,8 @@ const INTERFACE_XML = `
       <arg type="u" direction="in" name="width"/>
       <arg type="u" direction="in" name="height"/>
     </method>
+    <signal name="ActivateOverlay">
+    </signal>
   </interface>
 </node>
 `;
@@ -63,9 +72,26 @@ export default class StickAroundExtension extends Extension {
             null,
             null,
         );
+
+        // Register the activation keybinding through Mutter's authoritative
+        // path. Wayland blocks XGrabKey-based shortcuts (which the overlay's
+        // tauri-plugin-global-shortcut tries to use), so we own this binding
+        // here and emit a D-Bus signal the overlay subscribes to.
+        this._settings = this.getSettings(SCHEMA_ID);
+        Main.wm.addKeybinding(
+            ACTIVATE_KEY,
+            this._settings,
+            Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+            () => {
+                this._dbus.emit_signal('ActivateOverlay', null);
+            },
+        );
     }
 
     disable() {
+        Main.wm.removeKeybinding(ACTIVATE_KEY);
+        this._settings = null;
         if (this._dbus) {
             this._dbus.unexport();
             this._dbus = null;
@@ -124,7 +150,18 @@ export default class StickAroundExtension extends Extension {
 
     RaiseWindow(windowId) {
         const win = this._findWindow(windowId);
-        if (win) win.activate(global.get_current_time());
+        if (!win) return;
+        // global.get_current_time() returns Mutter's last *processed*
+        // event timestamp — by the time a D-Bus call from the overlay
+        // app lands, that timestamp is stale, and Mutter's
+        // focus-stealing-prevention then quietly refuses the focus
+        // change (the window raises but keyboard input keeps going to
+        // the previously focused client). get_current_time_roundtrip
+        // fetches a fresh timestamp so the activation is accepted as
+        // user-driven, which is what we are — the user just clicked
+        // the strip / hit the global shortcut to ask for focus.
+        const time = global.display.get_current_time_roundtrip();
+        win.activate(time);
     }
 
     SetAlwaysOnTop(windowId, enabled) {

@@ -80,4 +80,42 @@ impl GnomeShellHelper {
         self.proxy
             .call("SetWindowGeometry", &(window_id, x, y, width, height))
     }
+
+    /// Spawn a worker thread that listens for `ActivateOverlay` signals
+    /// from the helper extension and runs `callback` for each one. The
+    /// signal is fired by Mutter when the user invokes the registered
+    /// activation keybinding (Super+Shift+G by default). The connection
+    /// and proxy live inside the worker so its `iter` borrow stays valid
+    /// for the lifetime of the subscription.
+    pub fn subscribe_activate_overlay<F>(callback: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        std::thread::spawn(move || {
+            let conn = match Connection::session() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[stick-around] activate subscribe: bus connect failed: {e}");
+                    return;
+                }
+            };
+            let proxy = match Proxy::new(&conn, BUS_NAME, OBJECT_PATH, INTERFACE) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("[stick-around] activate subscribe: proxy failed: {e}");
+                    return;
+                }
+            };
+            let iter = match proxy.receive_signal("ActivateOverlay") {
+                Ok(i) => i,
+                Err(e) => {
+                    eprintln!("[stick-around] activate subscribe: receive_signal failed: {e}");
+                    return;
+                }
+            };
+            for _msg in iter {
+                callback();
+            }
+        });
+    }
 }

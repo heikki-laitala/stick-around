@@ -296,10 +296,25 @@ if (window.__TAURI__) {
 // XWayland leaves stale pixels in the canvas backing buffer after
 // ctx.clearRect, so toggling state.splashActive alone isn't enough —
 // reassigning canvas.width forces a full backing reset.
+//
+// Linux also deactivates on dismiss: the overlay was activated on
+// launch so the splash could receive clicks/keys, but on Wayland an
+// active (focused, non-click-through) overlay sits on top of the
+// terminal eating every event — the user can't move, focus, or type
+// in the terminal underneath. macOS/Windows leave the overlay active
+// (the user activates explicitly via global shortcut / shift-click),
+// but Linux has no comparable re-activation path here, so we default
+// the post-splash state to passive: terminal is usable, and the user
+// can re-activate via Super+Shift+G when they want to play.
 function dismissSplash() {
   if (!state.splashActive) return;
   state.splashActive = false;
-  if (IS_LINUX) resize();
+  if (IS_LINUX) {
+    resize();
+    if (window.__TAURI__) {
+      window.__TAURI__.core.invoke('deactivate_overlay').catch(() => {});
+    }
+  }
 }
 
 // Linux-only: auto-dismiss the splash after a few seconds. On XWayland
@@ -334,6 +349,22 @@ window.addEventListener('blur', () => { state.overlayActive = false; });
 // accidentally quit while trying to clear the splash; on macOS/Windows
 // the original ordering is preserved.
 window.addEventListener('click', (e) => {
+  // Linux: when the overlay is passive it has been shrunk to just the
+  // HUD strip above the terminal (set_ignore_cursor_events is a no-op
+  // under WebKit2GTK on Wayland, so we can't rely on click-through).
+  // The strip is the only clickable surface, so two gestures need to
+  // resolve here: clicking the close button quits, anything else
+  // re-activates (this also covers Shift+click — a regular click is
+  // strictly more permissive than the macOS/Windows shift-click gate
+  // and Wayland blocks the kind of global click monitor we use there).
+  if (IS_LINUX && !state.overlayActive && !state.splashActive) {
+    if (isInCloseButton(e.clientX, e.clientY, W())) {
+      if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
+    } else if (window.__TAURI__) {
+      window.__TAURI__.core.invoke('activate_overlay').catch(() => {});
+    }
+    return;
+  }
   if (!state.overlayActive) return;
   if (IS_LINUX && state.splashActive) {
     dismissSplash();
