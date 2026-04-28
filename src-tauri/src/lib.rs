@@ -309,6 +309,11 @@ pub fn run() {
                 let _ = window.set_min_size(Some(tauri::Size::Logical(
                     tauri::LogicalSize::new(1.0, 1.0),
                 )));
+                // The overlay is auxiliary chrome over the user's
+                // terminal, not its own focusable app. Hide it from
+                // the GNOME dock / taskbar so it doesn't show up as a
+                // separate running-app entry next to the terminal.
+                let _ = window.set_skip_taskbar(true);
                 if let Ok(icon) = tauri::image::Image::from_bytes(
                     include_bytes!("../icons/icon.png"),
                 ) {
