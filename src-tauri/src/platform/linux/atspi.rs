@@ -13,33 +13,9 @@
 // Every accessible object is identified by a (bus_name, object_path)
 // pair — the registry's child list returns this as `a(so)`.
 
-use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 use zbus::blocking::{connection, Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
-
-/// Append a single line to /tmp/sa-atspi.log when `STICK_AROUND_DEBUG`
-/// is set in the environment. AT-SPI plumbing is fragile enough that
-/// having a no-overhead-by-default file log earns its keep when a
-/// user reports drift, but we don't want it firing every poll on
-/// every install.
-/// Append a single line to /tmp/sa-atspi.log when `STICK_AROUND_DEBUG`
-/// is set in the environment. AT-SPI plumbing is fragile enough that
-/// having a no-overhead-by-default file log earns its keep when a
-/// user reports drift, but we don't want it firing every poll on
-/// every install.
-pub fn dbg_log(msg: &str) {
-    if std::env::var_os("STICK_AROUND_DEBUG").is_none() {
-        return;
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/sa-atspi.log")
-    {
-        let _ = writeln!(f, "{}", msg);
-    }
-}
 
 const SESSION_A11Y_BUS: &str = "org.a11y.Bus";
 const SESSION_A11Y_PATH: &str = "/org/a11y/bus";

@@ -817,42 +817,7 @@ export function renderDebugOverlays(ctx, state, screenH) {
     ctx.font = '10px monospace';
     ctx.fillText('PROMPT', state.promptArea.x + 4, state.promptArea.y + 12);
   }
-  if (IS_LINUX) {
-    // Linux-only diagnostic panel: dump terminal-content geometry every
-    // frame so it's possible to see drift between what AT-SPI reports
-    // and how the prompt/footer rects render. macOS/Windows have years-
-    // stable backends and don't need this clutter.
-    const lines = [];
-    const c = state.lastContent;
-    if (!c) {
-      lines.push('NO CONTENT — backend silent');
-    } else {
-      lines.push(`term: ${c.term_cols}x${c.term_rows}  text=${c.text_width}x${c.text_height}  off=${c.text_offset_x},${c.text_offset_y}`);
-      lines.push(`lh=${state.lineHeight?.toFixed?.(2) ?? state.lineHeight}  input_line=${c.input_line ?? '-'}  footer_line=${c.footer_line ?? '-'}  content_lines=${c.lines?.length ?? 0}`);
-      const pr = c.prompt_rect, fr = c.footer_rect;
-      lines.push(`raw prompt_rect=${pr ? `(${pr[0].toFixed(0)},${pr[1].toFixed(0)},${pr[2].toFixed(0)},${pr[3].toFixed(0)})` : '-'}`);
-      lines.push(`raw footer_rect=${fr ? `(${fr[0].toFixed(0)},${fr[1].toFixed(0)},${fr[2].toFixed(0)},${fr[3].toFixed(0)})` : '-'}`);
-      const pa = state.promptArea, fa = state.footerArea;
-      lines.push(`promptArea=${pa ? `(${pa.x.toFixed(0)},${pa.y.toFixed(0)},${pa.w.toFixed(0)},${pa.h.toFixed(0)})` : '-'}`);
-      lines.push(`footerArea=${fa ? `(${fa.x.toFixed(0)},${fa.y.toFixed(0)},${fa.w.toFixed(0)},${fa.h.toFixed(0)})` : '-'}`);
-    }
-    if (state.lastDebugLines && state.lastDebugLines.length) {
-      lines.push('--- last debug lines ---');
-      for (const l of state.lastDebugLines) lines.push(l);
-    }
-    const pad = 6;
-    const lineH = 13;
-    const boxH = lines.length * lineH + pad * 2;
-    const boxW = Math.min(720, Math.max(...lines.map(l => l.length)) * 7 + pad * 2);
-    const yTop = screenH - boxH - 10;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-    ctx.fillRect(8, yTop, boxW, boxH);
-    ctx.font = '11px monospace';
-    lines.forEach((l, i) => {
-      ctx.fillStyle = !c ? 'rgba(255, 80, 80, 0.95)' : 'rgba(255, 240, 200, 0.95)';
-      ctx.fillText(l, 8 + pad, yTop + pad + (i + 1) * lineH - 3);
-    });
-  } else if (!state.footerArea && !state.promptArea) {
+  if (!state.footerArea && !state.promptArea) {
     ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
     ctx.font = '12px monospace';
     ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
