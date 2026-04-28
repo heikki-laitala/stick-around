@@ -104,21 +104,43 @@ Then from inside Claude Code:
 /stick-around:play
 ```
 
-On macOS, the first launch will ask you to authorise the binary for
-Accessibility. Grant it, then re-run `/stick-around:play`. On Windows no
-extra setup is needed.
+### What happens on first launch
 
-**On Linux** (GNOME / Wayland), run the bundled one-shot setup script
-once from a terminal — it wires the GNOME helper extension, the
-`.desktop` entry, and the dock icon to the binary in the plugin cache:
+`/plugin install` only mirrors the source tree, so the binary itself
+needs to be fetched separately. A `SessionStart` hook bundled with the
+plugin (`scripts/bootstrap.js`) handles that automatically:
 
-```bash
-bash ~/.claude/plugins/cache/stick-around/stick-around/1.0.0/scripts/setup-linux.sh
-```
+- Reads the version from `.claude-plugin/plugin.json`.
+- Downloads the matching prebuilt binary from the GitHub release
+  (`stick-around-{linux-x86_64,macos-arm64,windows-x86_64}.{tar.gz,zip}`)
+  and verifies the sha256 sidecar.
+- On Linux additionally installs the GNOME Shell helper extension,
+  the `.desktop` entry, and a 512px dock icon.
 
-Then **log out and log back in** (Wayland session restart loads the
-extension) and you're ready — `/stick-around:play` to launch,
-**Super+Shift+G** to activate the overlay over your terminal.
+The hook runs on every Claude Code session start but is idempotent
+and short-circuits when everything is up to date — first session
+after install / update is the only slow one.
+
+### Per-platform follow-ups
+
+- **macOS**: the first run prompts for Accessibility permission
+  (*System Settings → Privacy & Security → Accessibility*). Grant it
+  and re-run `/stick-around:play`.
+- **Linux (GNOME / Wayland)**: log out and log back in once after the
+  first install — Mutter only loads helper extensions on shell start,
+  so the activation keybinding (`Super+Shift+G`) doesn't work until
+  the session restarts.
+- **Windows**: nothing additional.
+
+### Upgrading
+
+Run `/plugin update stick-around@stick-around` from inside Claude
+Code. The next session start triggers the hook, which detects the
+new version, downloads the matching release artifact, and refreshes
+any platform-specific files. On Linux that means a freshly
+re-templated `.desktop` (so the dock points at the new cache path)
+and, if the helper extension code changed, another log-out / log-in
+to load the new version.
 
 ## Taking and releasing focus
 
