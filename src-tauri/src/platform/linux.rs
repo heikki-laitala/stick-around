@@ -1,6 +1,7 @@
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
+mod atspi;
 mod gnome_shell;
 
 use gnome_shell::GnomeShellHelper;
@@ -208,11 +209,92 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
 }
 
 pub fn get_terminal_content(
-    _pid: u32,
+    pid: u32,
     _target_xy: Option<(i32, i32)>,
     _app_name: &str,
 ) -> Option<super::TerminalContent> {
-    None
+    use super::text_analysis::{detect_terminal_regions, is_wide_char};
+
+    let snap = atspi::snapshot_for_pid(pid)?;
+    let text_lines: Vec<&str> = snap.text.lines().collect();
+
+    let mut lines: Vec<usize> = Vec::with_capacity(text_lines.len());
+    let mut line_offsets: Vec<usize> = Vec::with_capacity(text_lines.len());
+    let mut hashes: Vec<u32> = Vec::with_capacity(text_lines.len());
+    for l in text_lines.iter() {
+        let leading: usize = l
+            .chars()
+            .take_while(|c| c.is_whitespace())
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
+        line_offsets.push(leading);
+        let width: usize = l
+            .trim()
+            .chars()
+            .map(|c| if is_wide_char(c) { 2 } else { 1 })
+            .sum();
+        lines.push(width);
+        let mut h: u32 = 2_166_136_261;
+        for b in l.bytes() {
+            h ^= b as u32;
+            h = h.wrapping_mul(16_777_619);
+        }
+        hashes.push(h);
+    }
+
+    let term_rows = text_lines.len().max(1);
+    // term_cols isn't reported by AT-SPI; infer from the widest visible
+    // line. Falls back to 80 for an empty buffer.
+    let term_cols = text_lines
+        .iter()
+        .map(|l| {
+            l.chars()
+                .map(|c| if is_wide_char(c) { 2 } else { 1 })
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(80);
+
+    let (input_line, footer_line) = detect_terminal_regions(&text_lines);
+
+    let total = text_lines.len();
+    let start = total.saturating_sub(8);
+    let debug_lines: Vec<String> = text_lines[start..]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let idx = start + i;
+            let escaped: String = l
+                .chars()
+                .take(60)
+                .map(|c| {
+                    if c.is_ascii_graphic() || c == ' ' {
+                        c.to_string()
+                    } else {
+                        format!("U+{:04X}", c as u32)
+                    }
+                })
+                .collect();
+            format!("[{}] {}", idx, escaped)
+        })
+        .collect();
+
+    Some(super::TerminalContent {
+        text_offset_x: snap.window_extents.x as f64,
+        text_offset_y: snap.window_extents.y as f64,
+        text_width: snap.window_extents.w as f64,
+        text_height: snap.window_extents.h as f64,
+        term_cols,
+        term_rows,
+        footer_line,
+        input_line,
+        lines,
+        line_offsets,
+        hashes,
+        debug_lines,
+        prompt_rect: None,
+        footer_rect: None,
+    })
 }
 
 /// Subscribe to the GNOME Shell helper extension's `ActivateOverlay`
