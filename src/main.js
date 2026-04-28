@@ -21,6 +21,21 @@ import { IS_LINUX } from './platform-info.js';
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
+// WebKit2GTK on Linux falls into a slow software path for canvas
+// shadow blur. Burning ~20 ms/frame on shadow setup tanks the meteor
+// shower (and any other effect-heavy mission) hard enough that the
+// man's movement visibly stutters. Hot-patch the prototype so every
+// render call site silently skips the blur on Linux without each
+// having to know about the platform.
+if (IS_LINUX) {
+  const proto = CanvasRenderingContext2D.prototype;
+  Object.defineProperty(proto, 'shadowBlur', {
+    get() { return 0; },
+    set() {},
+    configurable: true,
+  });
+}
+
 function resize() {
   canvas.width = window.innerWidth * devicePixelRatio;
   canvas.height = window.innerHeight * devicePixelRatio;

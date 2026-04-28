@@ -1,4 +1,5 @@
 import { effectiveHudHeight } from '../constants.js';
+import { IS_LINUX } from '../platform-info.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
@@ -274,12 +275,32 @@ function renderMeteor(ctx, m) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.shadowColor = 'rgba(255, 140, 40, 0.9)';
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = 'rgb(255, 220, 140)';
-  ctx.beginPath();
-  ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
-  ctx.fill();
+  // Glow: shadowBlur is GPU-accelerated on Apple/Chromium WebKit but
+  // falls into a slow software path on WebKit2GTK (Linux), tanking the
+  // meteor-shower framerate badly enough that movement visibly stutters.
+  // Substitute a layered radial fill on Linux — looks similar, costs
+  // an order of magnitude less.
+  if (IS_LINUX) {
+    const glow = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, 11);
+    glow.addColorStop(0, 'rgba(255, 220, 140, 0.95)');
+    glow.addColorStop(0.45, 'rgba(255, 160, 60, 0.55)');
+    glow.addColorStop(1, 'rgba(255, 140, 40, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgb(255, 220, 140)';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.shadowColor = 'rgba(255, 140, 40, 0.9)';
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = 'rgb(255, 220, 140)';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
