@@ -13,9 +13,28 @@
 // Every accessible object is identified by a (bus_name, object_path)
 // pair — the registry's child list returns this as `a(so)`.
 
+use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 use zbus::blocking::{connection, Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+
+/// Append a single line to /tmp/sa-atspi.log when `STICK_AROUND_DEBUG`
+/// is set in the environment. AT-SPI plumbing is fragile enough that
+/// having a no-overhead-by-default file log earns its keep when a
+/// user reports drift, but we don't want it firing every poll on
+/// every install.
+pub fn dbg_log(msg: &str) {
+    if std::env::var_os("STICK_AROUND_DEBUG").is_none() {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/sa-atspi.log")
+    {
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 
 const SESSION_A11Y_BUS: &str = "org.a11y.Bus";
 const SESSION_A11Y_PATH: &str = "/org/a11y/bus";
@@ -52,6 +71,22 @@ pub struct Extents {
 pub struct TerminalSnapshot {
     pub window_extents: Extents,
     pub text: String,
+    bus_name: String,
+    path: String,
+}
+
+impl TerminalSnapshot {
+    /// Window-relative y of the character at `offset`. Used to derive
+    /// exact line baselines after detect_terminal_regions assigns line
+    /// indices — the bbox-from-Component path overshoots actual line
+    /// height by ~0.7 px on Ptyxis, which compounds into a half-row
+    /// drift by the bottom of the visible area.
+    pub fn y_at_offset(&self, offset: i32) -> Option<i32> {
+        let b = bus()?;
+        b.character_extents(&self.bus_name, &self.path, offset, COORD_WINDOW)
+            .ok()
+            .map(|e| e.y)
+    }
 }
 
 struct AtspiBus {
@@ -115,6 +150,19 @@ impl AtspiBus {
     fn get_text(&self, bus: &str, path: &str, start: i32, end: i32) -> zbus::Result<String> {
         self.proxy(bus, path, IFACE_TEXT)?
             .call("GetText", &(start, end))
+    }
+
+    fn character_extents(
+        &self,
+        bus: &str,
+        path: &str,
+        offset: i32,
+        coord: u32,
+    ) -> zbus::Result<Extents> {
+        let (x, y, w, h): (i32, i32, i32, i32) = self
+            .proxy(bus, path, IFACE_TEXT)?
+            .call("GetCharacterExtents", &(offset, coord))?;
+        Ok(Extents { x, y, w, h })
     }
 }
 
@@ -203,5 +251,7 @@ pub fn snapshot_for_pid(pid: u32) -> Option<TerminalSnapshot> {
     Some(TerminalSnapshot {
         window_extents: extents,
         text,
+        bus_name,
+        path,
     })
 }
