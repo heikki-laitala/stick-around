@@ -302,15 +302,13 @@ pub fn get_terminal_content(
 
     // Refine geometry with exact per-line measurements via AT-SPI's
     // GetCharacterExtents. The component bbox overshoots actual line
-    // height by ~0.7 px on Ptyxis (bbox includes top/bottom padding),
-    // and per-row inter-line spacing isn't perfectly uniform, so a
-    // single linear interpolation drifts from the real text rows. We
-    // do a small fixed number of round trips:
-    //   - y0 / y1: line height (used for platforms above the prompt)
-    //   - y_input_line / y_footer_line: exact top/bottom of the prompt
-    //     box, returned to JS as `prompt_rect` so the buildPlatforms
-    //     path uses the measurement directly instead of recomputing
-    //     from per-row arithmetic.
+    // height by ~0.7 px on Ptyxis and is ~17 px wider than the real
+    // text grid (it includes scrollbar / chrome padding). A small
+    // fixed number of GetCharacterExtents round trips lets us anchor
+    // every value to the actual rendered cells:
+    //   - y0 / y1: exact line height
+    //   - x of first / last cell on a full-width line: exact x bounds
+    //   - y of input_line / footer_line: exact prompt top / bottom
     let bbox_off_x = snap.window_extents.x as f64;
     let bbox_off_y = snap.window_extents.y as f64;
     let bbox_w = snap.window_extents.w as f64;
@@ -334,6 +332,39 @@ pub fn get_terminal_content(
         (bbox_off_y, bbox_h)
     };
 
+    // Pick a measuring line: prefer the top prompt separator (always
+    // full-width and made entirely of single-cell `─` characters, so
+    // codepoint count == display column count) when detect found one,
+    // otherwise fall back to the longest visible line. This keeps the
+    // x-bounds measurement working as the prompt grows or shrinks
+    // (bottom separator moves) and as the terminal gets resized.
+    let measure_line = input_line.filter(|&i| i < text_lines.len()).or_else(|| {
+        text_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.chars().count() >= 4)
+            .max_by_key(|(_, l)| l.chars().count())
+            .map(|(i, _)| i)
+    });
+    let (text_offset_x, text_width) = measure_line
+        .and_then(|line_idx| {
+            let line = text_lines.get(line_idx)?;
+            let chars = line.chars().count() as i32;
+            if chars < 2 || term_cols < 2 {
+                return None;
+            }
+            let off_first = line_start_offset(&snap.text, line_idx);
+            let off_last = off_first + chars - 1;
+            let ef = snap.extents_at_offset(off_first)?;
+            let el = snap.extents_at_offset(off_last)?;
+            let advance = (el.x - ef.x) as f64 / (chars - 1) as f64;
+            if advance <= 0.0 || advance > bbox_w {
+                return None;
+            }
+            Some((ef.x as f64, advance * term_cols as f64))
+        })
+        .unwrap_or((bbox_off_x, bbox_w));
+
     // Prompt / footer rects: pin to AT-SPI's character-position truth
     // so the prompt box sits flush on the real top and bottom borders
     // instead of drifting by accumulated arithmetic error.
@@ -346,13 +377,17 @@ pub fn get_terminal_content(
                 .unwrap_or(y_top + ((text_offset_y + text_height - y_top as f64) as i32)),
             None => (text_offset_y + text_height) as i32,
         };
-        Some((bbox_off_x, y_top as f64, bbox_w, (y_bot - y_top) as f64))
+        Some((text_offset_x, y_top as f64, text_width, (y_bot - y_top) as f64))
     });
 
+    // Footer extends to the bottom of the AT-SPI text widget bbox
+    // (not just the last text row): the area between the last visible
+    // row and the widget edge belongs to the prompt strip too on
+    // Ptyxis, where some padding sits below the final cell row.
     let footer_rect = footer_line.and_then(|f_idx| {
         let y_top = snap.y_at_offset(line_start_offset(&snap.text, f_idx))?;
-        let y_bot = (text_offset_y + text_height) as i32;
-        Some((bbox_off_x, y_top as f64, bbox_w, (y_bot - y_top) as f64))
+        let y_bot = (snap.window_extents.y + snap.window_extents.h) as i32;
+        Some((text_offset_x, y_top as f64, text_width, (y_bot - y_top) as f64))
     });
 
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -401,9 +436,9 @@ pub fn get_terminal_content(
     }
 
     Some(super::TerminalContent {
-        text_offset_x: bbox_off_x,
+        text_offset_x,
         text_offset_y,
-        text_width: bbox_w,
+        text_width,
         text_height,
         term_cols,
         term_rows,
