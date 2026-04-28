@@ -108,36 +108,16 @@ On macOS, the first launch will ask you to authorise the binary for
 Accessibility. Grant it, then re-run `/stick-around:play`. On Windows no
 extra setup is needed.
 
-On Linux, the plugin cache contains the GNOME helper extension and the
-`.desktop` entry but doesn't install them for you (it'd need root-style
-side effects on every plugin install). Run these once from a terminal:
+**On Linux** (GNOME / Wayland), one-time setup:
 
-```bash
-# Paths assume the marketplace install layout — adjust if you cloned
-# the source instead.
-PLUGIN=~/.claude/plugins/cache/stick-around/stick-around/1.0.0
-EXT=$HOME/.local/share/gnome-shell/extensions/stick-around@stickaround.dev
-
-# 1. GNOME helper extension (window tracking + Super+Shift+G keybinding)
-mkdir -p "$EXT/schemas"
-cp "$PLUGIN/gnome-extension/extension.js" "$EXT/extension.js"
-cp "$PLUGIN/gnome-extension/metadata.json" "$EXT/metadata.json"
-cp "$PLUGIN/gnome-extension/schemas/"*.gschema.xml "$EXT/schemas/"
-glib-compile-schemas "$EXT/schemas/"
-
-# 2. .desktop entry + dock icon (matches the running window via WM_CLASS)
-mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/512x512/apps
-sed "s|@EXEC@|$PLUGIN/stick-around|" "$PLUGIN/linux/stick-around.desktop" \
-    > ~/.local/share/applications/stick-around.desktop
-cp "$PLUGIN/src-tauri/icons/icon.png" \
-    ~/.local/share/icons/hicolor/512x512/apps/stick-around.png
-
-# 3. Restart GNOME Shell (Wayland: log out / log back in. X11: Alt+F2, r)
-# 4. Enable the extension
-gnome-extensions enable stick-around@stickaround.dev
+```
+/stick-around:setup-linux
 ```
 
-Then `/stick-around:play` and **Super+Shift+G** should activate the
+That installs the GNOME helper extension, the `.desktop` entry, and
+the dock icon from the plugin cache. Then **log out and log back in**
+(Wayland session restart loads the extension), and you're ready —
+`/stick-around:play` to launch, **Super+Shift+G** to activate the
 overlay over your terminal.
 
 ## Taking and releasing focus
