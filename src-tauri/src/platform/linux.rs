@@ -390,51 +390,6 @@ pub fn get_terminal_content(
         Some((text_offset_x, y_top as f64, text_width, (y_bot - y_top) as f64))
     });
 
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static LAST_LOG: AtomicU64 = AtomicU64::new(0);
-    static LOG_KEY: AtomicU64 = AtomicU64::new(0);
-    let key = ((text_offset_y as u64) << 32)
-        ^ ((text_height as u64) << 16)
-        ^ (input_line.unwrap_or(usize::MAX) as u64);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    if LOG_KEY.swap(key, Ordering::Relaxed) != key
-        || now.saturating_sub(LAST_LOG.load(Ordering::Relaxed)) > 5
-    {
-        LAST_LOG.store(now, Ordering::Relaxed);
-        atspi::dbg_log(&format!(
-            "snapshot bbox=({},{},{},{}) term={}x{} off=({:.1},{:.1}) text_h={:.1} input={:?} footer={:?} prompt_rect={:?} footer_rect={:?}",
-            snap.window_extents.x,
-            snap.window_extents.y,
-            snap.window_extents.w,
-            snap.window_extents.h,
-            term_cols,
-            term_rows,
-            bbox_off_x,
-            text_offset_y,
-            text_height,
-            input_line,
-            footer_line,
-            prompt_rect,
-            footer_rect,
-        ));
-        // Also dump the AT-SPI char extents for input_line and a few
-        // surrounding lines so we can see whether y_at_offset matches
-        // expected line spacing.
-        if let Some(i_idx) = input_line {
-            for li in i_idx.saturating_sub(1)..=(i_idx + 2).min(term_rows.saturating_sub(1)) {
-                let off = line_start_offset(&snap.text, li);
-                let y = snap.y_at_offset(off);
-                atspi::dbg_log(&format!(
-                    "  line {} offset={} y={:?}",
-                    li, off, y
-                ));
-            }
-        }
-    }
-
     Some(super::TerminalContent {
         text_offset_x,
         text_offset_y,

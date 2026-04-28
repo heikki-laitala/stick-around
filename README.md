@@ -210,9 +210,7 @@ the new build.
 The Linux GNOME extension lives in `gnome-extension/`. It exposes window
 tracking, geometry control, and the activation keybinding over D-Bus
 because Wayland's security model blocks regular clients from doing those
-things directly. Set `STICK_AROUND_DEBUG=1` in the environment when
-launching the binary to dump per-snapshot AT-SPI geometry to
-`/tmp/sa-atspi.log` — useful when prompt-rect detection misbehaves.
+things directly.
 
 Version strings are stamped at build time from `build.rs` (`v<YYYY.MM.DD>`)
 and exposed to the frontend via the `get_version` Tauri command.
