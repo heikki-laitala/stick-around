@@ -15,9 +15,31 @@ use gnome_shell::GnomeShellHelper;
 // to xdotool.
 fn helper() -> Option<&'static GnomeShellHelper> {
     static HELPER: OnceLock<Option<GnomeShellHelper>> = OnceLock::new();
-    HELPER
+    let h = HELPER
         .get_or_init(|| GnomeShellHelper::connect().ok())
-        .as_ref()
+        .as_ref();
+
+    // First-call sanity probe: zbus's Proxy::new is non-failing even
+    // when the destination service isn't owned, so a Some(GnomeShellHelper)
+    // doesn't actually prove the extension is loaded. Call a cheap method
+    // once and warn loudly on failure — non-GNOME compositors (sway, KDE,
+    // Hyprland) hit this path and otherwise see only silent absence of
+    // platforms / activation.
+    static PROBED: OnceLock<()> = OnceLock::new();
+    PROBED.get_or_init(|| {
+        let reachable = h.and_then(|h| h.frontmost_pid().ok()).is_some();
+        if !reachable {
+            eprintln!(
+                "[stick-around] GNOME Shell helper extension not reachable. \
+                 Linux support requires the helper running under GNOME Shell — \
+                 install with `make install-extension`, log out / log back in, \
+                 then enable via `gnome-extensions enable stick-around@stickaround.dev`. \
+                 See README for details."
+            );
+        }
+    });
+
+    h
 }
 
 // Cached stable_sequence of the overlay's own window, looked up via the
