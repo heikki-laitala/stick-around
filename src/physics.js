@@ -284,8 +284,14 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
     }
   }
 
-  // Absolute floor
-  if (state.feetY > screenH) {
+  // Absolute floor. Skipped while the canvas is in HUD-strip-only mode
+  // (Linux: overlay shrinks to ~32 px when deactivated). Without this
+  // guard the snap teleports the man from his real position into the
+  // strip; on the next activation he reappears at the top of the
+  // overlay and gravity pulls him from there — visually "spawn at top
+  // right, fall down" instead of staying put on the prompt platform.
+  const stripOnly = state.promptArea && screenH < state.promptArea.y + state.lineHeight;
+  if (state.feetY > screenH && !stripOnly) {
     state.feetY = screenH - state.lineHeight;
     state.gvy = 0;
     state.standingHash = 0;
