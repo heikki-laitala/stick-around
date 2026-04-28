@@ -26,17 +26,16 @@ build:
 	cargo build --release --manifest-path src-tauri/Cargo.toml
 	chmod +x $(BINARY_SRC)
 
-## Copy binary and skills to the plugin cache
+## Copy binary, skills, and Linux setup payload to the plugin cache
 install: $(BINARY_SRC)
 	@echo "Syncing binary to plugin cache..."
-	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/skills/setup-linux $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons
+	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons
 	cp $(BINARY_SRC) $(BINARY_DST)
 	chmod +x $(BINARY_DST)
 	@echo "Syncing skills to plugin cache..."
 	cp skills/play/SKILL.md $(PLUGIN_CACHE)/skills/play/SKILL.md
 	cp skills/stop/SKILL.md $(PLUGIN_CACHE)/skills/stop/SKILL.md
-	cp skills/setup-linux/SKILL.md $(PLUGIN_CACHE)/skills/setup-linux/SKILL.md
-	@echo "Syncing setup-linux assets to plugin cache..."
+	@echo "Syncing Linux setup payload to plugin cache..."
 	cp scripts/setup-linux.sh $(PLUGIN_CACHE)/scripts/setup-linux.sh
 	chmod +x $(PLUGIN_CACHE)/scripts/setup-linux.sh
 	cp gnome-extension/extension.js $(PLUGIN_CACHE)/gnome-extension/extension.js
