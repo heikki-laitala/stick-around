@@ -208,6 +208,27 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
     }
 }
 
+/// Character offset (codepoint index) where line `line_idx` begins in
+/// `text`. Walks newlines once. AT-SPI 2's Text interface uses character
+/// offsets, matching `str::chars().count()`.
+fn line_start_offset(text: &str, line_idx: usize) -> i32 {
+    if line_idx == 0 {
+        return 0;
+    }
+    let mut newlines = 0usize;
+    let mut chars: i32 = 0;
+    for c in text.chars() {
+        chars += 1;
+        if c == '\n' {
+            newlines += 1;
+            if newlines == line_idx {
+                return chars;
+            }
+        }
+    }
+    chars
+}
+
 pub fn get_terminal_content(
     pid: u32,
     _target_xy: Option<(i32, i32)>,
@@ -279,11 +300,111 @@ pub fn get_terminal_content(
         })
         .collect();
 
+    // Refine geometry with exact per-line measurements via AT-SPI's
+    // GetCharacterExtents. The component bbox overshoots actual line
+    // height by ~0.7 px on Ptyxis (bbox includes top/bottom padding),
+    // and per-row inter-line spacing isn't perfectly uniform, so a
+    // single linear interpolation drifts from the real text rows. We
+    // do a small fixed number of round trips:
+    //   - y0 / y1: line height (used for platforms above the prompt)
+    //   - y_input_line / y_footer_line: exact top/bottom of the prompt
+    //     box, returned to JS as `prompt_rect` so the buildPlatforms
+    //     path uses the measurement directly instead of recomputing
+    //     from per-row arithmetic.
+    let bbox_off_x = snap.window_extents.x as f64;
+    let bbox_off_y = snap.window_extents.y as f64;
+    let bbox_w = snap.window_extents.w as f64;
+    let bbox_h = snap.window_extents.h as f64;
+    let bbox_lh = bbox_h / term_rows as f64;
+
+    let (text_offset_y, text_height) = if term_rows >= 2 {
+        let line1_off = line_start_offset(&snap.text, 1);
+        match (snap.y_at_offset(0), snap.y_at_offset(line1_off)) {
+            (Some(y0), Some(y1)) if y1 > y0 => {
+                let lh = (y1 - y0) as f64;
+                if lh >= bbox_lh * 0.5 && lh <= bbox_lh * 1.5 {
+                    (y0 as f64, lh * term_rows as f64)
+                } else {
+                    (bbox_off_y, bbox_h)
+                }
+            }
+            _ => (bbox_off_y, bbox_h),
+        }
+    } else {
+        (bbox_off_y, bbox_h)
+    };
+
+    // Prompt / footer rects: pin to AT-SPI's character-position truth
+    // so the prompt box sits flush on the real top and bottom borders
+    // instead of drifting by accumulated arithmetic error.
+    let prompt_rect = input_line.and_then(|i_idx| {
+        let top_offset = line_start_offset(&snap.text, i_idx);
+        let y_top = snap.y_at_offset(top_offset)?;
+        let y_bot = match footer_line {
+            Some(f_idx) => snap
+                .y_at_offset(line_start_offset(&snap.text, f_idx))
+                .unwrap_or(y_top + ((text_offset_y + text_height - y_top as f64) as i32)),
+            None => (text_offset_y + text_height) as i32,
+        };
+        Some((bbox_off_x, y_top as f64, bbox_w, (y_bot - y_top) as f64))
+    });
+
+    let footer_rect = footer_line.and_then(|f_idx| {
+        let y_top = snap.y_at_offset(line_start_offset(&snap.text, f_idx))?;
+        let y_bot = (text_offset_y + text_height) as i32;
+        Some((bbox_off_x, y_top as f64, bbox_w, (y_bot - y_top) as f64))
+    });
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST_LOG: AtomicU64 = AtomicU64::new(0);
+    static LOG_KEY: AtomicU64 = AtomicU64::new(0);
+    let key = ((text_offset_y as u64) << 32)
+        ^ ((text_height as u64) << 16)
+        ^ (input_line.unwrap_or(usize::MAX) as u64);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if LOG_KEY.swap(key, Ordering::Relaxed) != key
+        || now.saturating_sub(LAST_LOG.load(Ordering::Relaxed)) > 5
+    {
+        LAST_LOG.store(now, Ordering::Relaxed);
+        atspi::dbg_log(&format!(
+            "snapshot bbox=({},{},{},{}) term={}x{} off=({:.1},{:.1}) text_h={:.1} input={:?} footer={:?} prompt_rect={:?} footer_rect={:?}",
+            snap.window_extents.x,
+            snap.window_extents.y,
+            snap.window_extents.w,
+            snap.window_extents.h,
+            term_cols,
+            term_rows,
+            bbox_off_x,
+            text_offset_y,
+            text_height,
+            input_line,
+            footer_line,
+            prompt_rect,
+            footer_rect,
+        ));
+        // Also dump the AT-SPI char extents for input_line and a few
+        // surrounding lines so we can see whether y_at_offset matches
+        // expected line spacing.
+        if let Some(i_idx) = input_line {
+            for li in i_idx.saturating_sub(1)..=(i_idx + 2).min(term_rows.saturating_sub(1)) {
+                let off = line_start_offset(&snap.text, li);
+                let y = snap.y_at_offset(off);
+                atspi::dbg_log(&format!(
+                    "  line {} offset={} y={:?}",
+                    li, off, y
+                ));
+            }
+        }
+    }
+
     Some(super::TerminalContent {
-        text_offset_x: snap.window_extents.x as f64,
-        text_offset_y: snap.window_extents.y as f64,
-        text_width: snap.window_extents.w as f64,
-        text_height: snap.window_extents.h as f64,
+        text_offset_x: bbox_off_x,
+        text_offset_y,
+        text_width: bbox_w,
+        text_height,
         term_cols,
         term_rows,
         footer_line,
@@ -292,8 +413,8 @@ pub fn get_terminal_content(
         line_offsets,
         hashes,
         debug_lines,
-        prompt_rect: None,
-        footer_rect: None,
+        prompt_rect,
+        footer_rect,
     })
 }
 
