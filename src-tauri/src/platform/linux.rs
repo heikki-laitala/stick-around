@@ -182,6 +182,31 @@ pub fn get_front_window_bounds(pid: u32) -> Option<(i32, i32, u32, u32)> {
     get_all_window_bounds(pid).into_iter().next()
 }
 
+/// Pick a terminal PID for the overlay to follow. Tries, in order:
+/// 1. The foreground process, if its AT-SPI tree contains a
+///    role=terminal accessible.
+/// 2. Any app on the AT-SPI registry that exposes such a node.
+/// 3. The foreground PID as a last resort, so a launch from a host
+///    without AT-SPI exposure doesn't outright fail.
+///
+/// Mirrors the Windows `find_terminal_pid` heuristic so a launch that
+/// happens while a browser / IDE owns foreground focus binds to the
+/// real terminal instead of pinning to the wrong process for the
+/// session. We don't need a hard-coded terminal-name list because
+/// AT-SPI's role=terminal is the canonical signal.
+pub fn find_terminal_pid() -> Option<u32> {
+    let fg = get_frontmost_pid();
+    if let Some(pid) = fg {
+        if atspi::has_terminal_for_pid(pid) {
+            return Some(pid);
+        }
+    }
+    if let Some(pid) = atspi::any_terminal_pid() {
+        return Some(pid);
+    }
+    fg
+}
+
 pub fn get_frontmost_pid() -> Option<u32> {
     if let Some(h) = helper() {
         if let Ok(pid) = h.frontmost_pid() {
