@@ -185,7 +185,11 @@ pub fn get_front_window_bounds(pid: u32) -> Option<(i32, i32, u32, u32)> {
 /// Pick a terminal PID for the overlay to follow. Tries, in order:
 /// 1. The foreground process, if its AT-SPI tree contains a
 ///    role=terminal accessible.
-/// 2. Any app on the AT-SPI registry that exposes such a node.
+/// 2. Among all AT-SPI-exposing terminals on the system, the one
+///    whose largest visible window is the biggest. With a single
+///    terminal app open this collapses to "use that one"; with two
+///    open (e.g. one tucked in the background), it picks the one
+///    that's actually the user's primary workspace.
 /// 3. The foreground PID as a last resort, so a launch from a host
 ///    without AT-SPI exposure doesn't outright fail.
 ///
@@ -201,10 +205,33 @@ pub fn find_terminal_pid() -> Option<u32> {
             return Some(pid);
         }
     }
-    if let Some(pid) = atspi::any_terminal_pid() {
-        return Some(pid);
+    let candidates = atspi::all_terminal_pids();
+    match candidates.len() {
+        0 => fg,
+        1 => Some(candidates[0]),
+        _ => Some(largest_terminal(&candidates).unwrap_or_else(|| candidates[0])),
     }
-    fg
+}
+
+/// Among `candidates`, return the PID whose largest visible window
+/// has the greatest area. Uses the GNOME helper extension to read
+/// per-pid window geometry. Returns None if the helper isn't
+/// reachable (caller falls back to first-match).
+fn largest_terminal(candidates: &[u32]) -> Option<u32> {
+    let h = helper()?;
+    let mut best: Option<(u32, u64)> = None;
+    for &pid in candidates {
+        let rows = h.windows_for_pid(pid).ok()?;
+        let area = rows
+            .into_iter()
+            .map(|(_, _, _, w, height)| (w as u64).saturating_mul(height as u64))
+            .max()
+            .unwrap_or(0);
+        if best.map(|(_, a)| area > a).unwrap_or(true) {
+            best = Some((pid, area));
+        }
+    }
+    best.map(|(pid, _)| pid)
 }
 
 pub fn get_frontmost_pid() -> Option<u32> {

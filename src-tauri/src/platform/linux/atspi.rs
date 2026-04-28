@@ -13,7 +13,7 @@
 // Every accessible object is identified by a (bus_name, object_path)
 // pair — the registry's child list returns this as `a(so)`.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use zbus::blocking::{connection, Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
@@ -152,9 +152,34 @@ impl AtspiBus {
     }
 }
 
-fn bus() -> Option<&'static AtspiBus> {
-    static BUS: OnceLock<Option<AtspiBus>> = OnceLock::new();
-    BUS.get_or_init(|| AtspiBus::connect().ok()).as_ref()
+/// Shared, lazily-built connection to the AT-SPI bus. Behind a Mutex
+/// so we can drop and rebuild it if the daemon restarts mid-session
+/// (e.g. during a GNOME upgrade or `at-spi-bus-launcher` crash) — a
+/// `OnceLock` would leave us pinned to a dead connection forever.
+static BUS: Mutex<Option<Arc<AtspiBus>>> = Mutex::new(None);
+
+fn bus() -> Option<Arc<AtspiBus>> {
+    let mut guard = BUS.lock().ok()?;
+    if let Some(b) = guard.as_ref() {
+        return Some(b.clone());
+    }
+    let connected = AtspiBus::connect().ok()?;
+    let arc = Arc::new(connected);
+    *guard = Some(arc.clone());
+    Some(arc)
+}
+
+/// Drop the cached bus connection so the next call rebuilds. Used
+/// when a high-level call fails with a transport error (broken pipe,
+/// EOF) which signals the daemon side has gone away.
+fn invalidate_bus() {
+    if let Ok(mut g) = BUS.lock() {
+        *g = None;
+    }
+}
+
+fn is_transport_error(e: &zbus::Error) -> bool {
+    matches!(e, zbus::Error::InputOutput(_))
 }
 
 /// Cached terminal node + last fetched text. Stored across calls so
@@ -197,7 +222,7 @@ fn locate_terminal_for_pid(pid: u32) -> Option<(String, String)> {
     for (app_bus, app_path) in apps {
         if let Ok(app_pid) = bus.pid_for_bus_name(&app_bus) {
             if app_pid == pid {
-                if let Some(term) = find_terminal_under(bus, &app_bus, &app_path, 0) {
+                if let Some(term) = find_terminal_under(&bus, &app_bus, &app_path, 0) {
                     return Some(term);
                 }
             }
@@ -213,21 +238,26 @@ pub fn has_terminal_for_pid(pid: u32) -> bool {
     locate_terminal_for_pid(pid).is_some()
 }
 
-/// Walk the AT-SPI registry looking for any app whose tree contains a
-/// terminal accessible. Returns the OS PID of the first such app, or
-/// None if no a11y-exposing terminal is currently running. Used as a
-/// fallback when the foreground process at launch isn't a terminal.
-pub fn any_terminal_pid() -> Option<u32> {
-    let bus = bus()?;
-    let apps = bus.children(REGISTRY_BUS, REGISTRY_PATH).ok()?;
+/// Walk the AT-SPI registry looking for every app whose tree contains
+/// a terminal accessible. Returns OS PIDs in registry order. Used at
+/// launch time when the foreground process at launch isn't itself a
+/// terminal — the caller picks among the candidates (e.g. by window
+/// area).
+pub fn all_terminal_pids() -> Vec<u32> {
+    let Some(bus) = bus() else { return Vec::new(); };
+    let apps = match bus.children(REGISTRY_BUS, REGISTRY_PATH) {
+        Ok(a) => a,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
     for (app_bus, app_path) in apps {
-        if find_terminal_under(bus, &app_bus, &app_path, 0).is_some() {
+        if find_terminal_under(&bus, &app_bus, &app_path, 0).is_some() {
             if let Ok(pid) = bus.pid_for_bus_name(&app_bus) {
-                return Some(pid);
+                out.push(pid);
             }
         }
     }
-    None
+    out
 }
 
 /// Pull the focused terminal's text + window-relative geometry.
@@ -263,10 +293,16 @@ pub fn snapshot_for_pid(pid: u32) -> Option<TerminalSnapshot> {
 
     let extents = match bus.extents(&bus_name, &path, COORD_WINDOW) {
         Ok(e) => e,
-        Err(_) => {
+        Err(e) => {
             // Cached node went stale (window closed, etc.). Drop the
-            // whole cache so the next call re-walks.
+            // whole cache so the next call re-walks. If the failure
+            // was transport-shaped (broken pipe / EOF), also drop the
+            // bus connection so the next attempt rebuilds it — covers
+            // the at-spi-bus-launcher restart case.
             *TERMINAL_NODE.lock().ok()? = None;
+            if is_transport_error(&e) {
+                invalidate_bus();
+            }
             return None;
         }
     };
