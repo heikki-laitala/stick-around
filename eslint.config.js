@@ -15,6 +15,7 @@ export default [
         clearTimeout: 'readonly',
         console: 'readonly',
         Infinity: 'readonly',
+        CanvasRenderingContext2D: 'readonly',
       },
     },
     rules: {
