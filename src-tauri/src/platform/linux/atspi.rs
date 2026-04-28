@@ -29,11 +29,13 @@ const IFACE_TEXT: &str = "org.a11y.atspi.Text";
 const IFACE_COMPONENT: &str = "org.a11y.atspi.Component";
 const IFACE_PROPS: &str = "org.freedesktop.DBus.Properties";
 
-// AT-SPI role enum values shift between versions; query the running
-// daemon (`Atspi.Role.TERMINAL` from gjs/python) before changing this.
-// On at-spi2-core 2.50+ TERMINAL is 60 — older sources list 82, but
-// that's an off-by-one count from a different enum revision.
-const ROLE_TERMINAL: u32 = 60;
+// Match by role *name* (a stable string per AT-SPI spec) rather than
+// the role enum number, which has shifted between versions: Ptyxis on
+// at-spi2-core 2.50 reports TERMINAL=60, older sources list 82, GTK3
+// once used a different revision again. The name path is one extra
+// D-Bus call per accessible during the walk, but the walk only runs
+// when the per-pid cache misses.
+const ROLE_NAME_TERMINAL: &str = "terminal";
 
 // Coord type for Component.GetExtents. WINDOW gives us coordinates
 // relative to the terminal's containing window, which is what the
@@ -90,8 +92,8 @@ impl AtspiBus {
         Proxy::new(&self.conn, bus, path, iface)
     }
 
-    fn role(&self, bus: &str, path: &str) -> zbus::Result<u32> {
-        self.proxy(bus, path, IFACE_ACCESSIBLE)?.call("GetRole", &())
+    fn role_name(&self, bus: &str, path: &str) -> zbus::Result<String> {
+        self.proxy(bus, path, IFACE_ACCESSIBLE)?.call("GetRoleName", &())
     }
 
     fn children(&self, bus: &str, path: &str) -> zbus::Result<Vec<(String, String)>> {
@@ -155,9 +157,20 @@ fn bus() -> Option<&'static AtspiBus> {
     BUS.get_or_init(|| AtspiBus::connect().ok()).as_ref()
 }
 
-/// (bus_name, object_path) of the terminal accessibility node, cached
-/// per process across calls so we don't re-walk the tree every poll.
-static TERMINAL_NODE: Mutex<Option<(u32, String, String)>> = Mutex::new(None);
+/// Cached terminal node + last fetched text. Stored across calls so
+/// we skip the tree walk on every poll (set on first lookup) and skip
+/// the get_text round-trip when CharacterCount hasn't changed since
+/// last refresh — terminals re-render the same buffer for many polls
+/// in a row when the user isn't typing or Claude isn't streaming.
+struct TerminalCache {
+    pid: u32,
+    bus_name: String,
+    path: String,
+    last_count: i32,
+    last_text: String,
+}
+
+static TERMINAL_NODE: Mutex<Option<TerminalCache>> = Mutex::new(None);
 
 fn find_terminal_under(bus: &AtspiBus, b: &str, p: &str, depth: u8) -> Option<(String, String)> {
     // GTK4 apps (e.g. Ptyxis) wrap terminals in long chains of panel/box
@@ -166,7 +179,7 @@ fn find_terminal_under(bus: &AtspiBus, b: &str, p: &str, depth: u8) -> Option<(S
     if depth > 32 {
         return None;
     }
-    if matches!(bus.role(b, p), Ok(ROLE_TERMINAL)) {
+    if matches!(bus.role_name(b, p).as_deref(), Ok(ROLE_NAME_TERMINAL)) {
         return Some((b.to_string(), p.to_string()));
     }
     let children = bus.children(b, p).ok()?;
@@ -195,41 +208,62 @@ fn locate_terminal_for_pid(pid: u32) -> Option<(String, String)> {
 
 /// Pull the focused terminal's text + window-relative geometry.
 /// Caches the AT-SPI node by PID so subsequent calls skip the tree
-/// walk. Returns `None` if AT-SPI isn't reachable, the app for `pid`
-/// doesn't expose itself, or no descendant has `role=TERMINAL`.
+/// walk. Skips the text re-fetch when CharacterCount is unchanged.
+/// Returns `None` if AT-SPI isn't reachable, the app for `pid` doesn't
+/// expose itself, or no descendant has role-name `terminal`.
 pub fn snapshot_for_pid(pid: u32) -> Option<TerminalSnapshot> {
     let bus = bus()?;
 
-    // Reuse the cached node when the pid matches; otherwise re-walk.
-    let mut guard = TERMINAL_NODE.lock().ok()?;
-    let node = match guard.as_ref() {
-        Some((cached_pid, b, p)) if *cached_pid == pid => Some((b.clone(), p.clone())),
-        _ => None,
-    };
-    let (bus_name, path) = match node {
-        Some(n) => n,
-        None => {
-            let found = locate_terminal_for_pid(pid)?;
-            *guard = Some((pid, found.0.clone(), found.1.clone()));
-            found
+    // Resolve (bus_name, path) by hitting the cache first; on miss, walk
+    // the tree once and store. We also lift any prior text/count so the
+    // second-stage fetch can skip get_text when the buffer is unchanged.
+    let (bus_name, path, prior) = {
+        let mut guard = TERMINAL_NODE.lock().ok()?;
+        match guard.as_ref() {
+            Some(c) if c.pid == pid => {
+                (c.bus_name.clone(), c.path.clone(), Some((c.last_count, c.last_text.clone())))
+            }
+            _ => {
+                let (b, p) = locate_terminal_for_pid(pid)?;
+                *guard = Some(TerminalCache {
+                    pid,
+                    bus_name: b.clone(),
+                    path: p.clone(),
+                    last_count: -1,
+                    last_text: String::new(),
+                });
+                (b, p, None)
+            }
         }
     };
-    drop(guard);
 
     let extents = match bus.extents(&bus_name, &path, COORD_WINDOW) {
         Ok(e) => e,
         Err(_) => {
-            // Cached node went stale (window closed, etc.). Drop it so
-            // the next call re-walks.
+            // Cached node went stale (window closed, etc.). Drop the
+            // whole cache so the next call re-walks.
             *TERMINAL_NODE.lock().ok()? = None;
             return None;
         }
     };
     let count = bus.character_count(&bus_name, &path).ok()?;
-    let text = if count > 0 {
-        bus.get_text(&bus_name, &path, 0, count).ok()?
-    } else {
-        String::new()
+
+    let text = match prior {
+        Some((last_count, last_text)) if last_count == count => last_text,
+        _ => {
+            let fetched = if count > 0 {
+                bus.get_text(&bus_name, &path, 0, count).ok()?
+            } else {
+                String::new()
+            };
+            if let Ok(mut guard) = TERMINAL_NODE.lock() {
+                if let Some(c) = guard.as_mut() {
+                    c.last_count = count;
+                    c.last_text = fetched.clone();
+                }
+            }
+            fetched
+        }
     };
 
     Some(TerminalSnapshot {
