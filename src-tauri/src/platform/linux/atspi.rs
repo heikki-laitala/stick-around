@@ -23,6 +23,11 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 /// having a no-overhead-by-default file log earns its keep when a
 /// user reports drift, but we don't want it firing every poll on
 /// every install.
+/// Append a single line to /tmp/sa-atspi.log when `STICK_AROUND_DEBUG`
+/// is set in the environment. AT-SPI plumbing is fragile enough that
+/// having a no-overhead-by-default file log earns its keep when a
+/// user reports drift, but we don't want it firing every poll on
+/// every install.
 pub fn dbg_log(msg: &str) {
     if std::env::var_os("STICK_AROUND_DEBUG").is_none() {
         return;
@@ -76,16 +81,19 @@ pub struct TerminalSnapshot {
 }
 
 impl TerminalSnapshot {
-    /// Window-relative y of the character at `offset`. Used to derive
-    /// exact line baselines after detect_terminal_regions assigns line
-    /// indices — the bbox-from-Component path overshoots actual line
-    /// height by ~0.7 px on Ptyxis, which compounds into a half-row
-    /// drift by the bottom of the visible area.
-    pub fn y_at_offset(&self, offset: i32) -> Option<i32> {
+    /// Window-relative bbox of the character at `offset`. Used to
+    /// derive exact line baselines (the component bbox overshoots
+    /// actual line height by ~0.7 px on Ptyxis) and the real text-grid
+    /// horizontal bounds (component bbox includes ~17 px of padding
+    /// outside the cell grid on Ptyxis).
+    pub fn extents_at_offset(&self, offset: i32) -> Option<Extents> {
         let b = bus()?;
         b.character_extents(&self.bus_name, &self.path, offset, COORD_WINDOW)
             .ok()
-            .map(|e| e.y)
+    }
+
+    pub fn y_at_offset(&self, offset: i32) -> Option<i32> {
+        self.extents_at_offset(offset).map(|e| e.y)
     }
 }
 
