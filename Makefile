@@ -5,19 +5,26 @@ EXE :=
 endif
 
 PLUGIN_CACHE := $(HOME)/.claude/plugins/cache/stick-around/stick-around/1.0.0
-BINARY_SRC   := stick-around$(EXE)
+BINARY_SRC   := src-tauri/target/release/stick-around$(EXE)
 BINARY_DST   := $(PLUGIN_CACHE)/stick-around$(EXE)
 
 GNOME_EXTENSION_UUID := stick-around@stickaround.dev
 GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
 
-.PHONY: build install dev clean test lint install-extension uninstall-extension
+DESKTOP_FILE_DIR := $(HOME)/.local/share/applications
+DESKTOP_ICON_DIR := $(HOME)/.local/share/icons/hicolor/512x512/apps
 
-## Build the Tauri overlay binary (release mode)
+.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop
+
+## Build the Tauri overlay binary (release mode). The binary stays under
+## src-tauri/target/release; we don't copy it to the repo root because a
+## binary at the marketplace root would clobber the plugin install path
+## (cache/<marketplace>/<plugin>/<version>/) when /plugin install mirrors
+## the source directory. For the directory-marketplace dev flow, see the
+## gitignored symlink created by `link-dev`.
 build:
 	cargo build --release --manifest-path src-tauri/Cargo.toml
-	cp src-tauri/target/release/stick-around$(EXE) ./stick-around$(EXE)
-	chmod +x ./stick-around$(EXE)
+	chmod +x $(BINARY_SRC)
 
 ## Copy binary and skills to the plugin cache
 install: $(BINARY_SRC)
@@ -30,8 +37,14 @@ install: $(BINARY_SRC)
 	cp skills/stop/SKILL.md $(PLUGIN_CACHE)/skills/stop/SKILL.md
 	@echo "Done. Restart Claude Code to pick up skill changes."
 
+## Symlink the built binary at repo root so directory-marketplace dev
+## installs (where CLAUDE_PLUGIN_ROOT is the source repo) can resolve
+## ${CLAUDE_PLUGIN_ROOT}/stick-around. The path is gitignored.
+link-dev:
+	ln -sf $(BINARY_SRC) stick-around$(EXE)
+
 ## Build and install in one step
-dev: build install
+dev: build install link-dev
 
 ## Run unit tests
 test:
@@ -46,9 +59,11 @@ lint:
 ## (log out / log in on Wayland; Alt+F2 r on X11) and a one-time
 ## `gnome-extensions enable $(GNOME_EXTENSION_UUID)`.
 install-extension:
-	mkdir -p $(GNOME_EXTENSION_DIR)
+	mkdir -p $(GNOME_EXTENSION_DIR)/schemas
 	cp gnome-extension/extension.js $(GNOME_EXTENSION_DIR)/extension.js
 	cp gnome-extension/metadata.json $(GNOME_EXTENSION_DIR)/metadata.json
+	cp gnome-extension/schemas/*.gschema.xml $(GNOME_EXTENSION_DIR)/schemas/
+	glib-compile-schemas $(GNOME_EXTENSION_DIR)/schemas/
 	@echo ""
 	@echo "Extension installed at $(GNOME_EXTENSION_DIR)"
 	@echo ""
@@ -63,6 +78,28 @@ uninstall-extension:
 	gnome-extensions disable $(GNOME_EXTENSION_UUID) || true
 	rm -rf $(GNOME_EXTENSION_DIR)
 	@echo "Extension removed. Restart GNOME Shell to fully unload."
+
+## Install a .desktop entry plus a 512px copy of the bundled icon under
+## ~/.local/share so GNOME shows the stick-figure art in the dock and
+## alt-tab thumbnails. Without this, GTK falls back to a generic
+## placeholder because Wayland looks up the running window's app_id in
+## the .desktop database to find an Icon=. Linux only.
+##
+## Substitutes @EXEC@ with the absolute path to the installed binary.
+## Required: glib's GDesktopAppInfo loader runs `g_find_program_in_path`
+## on the Exec= argv[0] and rejects the file (returning NULL) if the
+## binary isn't in PATH. A bare `Exec=stick-around` makes the .desktop
+## invisible to GNOME Shell's app system, breaking icon matching.
+install-desktop: $(BINARY_DST)
+	mkdir -p $(DESKTOP_FILE_DIR) $(DESKTOP_ICON_DIR)
+	sed "s|@EXEC@|$(BINARY_DST)|" linux/stick-around.desktop > $(DESKTOP_FILE_DIR)/stick-around.desktop
+	cp src-tauri/icons/icon.png $(DESKTOP_ICON_DIR)/stick-around.png
+	@echo "Installed stick-around.desktop and icon under ~/.local/share."
+
+uninstall-desktop:
+	rm -f $(DESKTOP_FILE_DIR)/stick-around.desktop
+	rm -f $(DESKTOP_ICON_DIR)/stick-around.png
+	@echo "Removed .desktop entry and icon."
 
 ## Remove the release build artifacts
 clean:

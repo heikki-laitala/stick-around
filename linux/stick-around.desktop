@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Stick Around
+Comment=A tiny stick-man RPG that walks on top of your terminal
+Exec=@EXEC@
+Icon=stick-around
+Categories=Game;
+StartupWMClass=stick-around
+Terminal=false

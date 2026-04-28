@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.stick-around" path="/org/gnome/shell/extensions/stick-around/">
+    <key name="activate-overlay" type="as">
+      <default><![CDATA[['<Super><Shift>g']]]></default>
+      <summary>Activate the Stick Around overlay</summary>
+      <description>Keybinding that gives focus to the Stick Around overlay window. Mutter binds this directly so it works under Wayland, where the overlay's own XGrabKey-based registration is rejected.</description>
+    </key>
+  </schema>
+</schemalist>

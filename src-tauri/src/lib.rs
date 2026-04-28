@@ -32,6 +32,7 @@ fn apply_bounds(
     window: &tauri::WebviewWindow,
     x: i32, y: i32, w: u32, h: u32,
     tall_known: bool, tall: bool,
+    active: bool,
 ) {
     let hud = hud_height_for(w, tall_known, tall);
 
@@ -47,6 +48,7 @@ fn apply_bounds(
     // (1 - 1/scale) × HUD_HEIGHT — visible as a downward drift even at row 0.
     #[cfg(target_os = "windows")]
     {
+        let _ = active;
         let scale = window.scale_factor().unwrap_or(1.0);
         let hud_phys = (hud as f64 * scale).round() as i32;
         let _ = window.set_position(tauri::Position::Physical(
@@ -56,8 +58,9 @@ fn apply_bounds(
             tauri::PhysicalSize::new(w, (h as i32 + hud_phys).max(0) as u32),
         ));
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        let _ = active;
         let _ = window.set_position(tauri::Position::Logical(
             tauri::LogicalPosition::new(x as f64, (y - hud as i32) as f64),
         ));
@@ -70,9 +73,23 @@ fn apply_bounds(
     // xdg-shell, and unreliable even under XWayland. The platform layer
     // talks directly to the GNOME Shell helper extension, which has
     // compositor-side authority and can actually move windows.
+    //
+    // We also use this hook to *resize* the overlay according to the
+    // active flag. WebKit2GTK's set_ignore_cursor_events is silently a
+    // no-op on Wayland (the toplevel's wl_surface input region is always
+    // restored to the full bounds), so we cannot rely on click-through
+    // to free the terminal. Instead, when deactivated we shrink the
+    // overlay to just the HUD strip *above* the terminal: the terminal
+    // is fully uncovered, the strip stays as a click target to
+    // re-activate, and the active path expands the overlay back to
+    // cover the terminal area for gameplay.
     #[cfg(target_os = "linux")]
     {
-        platform::set_overlay_geometry(x, y - hud as i32, w, h + hud);
+        let height = if active { h + hud } else { hud };
+        let _ = window.set_size(tauri::Size::Logical(
+            tauri::LogicalSize::new(w as f64, height as f64),
+        ));
+        platform::set_overlay_geometry(x, y - hud as i32, w, height);
     }
 }
 
@@ -83,6 +100,11 @@ struct TerminalState {
     bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
     hud_tall: Arc<AtomicBool>,
     hud_tall_known: Arc<AtomicBool>,
+    // Linux: drives the apply_bounds shrink-on-deactivate behavior, and
+    // is read by the polling thread so terminal moves keep applying the
+    // correct geometry. macOS/Windows ignore this and rely on
+    // set_ignore_cursor_events.
+    overlay_active: Arc<AtomicBool>,
 }
 
 #[tauri::command]
@@ -91,8 +113,8 @@ fn focus_terminal(window: tauri::WebviewWindow, state: tauri::State<'_, Terminal
 }
 
 #[tauri::command]
-fn activate_overlay(window: tauri::WebviewWindow) {
-    activate_overlay_impl(&window);
+fn activate_overlay(window: tauri::WebviewWindow, state: tauri::State<'_, TerminalState>) {
+    activate_overlay_impl(&window, &state);
 }
 
 #[tauri::command]
@@ -100,7 +122,8 @@ fn deactivate_overlay(window: tauri::WebviewWindow, state: tauri::State<'_, Term
     deactivate_overlay_impl(&window, &state);
 }
 
-fn activate_overlay_impl(window: &tauri::WebviewWindow) {
+fn activate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState) {
+    state.overlay_active.store(true, Ordering::Relaxed);
     let _ = window.set_ignore_cursor_events(false);
     #[cfg(target_os = "macos")]
     {
@@ -109,9 +132,23 @@ fn activate_overlay_impl(window: &tauri::WebviewWindow) {
         }
     }
     let _ = window.set_focus();
+    // Linux: re-expand the overlay to cover the terminal so the game
+    // can render over the text. apply_bounds reads `active` to pick
+    // full vs strip-only geometry. Also raise through the GNOME Shell
+    // helper so the overlay actually comes to the top — Tauri's
+    // set_focus alone doesn't reliably raise under Wayland.
+    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    let tall_known = state.hud_tall_known.load(Ordering::Relaxed);
+    let tall = state.hud_tall.load(Ordering::Relaxed);
+    apply_bounds(window, x, y, w, h, tall_known, tall, true);
+    #[cfg(target_os = "linux")]
+    {
+        platform::raise_overlay_window();
+    }
 }
 
 fn deactivate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState) {
+    state.overlay_active.store(false, Ordering::Relaxed);
     let _ = window.set_ignore_cursor_events(true);
     #[cfg(target_os = "macos")]
     {
@@ -119,7 +156,12 @@ fn deactivate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState)
             unsafe { platform::resign_key_window(ns_window) };
         }
     }
-    let (x, y, _, _) = *state.bounds.lock().unwrap();
+    // Linux: shrink the overlay so the terminal underneath is reachable.
+    // No-op on macOS/Windows where ignore_cursor_events handles passthrough.
+    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    let tall_known = state.hud_tall_known.load(Ordering::Relaxed);
+    let tall = state.hud_tall.load(Ordering::Relaxed);
+    apply_bounds(window, x, y, w, h, tall_known, tall, false);
     platform::raise_window_at(state.pid, x, y);
 }
 
@@ -143,7 +185,8 @@ fn set_hud_tall(
         return;
     }
     let (x, y, w, h) = *state.bounds.lock().unwrap();
-    apply_bounds(&window, x, y, w, h, true, tall);
+    let active = state.overlay_active.load(Ordering::Relaxed);
+    apply_bounds(&window, x, y, w, h, true, tall, active);
 }
 
 fn pid_file_path() -> std::path::PathBuf {
@@ -206,11 +249,25 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let tracked_window_id: Option<u32> = platform::get_frontmost_window_id_for_pid(pid);
 
+    // Overlay activation state. macOS/Windows track this implicitly via
+    // ignore_cursor_events + key-window state. On Linux we read this in
+    // the polling thread and apply_bounds to drive the strip-shrink that
+    // works around set_ignore_cursor_events being a no-op on Wayland.
+    //
+    // Initialize to `true` on Linux so the splash renders at full size
+    // from the very first frame; without that, setup applies the strip
+    // geometry before the JS activate_overlay call has a chance to grow
+    // the window, producing a visible 32px-tall flash at startup.
+    // dismissSplash() flips it back to false on the JS side.
+    let overlay_active = Arc::new(AtomicBool::new(cfg!(target_os = "linux")));
+    let poll_overlay_active = overlay_active.clone();
+
     let state = TerminalState {
         pid,
         bounds: shared_bounds,
         hud_tall: hud_tall.clone(),
         hud_tall_known: hud_tall_known.clone(),
+        overlay_active: overlay_active.clone(),
     };
 
     tauri::Builder::default()
@@ -231,8 +288,37 @@ pub fn run() {
                 platform::set_dock_icon(include_bytes!("../icons/icon.png"));
             }
 
+            // Linux: tauri.conf has `resizable: false`, which makes Tauri pin
+            // both min and max sizes to whatever was last requested. Combined
+            // with GTK's natural-size computation for the WebView (~200px tall
+            // floor), that prevents shrinking the overlay down to the HUD strip
+            // (32px). Flip resizable on (we have decorations off, so there's
+            // no user-facing handle anyway) and drop the min floor to 1px
+            // before any size requests so the strip-only deactivated state
+            // can actually take effect.
+            //
+            // Also pin the WM icon to the bundled stick-figure PNG. macOS
+            // uses set_dock_icon (above) and Windows reads from the .ico in
+            // the binary; on Linux without a .desktop file, GTK falls back
+            // to a generic placeholder unless we explicitly set_icon here.
+            // This populates alt-tab thumbnails and the dash entry with the
+            // same icon used on macOS/Windows.
+            #[cfg(target_os = "linux")]
+            {
+                let _ = window.set_resizable(true);
+                let _ = window.set_min_size(Some(tauri::Size::Logical(
+                    tauri::LogicalSize::new(1.0, 1.0),
+                )));
+                if let Ok(icon) = tauri::image::Image::from_bytes(
+                    include_bytes!("../icons/icon.png"),
+                ) {
+                    let _ = window.set_icon(icon);
+                }
+            }
+
             if let Some((x, y, w, h)) = initial_bounds {
-                apply_bounds(&window, x, y, w, h, false, false);
+                let active = overlay_active.load(Ordering::Relaxed);
+                apply_bounds(&window, x, y, w, h, false, false, active);
             }
 
             // Start in passive mode: clicks pass through to whatever is underneath,
@@ -248,6 +334,11 @@ pub fn run() {
 
             // Cmd+Shift+G: global shortcut that activates the overlay.
             let activation_window = window.clone();
+            let shortcut_active = overlay_active.clone();
+            let shortcut_bounds = poll_bounds.clone();
+            let shortcut_hud_tall = hud_tall.clone();
+            let shortcut_hud_tall_known = hud_tall_known.clone();
+            let shortcut_pid = pid;
             let shortcut = Shortcut::new(
                 Some(Modifiers::META | Modifiers::SHIFT),
                 Code::KeyG,
@@ -258,8 +349,15 @@ pub fn run() {
                 .on_shortcut(shortcut, move |_app, triggered, event| {
                     if triggered == &shortcut_match && event.state() == ShortcutState::Pressed {
                         let handler_window = activation_window.clone();
+                        let handler_state = TerminalState {
+                            pid: shortcut_pid,
+                            bounds: shortcut_bounds.clone(),
+                            hud_tall: shortcut_hud_tall.clone(),
+                            hud_tall_known: shortcut_hud_tall_known.clone(),
+                            overlay_active: shortcut_active.clone(),
+                        };
                         let _ = activation_window.run_on_main_thread(move || {
-                            activate_overlay_impl(&handler_window);
+                            activate_overlay_impl(&handler_window, &handler_state);
                         });
                     }
                 })?;
@@ -271,14 +369,53 @@ pub fn run() {
             {
                 let click_window = window.clone();
                 let click_bounds = poll_bounds.clone();
+                let click_active = overlay_active.clone();
+                let click_hud_tall = hud_tall.clone();
+                let click_hud_tall_known = hud_tall_known.clone();
+                let click_pid = pid;
                 unsafe {
-                    platform::install_shift_click_monitor(click_bounds, move || {
+                    platform::install_shift_click_monitor(click_bounds.clone(), move || {
                         let handler_window = click_window.clone();
+                        let handler_state = TerminalState {
+                            pid: click_pid,
+                            bounds: click_bounds.clone(),
+                            hud_tall: click_hud_tall.clone(),
+                            hud_tall_known: click_hud_tall_known.clone(),
+                            overlay_active: click_active.clone(),
+                        };
                         let _ = click_window.run_on_main_thread(move || {
-                            activate_overlay_impl(&handler_window);
+                            activate_overlay_impl(&handler_window, &handler_state);
                         });
                     });
                 }
+            }
+
+            // Linux: Wayland rejects the tauri-plugin-global-shortcut XGrabKey
+            // path, so activation lives in the GNOME Shell helper extension.
+            // Mutter owns the keybinding and emits a D-Bus signal we subscribe
+            // to here; on each fire we activate the overlay just like the
+            // global-shortcut handler above.
+            #[cfg(target_os = "linux")]
+            {
+                let kb_window = window.clone();
+                let kb_bounds = poll_bounds.clone();
+                let kb_active = overlay_active.clone();
+                let kb_hud_tall = hud_tall.clone();
+                let kb_hud_tall_known = hud_tall_known.clone();
+                let kb_pid = pid;
+                platform::install_activation_keybinding(move || {
+                    let handler_window = kb_window.clone();
+                    let handler_state = TerminalState {
+                        pid: kb_pid,
+                        bounds: kb_bounds.clone(),
+                        hud_tall: kb_hud_tall.clone(),
+                        hud_tall_known: kb_hud_tall_known.clone(),
+                        overlay_active: kb_active.clone(),
+                    };
+                    let _ = kb_window.run_on_main_thread(move || {
+                        activate_overlay_impl(&handler_window, &handler_state);
+                    });
+                });
             }
 
             // Windows: show in the taskbar so the user has a visible indicator
@@ -307,6 +444,14 @@ pub fn run() {
 
                     if on_top != was_on_top {
                         let _ = win_track.set_always_on_top(on_top);
+                        // Linux/Wayland: Tauri's set_always_on_top is silently
+                        // unreliable under xdg-shell. Drive Mutter through the
+                        // helper extension as well — it has compositor-side
+                        // authority and actually flips the stacking flag.
+                        #[cfg(target_os = "linux")]
+                        {
+                            platform::set_overlay_always_on_top(on_top);
+                        }
                         was_on_top = on_top;
                     }
 
@@ -341,7 +486,8 @@ pub fn run() {
                         if b != last_bounds {
                             let tall_known = poll_hud_tall_known.load(Ordering::Relaxed);
                             let tall = poll_hud_tall.load(Ordering::Relaxed);
-                            apply_bounds(&win_track, b.0, b.1, b.2, b.3, tall_known, tall);
+                            let active = poll_overlay_active.load(Ordering::Relaxed);
+                            apply_bounds(&win_track, b.0, b.1, b.2, b.3, tall_known, tall, active);
                             last_bounds = b;
                             *poll_bounds.lock().unwrap() = b;
                         }

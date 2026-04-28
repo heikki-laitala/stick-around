@@ -52,7 +52,11 @@ export function render(ctx, state, screenW, screenH) {
 
   if (!state.hasSpawned) {
     if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
-    if (state.overlayActive) renderHUD(ctx, state, screenW);
+    // Linux passive mode shrinks the overlay to the HUD strip; the strip
+    // is the only thing on screen for the user to look at, so always
+    // paint the HUD on Linux even when blurred. macOS/Windows keep the
+    // original gate so a blurred overlay window stays visually empty.
+    if (state.overlayActive || IS_LINUX) renderHUD(ctx, state, screenW);
     return;
   }
 
@@ -481,7 +485,9 @@ export function render(ctx, state, screenW, screenH) {
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
   if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
 
-  if (state.overlayActive) renderHUD(ctx, state, screenW);
+  // See the no-spawn branch above: Linux's strip is the only visual
+  // surface in passive mode, so keep the HUD rendered there.
+  if (state.overlayActive || IS_LINUX) renderHUD(ctx, state, screenW);
 }
 
 const WAND_LENGTH = 14;
