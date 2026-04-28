@@ -9,5 +9,17 @@
   "repository": "https://github.com/heikki-laitala/stick-around",
   "license": "MIT",
   "keywords": ["rpg", "game", "overlay", "stick-figure", "terminal", "fun"],
-  "icon": "src-tauri/icons/icon.png"
+  "icon": "src-tauri/icons/icon.png",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.js\""
+          }
+        ]
+      }
+    ]
+  }
 }

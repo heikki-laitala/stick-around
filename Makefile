@@ -26,18 +26,22 @@ build:
 	cargo build --release --manifest-path src-tauri/Cargo.toml
 	chmod +x $(BINARY_SRC)
 
-## Copy binary, skills, and Linux setup payload to the plugin cache
+## Copy binary, skills, plugin manifest, and bootstrap payload to the
+## plugin cache. Marketplace users land at the same layout via
+## /plugin install; the SessionStart hook in plugin.json runs the
+## bootstrap script from the cache to fetch the right binary on
+## first session and to install the GNOME helper / .desktop on Linux.
 install: $(BINARY_SRC)
 	@echo "Syncing binary to plugin cache..."
-	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons
+	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons $(PLUGIN_CACHE)/.claude-plugin
 	cp $(BINARY_SRC) $(BINARY_DST)
 	chmod +x $(BINARY_DST)
-	@echo "Syncing skills to plugin cache..."
+	@echo "Syncing skills + plugin manifest to plugin cache..."
 	cp skills/play/SKILL.md $(PLUGIN_CACHE)/skills/play/SKILL.md
 	cp skills/stop/SKILL.md $(PLUGIN_CACHE)/skills/stop/SKILL.md
-	@echo "Syncing Linux setup payload to plugin cache..."
-	cp scripts/setup-linux.sh $(PLUGIN_CACHE)/scripts/setup-linux.sh
-	chmod +x $(PLUGIN_CACHE)/scripts/setup-linux.sh
+	cp .claude-plugin/plugin.json $(PLUGIN_CACHE)/.claude-plugin/plugin.json
+	@echo "Syncing bootstrap script + Linux assets to plugin cache..."
+	cp scripts/bootstrap.js $(PLUGIN_CACHE)/scripts/bootstrap.js
 	cp gnome-extension/extension.js $(PLUGIN_CACHE)/gnome-extension/extension.js
 	cp gnome-extension/metadata.json $(PLUGIN_CACHE)/gnome-extension/metadata.json
 	cp gnome-extension/schemas/*.gschema.xml $(PLUGIN_CACHE)/gnome-extension/schemas/
