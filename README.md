@@ -108,17 +108,17 @@ On macOS, the first launch will ask you to authorise the binary for
 Accessibility. Grant it, then re-run `/stick-around:play`. On Windows no
 extra setup is needed.
 
-**On Linux** (GNOME / Wayland), one-time setup:
+**On Linux** (GNOME / Wayland), run the bundled one-shot setup script
+once from a terminal — it wires the GNOME helper extension, the
+`.desktop` entry, and the dock icon to the binary in the plugin cache:
 
-```
-/stick-around:setup-linux
+```bash
+bash ~/.claude/plugins/cache/stick-around/stick-around/1.0.0/scripts/setup-linux.sh
 ```
 
-That installs the GNOME helper extension, the `.desktop` entry, and
-the dock icon from the plugin cache. Then **log out and log back in**
-(Wayland session restart loads the extension), and you're ready —
-`/stick-around:play` to launch, **Super+Shift+G** to activate the
-overlay over your terminal.
+Then **log out and log back in** (Wayland session restart loads the
+extension) and you're ready — `/stick-around:play` to launch,
+**Super+Shift+G** to activate the overlay over your terminal.
 
 ## Taking and releasing focus
 
