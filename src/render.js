@@ -51,6 +51,11 @@ export function render(ctx, state, screenW, screenH) {
   }
 
   if (!state.hasSpawned) {
+    // Linux: render debug overlays even pre-spawn so the user can press
+    // B/V to inspect why the man hasn't appeared yet (AT-SPI failures,
+    // missing prompt detection, etc.). macOS/Windows keep the original
+    // post-spawn-only gate.
+    if (IS_LINUX && state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
     if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
     // Linux passive mode shrinks the overlay to the HUD strip; the strip
     // is the only thing on screen for the user to look at, so always
@@ -813,9 +818,42 @@ export function renderDebugOverlays(ctx, state, screenH) {
     ctx.fillText('PROMPT', state.promptArea.x + 4, state.promptArea.y + 12);
   }
   if (!state.footerArea && !state.promptArea) {
-    ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
-    ctx.font = '12px monospace';
-    ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
+    if (IS_LINUX) {
+      // Linux-only diagnostic panel: AT-SPI is fragile (terminals must
+      // expose role=TERMINAL, depth-walk has to find it, modifier-state
+      // detection is finicky) so dump everything we know about the
+      // current terminal content. macOS/Windows have years-stable
+      // backends and don't need this clutter.
+      const lines = [];
+      lines.push('NO PROMPT DETECTED');
+      const c = state.lastContent;
+      if (c) {
+        lines.push(`term: ${c.term_cols}x${c.term_rows} text=${c.text_width}x${c.text_height} off=${c.text_offset_x},${c.text_offset_y}`);
+        lines.push(`lh=${state.lineHeight} input_line=${c.input_line ?? '-'} footer_line=${c.footer_line ?? '-'} content_lines=${c.lines?.length ?? 0}`);
+      } else {
+        lines.push('lastContent: NONE — backend not delivering content');
+      }
+      if (state.lastDebugLines && state.lastDebugLines.length) {
+        lines.push('--- last debug lines ---');
+        for (const l of state.lastDebugLines) lines.push(l);
+      }
+      const pad = 6;
+      const lineH = 13;
+      const boxH = lines.length * lineH + pad * 2;
+      const boxW = Math.min(720, Math.max(...lines.map(l => l.length)) * 7 + pad * 2);
+      const yTop = screenH - boxH - 10;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+      ctx.fillRect(8, yTop, boxW, boxH);
+      ctx.font = '11px monospace';
+      lines.forEach((l, i) => {
+        ctx.fillStyle = i === 0 ? 'rgba(255, 80, 80, 0.95)' : 'rgba(255, 240, 200, 0.95)';
+        ctx.fillText(l, 8 + pad, yTop + pad + (i + 1) * lineH - 3);
+      });
+    } else {
+      ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
+      ctx.font = '12px monospace';
+      ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
+    }
   }
   if (state.lineHeight > 0 && state.textHeight > 0) {
     const rows = Math.round(state.textHeight / state.lineHeight);
