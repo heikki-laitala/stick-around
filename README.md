@@ -108,7 +108,7 @@ Then from inside Claude Code:
 
 `/plugin install` only mirrors the source tree, so the binary itself
 needs to be fetched separately. A `SessionStart` hook bundled with the
-plugin (`scripts/bootstrap.js`) handles that automatically:
+plugin (`scripts/bootstrap.cjs`) handles that automatically:
 
 - Reads the version from `.claude-plugin/plugin.json`.
 - Downloads the matching prebuilt binary from the GitHub release
