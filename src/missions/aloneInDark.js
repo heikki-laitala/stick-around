@@ -411,7 +411,7 @@ function carveFlashlightCone(dctx, state, scene) {
 
 // Glowing balls pierce the darkness as emergency beacons — but ONLY once
 // the flashlight is in its final DESPERATION_SECS. Before that the player
-// is expected to ration light with the main cone and the ArrowUp spend;
+// is expected to ration light with the main cone and the R-key recharge;
 // the balls only reveal themselves when the situation gets dire, turning
 // the last 30 seconds into a desperate scramble for salvage light.
 // Halo alpha ramps in as charge crosses the threshold so they fade into

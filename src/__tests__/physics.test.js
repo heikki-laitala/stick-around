@@ -65,9 +65,9 @@ describe('updateMovement', () => {
     expect(s.gvx).toBeLessThanOrEqual(MAXV);
   });
 
-  it('jumps when grounded and jump key pressed', () => {
+  it('jumps when grounded and KeyW pressed', () => {
     const s = makeState({ grounded: true });
-    updateMovement(s, 0.016, makeKeys('Space'), 800, 600);
+    updateMovement(s, 0.016, makeKeys('KeyW'), 800, 600);
     // gvy starts at -JUMP_V but gravity applies in same frame
     expect(s.gvy).toBeLessThan(0);
     expect(s.grounded).toBe(false);
@@ -75,8 +75,21 @@ describe('updateMovement', () => {
 
   it('does not jump when airborne', () => {
     const s = makeState({ grounded: false, gvy: 50, platforms: [] });
-    updateMovement(s, 0.016, makeKeys('Space'), 800, 600);
+    updateMovement(s, 0.016, makeKeys('KeyW'), 800, 600);
     expect(s.gvy).not.toBe(-JUMP_V);
+  });
+
+  it('does not jump on bare Space — Space is unbound', () => {
+    const s = makeState({ grounded: true });
+    updateMovement(s, 0.016, makeKeys('Space'), 800, 600);
+    expect(s.gvy).toBe(0);
+    expect(s.grounded).toBe(true);
+  });
+
+  it('does not walk on ArrowLeft/ArrowRight — arrows are reserved for aim', () => {
+    const s = makeState({ grounded: true });
+    updateMovement(s, 0.016, makeKeys('ArrowRight'), 800, 600);
+    expect(s.gvx).toBe(0);
   });
 
   it('wraps position at screen edges', () => {
@@ -399,7 +412,7 @@ describe('isInHole', () => {
 });
 
 describe('platform burst', () => {
-  it('creates hole when Space held during rope swing collision', () => {
+  it('creates hole during rope swing collision', () => {
     const s = makeState({
       rope: {
         state: 'swinging', angle: 0, anchorHash: 3,
@@ -427,7 +440,7 @@ describe('platform burst', () => {
     expect(s.holes[0].y).toBe(150);
   });
 
-  it('auto-bursts through platform without needing Space', () => {
+  it('auto-bursts through platform without an explicit input', () => {
     const s = makeState({
       rope: {
         state: 'swinging', angle: 0, anchorHash: 3,
