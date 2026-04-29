@@ -357,14 +357,109 @@ fn is_terminal_process(name: &str) -> bool {
     TERMINAL_PROCESS_NAMES.iter().any(|t| name == *t)
 }
 
-/// Pick a terminal PID for the overlay to follow. Tries the frontmost
-/// process first; if that's a browser / IDE / chat app, walks the
-/// front-to-back z-order of on-screen windows (via CGWindowList) and
-/// returns the PID of the topmost window owned by a known terminal
-/// app. Process-list iteration ordering can pick a terminal that
-/// hasn't been touched in hours — z-order picks the one the user
-/// most recently looked at.
+/// `.app` bundle names of supported terminal hosts. Compared against
+/// the `Foo.app` segment in the executable path returned by
+/// `proc_pidpath`. Tracks `TERMINAL_PROCESS_NAMES` but uses the bundle
+/// name (which is what shows up in the path) — for VS Code that's
+/// "Visual Studio Code", not "Code".
+const TERMINAL_APP_BUNDLES: &[&str] = &[
+    "Terminal",
+    "iTerm",
+    "iTerm2",
+    "Ghostty",
+    "WezTerm",
+    "Alacritty",
+    "kitty",
+    "Hyper",
+    "Warp",
+    "Tabby",
+    "Visual Studio Code",
+    "Code - Insiders",
+    "Cursor",
+];
+
+#[link(name = "System", kind = "framework")]
+extern "C" {
+    fn proc_pidpath(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
+}
+
+fn proc_path_for(pid: u32) -> Option<String> {
+    let mut buf = [0u8; 4096];
+    let n = unsafe {
+        proc_pidpath(pid as i32, buf.as_mut_ptr() as *mut c_void, buf.len() as u32)
+    };
+    if n <= 0 {
+        return None;
+    }
+    std::str::from_utf8(&buf[..n as usize])
+        .ok()
+        .map(|s| s.to_string())
+}
+
+/// Returns true if `path` looks like the executable inside a known
+/// terminal-host .app bundle. Path pattern: `…/Foo.app/Contents/MacOS/<exe>`.
+fn is_terminal_app_path(path: &str) -> bool {
+    let Some(idx) = path.find(".app/") else {
+        return false;
+    };
+    let prefix = &path[..idx];
+    let bundle = prefix.rsplit('/').next().unwrap_or("");
+    TERMINAL_APP_BUNDLES.iter().any(|b| bundle == *b)
+}
+
+fn parent_pid_for(pid: u32) -> Option<u32> {
+    let out = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "ppid="])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// Walk up the parent-process chain from our own PID until we hit a
+/// known terminal-host .app or run out of ancestors. This is the most
+/// reliable strategy when the overlay is launched from a Claude Code
+/// session: our parent chain is `stick-around → bash → claude → … →
+/// iTerm2`, and the terminal app sits at the top regardless of what
+/// the user happens to have foreground at the moment.
+fn find_terminal_ancestor() -> Option<u32> {
+    let mut pid = std::process::id();
+    // 32 is well above any plausible nesting (the deepest realistic
+    // chain on macOS is ~6: launchd → terminal → shell → mux → shell
+    // → claude → bash → us). The bound just guards against pid-reuse
+    // cycles confusing the walk.
+    for _ in 0..32 {
+        if let Some(path) = proc_path_for(pid) {
+            if is_terminal_app_path(&path) {
+                return Some(pid);
+            }
+        }
+        let Some(ppid) = parent_pid_for(pid) else { break };
+        if ppid == 0 || ppid == 1 || ppid == pid {
+            break;
+        }
+        pid = ppid;
+    }
+    None
+}
+
+/// Pick a terminal PID for the overlay to follow. Strategy order:
+///
+/// 1. Walk our own parent-process chain — most reliable when the
+///    overlay is spawned from a Claude Code session, regardless of
+///    what the user has frontmost at the moment.
+/// 2. Frontmost PID, when it's already a known terminal app (the
+///    fast path for users who just typed a command into their shell).
+/// 3. CGWindowList z-order, scanned twice: current Mission Control
+///    space first, then all spaces, picking the topmost window
+///    owned by a known terminal app.
+/// 4. Whatever `get_frontmost_pid` returns, even if it's not a
+///    terminal — better to attach to something the user can see
+///    than refuse to launch.
 pub fn find_terminal_pid() -> Option<u32> {
+    if let Some(pid) = find_terminal_ancestor() {
+        return Some(pid);
+    }
+
     if let Some(fg) = get_frontmost_pid() {
         if let Some(name) = get_name_by_pid(fg) {
             if is_terminal_process(&name) {
