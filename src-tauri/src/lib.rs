@@ -203,16 +203,12 @@ pub fn run() {
     let pid_file = pid_file_path();
     std::fs::write(&pid_file, std::process::id().to_string()).ok();
 
-    // Detect the terminal PID. On macOS / Linux the frontmost process at
-    // launch IS the terminal — the overlay window hasn't been created yet
-    // so focus hasn't shifted. On Windows we additionally tolerate the user
-    // having a non-terminal app (browser, IDE in editor mode) momentarily
-    // foreground at launch by walking visible windows for a known terminal
-    // host as fallback.
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    // Detect the terminal PID. We tolerate the user having a non-terminal
+    // app (browser, IDE in editor mode, chat client) momentarily foreground
+    // at launch by walking visible windows for a known terminal host as
+    // fallback. Without this, the overlay would pin to e.g. Chrome and
+    // track that for the rest of the session.
     let pid_opt = platform::find_terminal_pid();
-    #[cfg(target_os = "macos")]
-    let pid_opt = platform::get_frontmost_pid();
 
     let pid = match pid_opt {
         Some(p) => p,
