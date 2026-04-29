@@ -1023,18 +1023,48 @@ struct ItermAx {
     first_vis: usize,
 }
 
-fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
+fn get_iterm_ax(pid: u32, target_xy: Option<(i32, i32)>) -> Option<ItermAx> {
     // `round x` in AppleScript defaults to banker's rounding (nearest even).
     // That's fine for our purposes; what matters is that we're NOT using
     // `rounding down` here — the pixel offset lands at e.g. 945.99, and
     // floor(945.99) = 945 is one paragraph earlier than the visible start,
     // which shifted the detected prompt by 2 rows. Using nearest rounding
     // fixes the off-by-2 observed in practice.
+    //
+    // `target_xy` pins the lookup to the launch-time iTerm window by
+    // matching its current position. Without this we'd target `front
+    // window`, which swaps if the user clicks another window of the
+    // same iTerm process — polluting prompt detection with content
+    // from the wrong window. We match by position (not CGWindowID)
+    // because System Events only exposes position/size, not the
+    // CG-level window number.
+    let window_lookup = match target_xy {
+        Some((tx, ty)) => format!(
+            r#"set w to missing value
+                repeat with candidate in windows
+                    try
+                        set p to position of candidate
+                        if (item 1 of p) is {tx} and (item 2 of p) is {ty} then
+                            set w to candidate
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+                if w is missing value then
+                    if (count of windows) is 0 then return ""
+                    set w to front window
+                end if"#,
+            tx = tx,
+            ty = ty
+        ),
+        None => r#"if (count of windows) is 0 then return ""
+                set w to front window"#
+            .to_string(),
+    };
     let script = format!(r#"tell application "System Events"
         try
             tell (first process whose unix id is {pid})
-                if (count of windows) is 0 then return ""
-                set w to front window
+                {window_lookup}
                 set wp to position of w
                 set grp to first UI element of w whose role is "AXGroup"
                 set sg to first UI element of grp whose role is "AXSplitGroup"
@@ -1131,8 +1161,8 @@ fn get_iterm_ax(pid: u32) -> Option<ItermAx> {
 /// used yet — iTerm's AX tree gives `front window`, which matches in practice
 /// because the overlay's own app doesn't steal focus. If multi-iTerm-window
 /// disambiguation becomes needed, add a window-by-position lookup here.
-fn get_iterm_content(pid: u32, _target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
-    let ax = get_iterm_ax(pid)?;
+fn get_iterm_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<TerminalContent> {
+    let ax = get_iterm_ax(pid, target_xy)?;
 
     let text_offset_x = (ax.sa_x - ax.win_x).max(0.0);
     let text_width = ax.sa_w;
