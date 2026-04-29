@@ -1,16 +1,71 @@
 //! Text-content analysis helpers shared across platform backends.
 //!
-//! The macOS AX path and the Windows UI Automation path both need the same
-//! logic for: locating Claude Code's prompt box (between two box-drawing
-//! separators), classifying shell prompt lines for fallback, identifying
-//! horizontal separators, and measuring CJK / emoji column widths. Keeping
-//! one canonical implementation here means a fix in one place applies
+//! Every backend (macOS AX, Windows UI Automation, Linux AT-SPI) needs the
+//! same logic for: locating Claude Code's prompt box (between two box-
+//! drawing separators), classifying shell prompt lines for fallback,
+//! identifying horizontal separators, and measuring CJK / emoji column
+//! widths. Plus a shared `STICK_AROUND_DUMP_DETECTION` writer so all
+//! three backends produce comparable diagnostic dumps. Keeping one
+//! canonical implementation here means a fix in one place applies
 //! everywhere.
-//!
-//! Linux does not yet implement `get_terminal_content`, so these helpers
-//! are dead code on that target until Phase C lands.
 
-#![cfg_attr(target_os = "linux", allow(dead_code))]
+/// Dump the detector's view of a poll cycle to a file when the
+/// `STICK_AROUND_DUMP_DETECTION` env var is set. Used to debug
+/// prompt / footer detection across all backends.
+///
+/// Each call truncates and rewrites the file, so the latest snapshot
+/// is always there — kill the overlay (`Q` or `pkill stick-around`) to
+/// freeze it before inspecting. Box-drawing characters are preserved
+/// verbatim; only ASCII control bytes are escaped.
+pub fn dump_detection_snapshot(
+    label: &str,
+    text_lines: &[&str],
+    input_line: Option<usize>,
+    footer_line: Option<usize>,
+    prompt_rect: Option<(f64, f64, f64, f64)>,
+    footer_rect: Option<(f64, f64, f64, f64)>,
+    extras: &[(&str, String)],
+) {
+    let path = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
+        Ok(p) if !p.is_empty() => p,
+        _ => return,
+    };
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let _ = writeln!(out, "=== stick-around prompt detection dump ===");
+    let _ = writeln!(out, "backend     : {label}");
+    let _ = writeln!(out, "input_line  : {:?}", input_line);
+    let _ = writeln!(out, "footer_line : {:?}", footer_line);
+    let _ = writeln!(out, "prompt_rect : {:?}", prompt_rect);
+    let _ = writeln!(out, "footer_rect : {:?}", footer_rect);
+    for (k, v) in extras {
+        let _ = writeln!(out, "{k:<12}: {v}");
+    }
+    let _ = writeln!(out, "--- text_lines ({}) ---", text_lines.len());
+    for (i, l) in text_lines.iter().enumerate() {
+        let marker = if Some(i) == input_line {
+            "INPUT"
+        } else if Some(i) == footer_line {
+            "FOOT "
+        } else {
+            "     "
+        };
+        let rendered: String = l
+            .chars()
+            .map(|c| {
+                if c == '\t' {
+                    "\\t".to_string()
+                } else if (c as u32) < 0x20 || c as u32 == 0x7F {
+                    format!("\\x{:02X}", c as u32)
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
+        let _ = writeln!(out, "[{i:3}] {marker} |{rendered}|");
+    }
+    let _ = std::fs::write(&path, out);
+}
 
 /// Locate the prompt box and footer line in a screen of terminal text.
 ///
