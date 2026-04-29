@@ -101,18 +101,33 @@ fi
 [ "$(uname -s)" = "Linux" ] || exit 0
 
 EXT_DIR="${HOME}/.local/share/gnome-shell/extensions/${EXTENSION_UUID}"
-SOURCE_EXT="$CLAUDE_PLUGIN_ROOT/gnome-extension/extension.js"
+SOURCE_EXT_DIR="$CLAUDE_PLUGIN_ROOT/gnome-extension"
+SOURCE_EXT="$SOURCE_EXT_DIR/extension.js"
 [ -f "$SOURCE_EXT" ] || exit 0
 
-INSTALLED_EXT="$EXT_DIR/extension.js"
-# Only redo the extension install when the source JS actually
-# changed; cmp returns 0 when the files match, 1 when they differ.
-if ! cmp -s "$SOURCE_EXT" "$INSTALLED_EXT" 2>/dev/null; then
+# Decide whether the installed extension is up to date by comparing
+# every source file against its installed counterpart, not just
+# extension.js. metadata.json and the gschema XML files change
+# independently (version bumps, new keybindings, schema additions);
+# gating the reinstall on extension.js alone meant those updates
+# silently never reached an existing install, leaving users with
+# stale settings until they manually reinstalled.
+extension_needs_update() {
+    cmp -s "$SOURCE_EXT" "$EXT_DIR/extension.js" 2>/dev/null || return 0
+    cmp -s "$SOURCE_EXT_DIR/metadata.json" "$EXT_DIR/metadata.json" 2>/dev/null || return 0
+    for schema in "$SOURCE_EXT_DIR"/schemas/*.gschema.xml; do
+        [ -f "$schema" ] || continue
+        cmp -s "$schema" "$EXT_DIR/schemas/$(basename "$schema")" 2>/dev/null || return 0
+    done
+    return 1
+}
+
+if extension_needs_update; then
     echo "[stick-around] installing GNOME helper extension…"
     mkdir -p "$EXT_DIR/schemas"
-    cp "$SOURCE_EXT" "$INSTALLED_EXT"
-    cp "$CLAUDE_PLUGIN_ROOT/gnome-extension/metadata.json" "$EXT_DIR/metadata.json"
-    for schema in "$CLAUDE_PLUGIN_ROOT"/gnome-extension/schemas/*.gschema.xml; do
+    cp "$SOURCE_EXT" "$EXT_DIR/extension.js"
+    cp "$SOURCE_EXT_DIR/metadata.json" "$EXT_DIR/metadata.json"
+    for schema in "$SOURCE_EXT_DIR"/schemas/*.gschema.xml; do
         [ -f "$schema" ] && cp "$schema" "$EXT_DIR/schemas/"
     done
     if command -v glib-compile-schemas >/dev/null 2>&1; then

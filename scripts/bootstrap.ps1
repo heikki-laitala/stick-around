@@ -62,9 +62,28 @@ function Install-Binary {
         # console that may not exist), and we already log our own
         # one-line "fetching..." status above.
         $ProgressPreference = 'SilentlyContinue'
+
+        # Manual retry loop: `-MaximumRetryCount` and `-RetryIntervalSec`
+        # are PowerShell 7 only, but Windows ships with PowerShell 5.1
+        # by default — using them throws a parameter-binding error and
+        # the download silently fails on every default Windows install.
+        function Invoke-DownloadWithRetry($Source, $Destination) {
+            $attempt = 0
+            while ($true) {
+                try {
+                    Invoke-WebRequest -Uri $Source -OutFile $Destination -UseBasicParsing
+                    return
+                } catch {
+                    $attempt++
+                    if ($attempt -ge 3) { throw }
+                    Start-Sleep -Seconds 2
+                }
+            }
+        }
+
         try {
-            Invoke-WebRequest -Uri $Url -OutFile $Tmp -UseBasicParsing -MaximumRetryCount 3 -RetryIntervalSec 2
-            Invoke-WebRequest -Uri "$Url.sha256" -OutFile $TmpSha -UseBasicParsing -MaximumRetryCount 3 -RetryIntervalSec 2
+            Invoke-DownloadWithRetry $Url $Tmp
+            Invoke-DownloadWithRetry "$Url.sha256" $TmpSha
         } catch {
             Write-Error "[stick-around] download failed: $_"
             return $false
