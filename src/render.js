@@ -1,5 +1,4 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
-import { findCeiling } from './platforms.js';
 import { AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
 import { renderActiveMission } from './progression.js';
 import {
@@ -799,21 +798,6 @@ function renderPlatformOverlay(ctx, state, screenH) {
     ctx.font = '8px monospace';
     ctx.fillText(posture, state.gx + 8, boxTop + 8);
     ctx.fillText(`h=${h.toFixed(1)}`, state.gx + 8, boxTop + 18);
-
-    // Show ceiling detection — fixed position top-left
-    const ceiling = findCeiling(state.platforms, state.feetY, state.gx, state.lineHeight, state.holes);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.fillRect(0, 0, 300, 50);
-    ctx.fillStyle = 'rgba(255, 255, 0, 0.95)';
-    ctx.font = '11px monospace';
-    ctx.fillText(`pos: x=${state.gx.toFixed(0)} feetY=${state.feetY.toFixed(0)} posture=${posture}`, 4, 14);
-    if (ceiling) {
-      const clearance = state.feetY - (ceiling.y + state.lineHeight);
-      ctx.fillText(`ceiling: y=${ceiling.y.toFixed(0)} bottom=${(ceiling.y+state.lineHeight).toFixed(0)} cl=${clearance.toFixed(0)}`, 4, 28);
-      ctx.fillText(`ceil x=${ceiling.x.toFixed(0)}..${(ceiling.x+ceiling.w).toFixed(0)}`, 4, 42);
-    } else {
-      ctx.fillText('ceiling: NONE', 4, 28);
-    }
   }
 }
 
