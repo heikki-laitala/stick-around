@@ -415,22 +415,57 @@ fn parent_pid_for(pid: u32) -> Option<u32> {
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
+/// Returns the controlling-TTY device path for `pid` (e.g.
+/// `/dev/ttys003`), or None if the process has no TTY (background
+/// daemons, Tauri-spawned subprocesses with stdin redirected, …).
+/// `ps -o tty=` reports the short form (`ttys003`); we prepend
+/// `/dev/` to match what iTerm/Terminal report from their AppleScript
+/// dictionaries.
+fn tty_for(pid: u32) -> Option<String> {
+    let out = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "tty="])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() || s == "??" || s == "?" {
+        None
+    } else {
+        Some(format!("/dev/{}", s))
+    }
+}
+
+/// Result of walking our parent chain looking for the host terminal.
+pub struct TerminalAncestor {
+    pub pid: u32,
+    /// TTY of the closest-to-the-terminal ancestor that has one. iTerm
+    /// and Terminal.app both report `tty` per session in their
+    /// AppleScript dictionaries, so this lets us pin the overlay to
+    /// the *specific* tab/session running Claude Code instead of
+    /// whichever window of the terminal app happens to be front.
+    pub tty: Option<String>,
+}
+
 /// Walk up the parent-process chain from our own PID until we hit a
-/// known terminal-host .app or run out of ancestors. This is the most
-/// reliable strategy when the overlay is launched from a Claude Code
-/// session: our parent chain is `stick-around → bash → claude → … →
-/// iTerm2`, and the terminal app sits at the top regardless of what
-/// the user happens to have foreground at the moment.
-fn find_terminal_ancestor() -> Option<u32> {
+/// known terminal-host .app or run out of ancestors. Captures the
+/// deepest controlling TTY in the chain along the way — that's the
+/// TTY iTerm/Terminal allocated for the shell where Claude Code runs,
+/// which we use to identify the specific window/session later.
+fn walk_to_terminal() -> Option<TerminalAncestor> {
     let mut pid = std::process::id();
+    let mut tty: Option<String> = None;
     // 32 is well above any plausible nesting (the deepest realistic
-    // chain on macOS is ~6: launchd → terminal → shell → mux → shell
-    // → claude → bash → us). The bound just guards against pid-reuse
-    // cycles confusing the walk.
+    // chain on macOS is ~8: launchd → terminal → server → login →
+    // shell → mux → shell → claude → bash → us). The bound just
+    // guards against pid-reuse cycles confusing the walk.
     for _ in 0..32 {
+        if let Some(t) = tty_for(pid) {
+            // Always overwrite: we want the TTY of the deepest ancestor
+            // that has one, which is the closest to the terminal app.
+            tty = Some(t);
+        }
         if let Some(path) = proc_path_for(pid) {
             if is_terminal_app_path(&path) {
-                return Some(pid);
+                return Some(TerminalAncestor { pid, tty });
             }
         }
         let Some(ppid) = parent_pid_for(pid) else { break };
@@ -440,6 +475,140 @@ fn find_terminal_ancestor() -> Option<u32> {
         pid = ppid;
     }
     None
+}
+
+fn find_terminal_ancestor() -> Option<u32> {
+    walk_to_terminal().map(|a| a.pid)
+}
+
+/// Public version of the ancestor walk — exposes the TTY so callers
+/// can target the specific tab/session. Returns None if no terminal
+/// ancestor was found (caller should fall back to frontmost / window
+/// list strategies).
+pub fn launch_terminal_ancestor() -> Option<TerminalAncestor> {
+    walk_to_terminal()
+}
+
+/// Look up the on-screen bounds of the window holding the iTerm or
+/// Terminal.app session whose `tty` matches `tty_path`. Returns None
+/// if the terminal app has no matching session (e.g. user closed the
+/// tab between launch and our query) or if scripting access is denied.
+pub fn get_window_bounds_for_tty(
+    app_name: &str,
+    tty_path: &str,
+) -> Option<(i32, i32, u32, u32)> {
+    let script = if app_name.starts_with("iTerm") {
+        // iTerm: position/size are on the window, sessions live two
+        // levels down. `tty` is the device path (`/dev/ttys003`).
+        format!(
+            r#"tell application "iTerm2"
+                set out to ""
+                try
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            repeat with s in sessions of t
+                                try
+                                    if tty of s is "{tty}" then
+                                        set p to position of w
+                                        set sz to size of w
+                                        set out to ((item 1 of p) as string) & "," & ((item 2 of p) as string) & "," & ((item 1 of sz) as string) & "," & ((item 2 of sz) as string)
+                                        return out
+                                    end if
+                                end try
+                            end repeat
+                        end repeat
+                    end repeat
+                end try
+                return out
+            end tell"#,
+            tty = tty_path
+        )
+    } else {
+        // Terminal.app: tabs share a window, `tty` lives on the tab,
+        // and the window exposes `bounds` ({x1, y1, x2, y2}).
+        format!(
+            r#"tell application "Terminal"
+                set out to ""
+                try
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            try
+                                if tty of t is "{tty}" then
+                                    set b to bounds of w
+                                    set x1 to item 1 of b
+                                    set y1 to item 2 of b
+                                    set x2 to item 3 of b
+                                    set y2 to item 4 of b
+                                    set out to (x1 as string) & "," & (y1 as string) & "," & ((x2 - x1) as string) & "," & ((y2 - y1) as string)
+                                    return out
+                                end if
+                            end try
+                        end repeat
+                    end repeat
+                end try
+                return out
+            end tell"#,
+            tty = tty_path
+        )
+    };
+    run_osascript(&script).and_then(|s| parse_bounds(&s))
+}
+
+/// Return the CGWindowID of the on-screen window owned by `pid` whose
+/// origin matches `(x, y)`. Used at launch to pin tracking to the
+/// TTY-resolved window even when it isn't the topmost window of its
+/// app — `get_frontmost_window_id_for_pid` would otherwise pick the
+/// z-order top, which can be a different iTerm window/tab.
+pub fn get_window_id_for_pid_at(pid: u32, x: i32, y: i32) -> Option<u32> {
+    unsafe {
+        let list = CGWindowListCopyWindowInfo(CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY, 0);
+        if list.is_null() {
+            return None;
+        }
+        let count = CFArrayGetCount(list);
+        let mut found: Option<u32> = None;
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(list, i);
+            if dict.is_null() {
+                continue;
+            }
+            if dict_number_i64(dict, "kCGWindowOwnerPID") != Some(pid as i64) {
+                continue;
+            }
+            if dict_number_i64(dict, "kCGWindowLayer").unwrap_or(-1) != 0 {
+                continue;
+            }
+            // CGWindowList exposes the frame as a sub-dictionary
+            // `kCGWindowBounds` containing keys `X`, `Y`, `Width`,
+            // `Height` (CGRect-from-dict format). We only need the
+            // origin to disambiguate between windows of the same PID.
+            let bounds_key = cfstr("kCGWindowBounds");
+            if bounds_key.is_null() {
+                continue;
+            }
+            let bounds_dict = CFDictionaryGetValue(dict, bounds_key);
+            CFRelease(bounds_key);
+            if bounds_dict.is_null() {
+                continue;
+            }
+            let mut rect = CGRectRaw::default();
+            if !CGRectMakeWithDictionaryRepresentation(bounds_dict, &mut rect) {
+                continue;
+            }
+            // 2 px slop: AppleScript and CGWindow occasionally disagree
+            // by one pixel due to title-bar inclusion / rounding.
+            if (rect.origin_x - x as f64).abs() <= 2.0
+                && (rect.origin_y - y as f64).abs() <= 2.0
+            {
+                if let Some(wid) = dict_number_i64(dict, "kCGWindowNumber") {
+                    found = Some(wid as u32);
+                    break;
+                }
+            }
+        }
+        CFRelease(list);
+        found
+    }
 }
 
 /// Pick a terminal PID for the overlay to follow. Strategy order:
