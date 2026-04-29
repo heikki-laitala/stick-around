@@ -10,12 +10,23 @@
 //! everywhere.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 /// Runtime toggle for the dump file. The V debug overlay flips this on
 /// so a diagnostic snapshot lands in the temp dir without the user
 /// having to set an env var. The env var still wins when set, so
 /// custom paths keep working.
 static DUMP_TO_DEFAULT: AtomicBool = AtomicBool::new(false);
+
+/// Serializes the dump-write path against the disable-and-delete path.
+/// Without this lock, the polling thread can read `DUMP_TO_DEFAULT == true`,
+/// be preempted before its `fs::write`, and a concurrent toggle-off can
+/// then `remove_file` followed by the polling thread's write recreating
+/// the file — leaving a stale snapshot despite debug being off.
+/// Writers re-check the flag under the lock; the disabler clears the
+/// flag, then takes the lock to wait out any in-flight write before
+/// removing the file.
+static DUMP_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn set_default_dump_enabled(enabled: bool) {
     let was = DUMP_TO_DEFAULT.swap(enabled, Ordering::Relaxed);
@@ -26,6 +37,9 @@ pub fn set_default_dump_enabled(enabled: bool) {
         .map(|p| p.is_empty())
         .unwrap_or(true)
     {
+        // Wait for any in-flight write to finish before removing, so the
+        // polling thread can't race us and recreate the file.
+        let _guard = DUMP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _ = std::fs::remove_file(default_dump_path());
     }
 }
@@ -55,13 +69,13 @@ pub fn dump_detection_snapshot(
     footer_rect: Option<(f64, f64, f64, f64)>,
     extras: &[(&str, String)],
 ) {
-    let path: std::path::PathBuf = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
-        Ok(p) if !p.is_empty() => p.into(),
+    let (path, default_path): (std::path::PathBuf, bool) = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
+        Ok(p) if !p.is_empty() => (p.into(), false),
         _ => {
             if !DUMP_TO_DEFAULT.load(Ordering::Relaxed) {
                 return;
             }
-            default_dump_path()
+            (default_dump_path(), true)
         }
     };
     use std::fmt::Write as _;
@@ -97,6 +111,15 @@ pub fn dump_detection_snapshot(
             })
             .collect();
         let _ = writeln!(out, "[{i:3}] {marker} |{rendered}|");
+    }
+    // Lock + re-check guards against the disable-and-delete race for the
+    // default path: if disable already swapped the flag and is waiting on
+    // this lock, we'd otherwise re-create the file right after it's
+    // removed. Custom env-var paths skip the re-check since the user owns
+    // that path's lifecycle.
+    let _guard = DUMP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if default_path && !DUMP_TO_DEFAULT.load(Ordering::Relaxed) {
+        return;
     }
     let _ = std::fs::write(&path, out);
 }
