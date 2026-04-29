@@ -28,6 +28,9 @@ jobs:
       - name: Build release binary
         run: make build
 
+      - name: Symlink binary at repo root
+        run: make link-dev
+
       - name: Ad-hoc codesign
         run: codesign --force --sign - ./stick-around
 
@@ -78,6 +81,9 @@ jobs:
 
       - name: Build release binary
         run: make build
+
+      - name: Symlink binary at repo root
+        run: make link-dev
 
       - name: Package binary
         run: |
