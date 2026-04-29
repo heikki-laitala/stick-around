@@ -41,7 +41,7 @@ install: $(BINARY_SRC)
 	cp skills/stop/SKILL.md $(PLUGIN_CACHE)/skills/stop/SKILL.md
 	cp .claude-plugin/plugin.json $(PLUGIN_CACHE)/.claude-plugin/plugin.json
 	@echo "Syncing bootstrap script + Linux assets to plugin cache..."
-	cp scripts/bootstrap.js $(PLUGIN_CACHE)/scripts/bootstrap.js
+	cp scripts/bootstrap.cjs $(PLUGIN_CACHE)/scripts/bootstrap.cjs
 	cp gnome-extension/extension.js $(PLUGIN_CACHE)/gnome-extension/extension.js
 	cp gnome-extension/metadata.json $(PLUGIN_CACHE)/gnome-extension/metadata.json
 	cp gnome-extension/schemas/*.gschema.xml $(PLUGIN_CACHE)/gnome-extension/schemas/
