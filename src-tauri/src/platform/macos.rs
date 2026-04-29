@@ -727,65 +727,7 @@ pub fn raise_window_at(pid: u32, x: i32, y: i32) {
 }
 
 use super::TerminalContent;
-
-/// Debug dump for prompt/footer detection. Writes the exact text the
-/// detector sees plus the indices and rects it produced to a file, but
-/// only when `STICK_AROUND_DUMP_DETECTION` is set in the environment.
-/// Each call truncates and rewrites the file, so the latest snapshot is
-/// always there — kill the overlay (`Q` or `pkill stick-around`) to
-/// freeze it before inspecting.
-fn dump_detection_snapshot(
-    label: &str,
-    text_lines: &[&str],
-    input_line: Option<usize>,
-    footer_line: Option<usize>,
-    prompt_rect: Option<(f64, f64, f64, f64)>,
-    footer_rect: Option<(f64, f64, f64, f64)>,
-    extras: &[(&str, String)],
-) {
-    let path = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
-        Ok(p) if !p.is_empty() => p,
-        _ => return,
-    };
-    use std::fmt::Write as _;
-    let mut out = String::new();
-    let _ = writeln!(out, "=== stick-around prompt detection dump ===");
-    let _ = writeln!(out, "backend     : {label}");
-    let _ = writeln!(out, "input_line  : {:?}", input_line);
-    let _ = writeln!(out, "footer_line : {:?}", footer_line);
-    let _ = writeln!(out, "prompt_rect : {:?}", prompt_rect);
-    let _ = writeln!(out, "footer_rect : {:?}", footer_rect);
-    for (k, v) in extras {
-        let _ = writeln!(out, "{k:<12}: {v}");
-    }
-    let _ = writeln!(out, "--- text_lines ({}) ---", text_lines.len());
-    for (i, l) in text_lines.iter().enumerate() {
-        let marker = if Some(i) == input_line {
-            "INPUT"
-        } else if Some(i) == footer_line {
-            "FOOT "
-        } else {
-            "     "
-        };
-        // Preserve box-drawing characters; only escape ASCII controls
-        // (newlines won't appear inside a single line, but tabs / NULs
-        // would silently corrupt the dump).
-        let rendered: String = l
-            .chars()
-            .map(|c| {
-                if c == '\t' {
-                    "\\t".to_string()
-                } else if (c as u32) < 0x20 || c as u32 == 0x7F {
-                    format!("\\x{:02X}", c as u32)
-                } else {
-                    c.to_string()
-                }
-            })
-            .collect();
-        let _ = writeln!(out, "[{i:3}] {marker} |{rendered}|");
-    }
-    let _ = std::fs::write(&path, out);
-}
+use super::text_analysis::dump_detection_snapshot;
 
 /// Read the terminal's text area geometry and visible line content.
 /// Routes to the right backend based on the terminal app:

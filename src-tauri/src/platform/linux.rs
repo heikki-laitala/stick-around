@@ -464,6 +464,37 @@ pub fn get_terminal_content(
         Some((text_offset_x, y_top as f64, text_width, (y_bot - y_top) as f64))
     });
 
+    super::text_analysis::dump_detection_snapshot(
+        "linux (atspi)",
+        &text_lines,
+        input_line,
+        footer_line,
+        prompt_rect,
+        footer_rect,
+        &[
+            ("term_cols", term_cols.to_string()),
+            ("term_rows", term_rows.to_string()),
+            (
+                "window_xywh",
+                format!(
+                    "{},{},{},{}",
+                    snap.window_extents.x,
+                    snap.window_extents.y,
+                    snap.window_extents.w,
+                    snap.window_extents.h
+                ),
+            ),
+            ("text_offset_x", format!("{:.3}", text_offset_x)),
+            ("text_offset_y", format!("{:.3}", text_offset_y)),
+            ("text_width", format!("{:.3}", text_width)),
+            ("text_height", format!("{:.3}", text_height)),
+            (
+                "line_height",
+                format!("{:.4}", text_height / term_rows.max(1) as f64),
+            ),
+        ],
+    );
+
     Some(super::TerminalContent {
         text_offset_x,
         text_offset_y,
