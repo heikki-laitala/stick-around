@@ -595,4 +595,5 @@ pub fn run() {
         .expect("error while running tauri application");
 
     std::fs::remove_file(&pid_file).ok();
+    platform::set_default_dump_enabled(false);
 }

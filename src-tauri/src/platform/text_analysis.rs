@@ -18,7 +18,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static DUMP_TO_DEFAULT: AtomicBool = AtomicBool::new(false);
 
 pub fn set_default_dump_enabled(enabled: bool) {
-    DUMP_TO_DEFAULT.store(enabled, Ordering::Relaxed);
+    let was = DUMP_TO_DEFAULT.swap(enabled, Ordering::Relaxed);
+    // Going on→off: best-effort wipe so a stale snapshot from this session
+    // doesn't sit in /tmp pretending to be current next time the user
+    // checks. We only own the default path; a custom env-var path stays.
+    if was && !enabled && std::env::var("STICK_AROUND_DUMP_DETECTION")
+        .map(|p| p.is_empty())
+        .unwrap_or(true)
+    {
+        let _ = std::fs::remove_file(default_dump_path());
+    }
 }
 
 /// Default dump path used when `set_default_dump_enabled(true)` has
