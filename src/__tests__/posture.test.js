@@ -299,7 +299,7 @@ describe('movement blocked when space too tight', () => {
       particles: [],
       promptArea: null,
     });
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(s, 0.016, new Set(['KeyW']), 800, 600);
     // Should burst hole and jump
     expect(s.gvy).toBeLessThan(0);
     expect(s.grounded).toBe(false);
@@ -314,7 +314,7 @@ describe('movement blocked when space too tight', () => {
       platforms: [],
       promptArea: { x: 0, y: 480, w: 600, h: 40 },
     });
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(s, 0.016, new Set(['KeyW']), 800, 600);
     // Should jump with boosted velocity to escape footer
     expect(s.gvy).toBeLessThan(0);
     expect(s.grounded).toBe(false);
@@ -327,7 +327,7 @@ describe('movement blocked when space too tight', () => {
       platforms: [{ y: 300, x: 0, w: 400, hash: 1 }],
       promptArea: null,
     });
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(s, 0.016, new Set(['KeyW']), 800, 600);
     expect(s.gvy).toBe(0);
   });
 
@@ -339,7 +339,7 @@ describe('movement blocked when space too tight', () => {
       platforms: [{ y: 500, x: 0, w: 600, hash: 1 }],
       promptArea: { x: 0, y: 480, w: 600, h: 40 },
     });
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(s, 0.016, new Set(['KeyW']), 800, 600);
     expect(s.gvy).toBe(0);
   });
 
@@ -355,7 +355,7 @@ describe('movement blocked when space too tight', () => {
       lineHeight: 20,
       promptArea: { x: 0, y: 500, w: 600, h: 40 },
     });
-    updateMovement(s, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(s, 0.016, new Set(['KeyW']), 800, 600);
     expect(s.holes.length).toBe(1);
     expect(s.holes[0].y).toBe(475);
     expect(s.particles.length).toBeGreaterThan(0);
@@ -405,8 +405,8 @@ describe('movement blocked when space too tight', () => {
       holes: [], particles: [],
       lineHeight: 20, promptArea: null,
     });
-    updateMovement(openField, 0.016, new Set(['Space']), 800, 600);
-    updateMovement(underCeiling, 0.016, new Set(['Space']), 800, 600);
+    updateMovement(openField, 0.016, new Set(['KeyW']), 800, 600);
+    updateMovement(underCeiling, 0.016, new Set(['KeyW']), 800, 600);
     // Both should leave the ground at exactly JUMP_V (minus one frame of gravity).
     expect(openField.gvy).toBeCloseTo(underCeiling.gvy, 5);
     expect(openField.gvy).toBeLessThan(0);
@@ -424,8 +424,8 @@ describe('movement blocked when space too tight', () => {
       platforms: [],
       promptArea: { x: 0, y: 480, w: 600, h: 40 },
     });
-    updateMovement(s1, 0.001, new Set(['Space']), 800, 600);
-    updateMovement(s2, 0.001, new Set(['Space']), 800, 600);
+    updateMovement(s1, 0.001, new Set(['KeyW']), 800, 600);
+    updateMovement(s2, 0.001, new Set(['KeyW']), 800, 600);
     // Footer jump should be stronger (more negative gvy)
     expect(s1.gvy).toBeLessThan(s2.gvy);
   });

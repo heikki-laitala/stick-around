@@ -167,16 +167,15 @@ it has focus. You toggle between the two:
 ## Quitting
 
 - Click the **✕** button in the top-right of the HUD, or
-- Press **Q** while the overlay has focus.
+- Press **Shift + Q** while the overlay has focus.
 
 ## Movement
 
-| Key               | Action            |
-| ----------------- | ----------------- |
-| `A` / `D`         | Walk left / right |
-| `W` / `Space`     | Jump              |
-| `S`               | Drop through a thin platform |
-| `C`               | Toggle prone (lie flat)      |
+| Key       | Action                       |
+| --------- | ---------------------------- |
+| `A` / `D` | Walk left / right            |
+| `W`       | Jump                         |
+| `C`       | Toggle prone (lie flat)      |
 
 Arrow keys are reserved for **aiming** — they don't walk the stick
 man. Use `A` / `D` for that.
@@ -190,29 +189,30 @@ The rope is your main way across gaps and up to higher platforms.
 2. **Fire** — release `E`. The rope flies out. If it sticks to a ceiling
    or ledge you start swinging from it.
 3. **While swinging**:
-   - `A` / `D` (or `←` / `→`) pump the swing left or right.
-   - `W` / `↑` climb up the rope, `S` / `↓` climb down.
+   - `A` / `D` pump the swing left or right.
+   - `W` climbs up the rope, `S` lowers you down.
    - Press `E` again to let go — you keep the swing's velocity, so
      timing the release is how you launch across long gaps.
 
 ## Spells
 
-You carry a spellbook. Cycle through spells with `X`, cast with `Z`.
+Each spell has its own slot key — no cycling.
 
-- **Shield** — press `Z` to raise it, press `Z` again to drop it. Blocks
-  damage while up, but drains mana continuously.
-- **Lightning** — *hold* `Z` to aim (sweep with arrow keys), *release*
-  `Z` to fire. Costs 2 mana per bolt.
+- **`1` Shield** — tap to raise the dome, tap again to drop it. Blocks
+  damage while up but drains mana continuously.
+- **`2` Lightning** — *hold* `2` to aim (sweep with `←` / `→`), *release*
+  `2` to fire. Costs 2 mana per bolt.
 
 Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
 ## Tools and HUD
 
-| Key     | Action                                |
-| ------- | ------------------------------------- |
-| `F`     | Swing axe — breaks crystals and thin ceilings |
-| `Tab`   | Cycle inventory slot                  |
-| `R`     | Restart the current mission           |
+| Key           | Action                                                      |
+| ------------- | ----------------------------------------------------------- |
+| `F`           | Swing axe — breaks crystals and thin ceilings               |
+| `Tab`         | Cycle inventory slot                                        |
+| `R`           | Recharge flashlight (alone-in-dark mission, costs one ball) |
+| `Shift + R`   | Restart the current mission                                 |
 
 ## Missions
 
@@ -225,10 +225,10 @@ sets an objective shown in the HUD:
 4. **Meteor shower** — dodge falling rocks; you spawn at a safe point
    when it starts.
 5. **Alone in the dark** — the world goes black and you carry a
-   flashlight. Sweep its beam with the arrow keys, and press `↑` to
+   flashlight. Sweep its beam with the arrow keys, and press `R` to
    burn a collected ball into battery charge when the light fades.
 
-`R` restarts just the current mission if you get stuck.
+`Shift + R` restarts just the current mission if you get stuck.
 
 ## Development
 

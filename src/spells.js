@@ -73,11 +73,24 @@ export function canCastSelected(state) {
   return false;
 }
 
-export function cycleSpell(state) {
-  if (!state.spells || state.spells.length === 0) return;
-  state.spellIdx = ((state.spellIdx || 0) + 1) % state.spells.length;
-  // Cycling away from lightning cancels any in-progress aim.
-  if (selectedSpell(state) !== 'lightning') state.lightningAim = null;
+/**
+ * Select a spell by name and cast it in a single step. Used by the
+ * slot-style keybindings (`1` → shield, `2` → lightning) so each spell
+ * is bound to a dedicated key instead of a select-then-cast pair.
+ *
+ * Switching to a different spell cancels any in-progress aim from the
+ * previous one — pressing the shield slot mid-aim drops the lightning
+ * charge, so the player isn't stuck holding a ghost cast.
+ */
+export function castSpellByName(state, name) {
+  if (!state.spells) return false;
+  const idx = state.spells.indexOf(name);
+  if (idx < 0) return false;
+  if ((state.spellIdx || 0) !== idx) {
+    state.lightningAim = null;
+    state.spellIdx = idx;
+  }
+  return castSpell(state);
 }
 
 /**

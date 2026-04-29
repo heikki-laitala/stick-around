@@ -9,8 +9,8 @@ import {
   LIGHTNING_AIM_MIN,
   LIGHTNING_AIM_MAX,
   initialSpells,
-  cycleSpell,
   castSpell,
+  castSpellByName,
   releaseCast,
   adjustLightningAim,
   cancelLightningAim,
@@ -43,11 +43,28 @@ describe('initialSpells', () => {
   });
 });
 
-describe('cycleSpell', () => {
-  it('advances the selected spell with wraparound', () => {
-    const s = make();
-    cycleSpell(s); expect(selectedSpell(s)).toBe('lightning');
-    cycleSpell(s); expect(selectedSpell(s)).toBe('shield');
+describe('castSpellByName', () => {
+  it('selects the named spell and casts it', () => {
+    const s = make({ mana: LIGHTNING_MANA_COST });
+    expect(castSpellByName(s, 'lightning')).toBe(true);
+    expect(selectedSpell(s)).toBe('lightning');
+    expect(isLightningAiming(s)).toBe(true);
+  });
+
+  it('returns false and stays put when the name is unknown', () => {
+    const s = make({ mana: 5 });
+    expect(castSpellByName(s, 'fireball')).toBe(false);
+    expect(selectedSpell(s)).toBe('shield');
+    expect(isShielded(s)).toBe(false);
+  });
+
+  it('cancels an in-progress aim when switching to a different spell', () => {
+    const s = make({ mana: LIGHTNING_MANA_COST });
+    castSpellByName(s, 'lightning');
+    expect(isLightningAiming(s)).toBe(true);
+    castSpellByName(s, 'shield');
+    expect(isLightningAiming(s)).toBe(false);
+    expect(isShielded(s)).toBe(true);
   });
 });
 
@@ -120,11 +137,11 @@ describe('castSpell — lightning (aim phase)', () => {
     expect(s.mana).toBe(LIGHTNING_MANA_COST - 1);
   });
 
-  it('cycling away from lightning cancels an in-progress aim', () => {
+  it('switching spells cancels an in-progress aim', () => {
     const s = make({ mana: LIGHTNING_MANA_COST, spellIdx: 1 });
     castSpell(s);
     expect(isLightningAiming(s)).toBe(true);
-    cycleSpell(s);       // back to shield
+    castSpellByName(s, 'shield');
     expect(isLightningAiming(s)).toBe(false);
   });
 

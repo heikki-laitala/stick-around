@@ -8,7 +8,7 @@ import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
-  initialSpells, cycleSpell, castSpell, releaseCast,
+  initialSpells, castSpellByName, releaseCast,
   adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
@@ -406,7 +406,7 @@ document.addEventListener('keydown', e => {
   }
 
   if (window.__TAURI__) {
-    if (e.code === 'KeyQ') {
+    if (e.code === 'KeyQ' && e.shiftKey) {
       window.__TAURI__.core.invoke('quit_app').catch(() => {});
       return;
     }
@@ -422,7 +422,10 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.code === 'KeyV') {
+  // Debug bindings all live behind Shift so a stray tap can't fire them
+  // mid-run — Shift+V toggles platform overlay, Shift+N skips the
+  // mission, Shift+R restarts it.
+  if (e.code === 'KeyV' && e.shiftKey) {
     state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS;
     if (state.DEBUG_PLATFORMS) {
       state.debugAnchorX = state.gx;
@@ -449,12 +452,19 @@ document.addEventListener('keydown', e => {
     resetPlayer(state);
     return;
   }
-  if (e.code === 'KeyR') {
-    // R always restarts the active mission — reseeds its scene (items,
+  if (e.code === 'KeyR' && e.shiftKey) {
+    // Shift+R restarts the active mission — reseeds its scene (items,
     // hazards, timers) and teleports the man back to spawn. Works mid-run,
     // not only from a game-over screen.
     restartActiveMission(state);
     resetPlayer(state);
+    return;
+  }
+  // Bare R spends one glowing ball to top up the flashlight battery during
+  // the alone-in-dark mission. Silently refused when out of balls or already
+  // at full charge — no wasted balls. Outside that mission the key is inert.
+  if (e.code === 'KeyR') {
+    if (isAloneInDarkActive(state)) spendBallForBattery(state);
     return;
   }
   if (e.code === 'Tab') {
@@ -465,17 +475,11 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.code === 'KeyX') { cycleSpell(state); return; }
-  if (e.code === 'KeyZ') { castSpell(state); return; }
-
-  // Spend one glowing ball to top up the flashlight battery during the
-  // alone-in-dark mission. Silently refused when out of balls or already
-  // at full charge — no wasted balls.
-  if (e.code === 'ArrowUp' && isAloneInDarkActive(state)) {
-    spendBallForBattery(state);
-    e.preventDefault();
-    return;
-  }
+  // Spell slots: tap 1 to toggle the shield, hold 2 to aim lightning
+  // (released on keyup below). Direct slots replace the old cycle+cast
+  // pair so each spell has a dedicated finger.
+  if (e.code === 'Digit1') { castSpellByName(state, 'shield'); return; }
+  if (e.code === 'Digit2') { castSpellByName(state, 'lightning'); return; }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {
@@ -525,7 +529,7 @@ document.addEventListener('keyup', e => {
     state.rope.tipX = state.gx;
     state.rope.tipY = state.feetY - 15 * SCALE;
   }
-  if (e.code === 'KeyZ' && isLightningAiming(state)) {
+  if (e.code === 'Digit2' && isLightningAiming(state)) {
     // Fire from the wand tip so the bolt visibly erupts from the wand,
     // not the man's head. The forward hand carries the wand, mirroring
     // how the rope is drawn.
@@ -583,10 +587,10 @@ function loop(now) {
       // terminal), the mission pauses — lava stops rising, the door stops
       // moving, and the render hook fades hazards to low alpha.
       if (state.overlayActive) {
-        // Rotate the lightning aim while Z is held. Default points
-        // straight up, so Left/Right swings the bolt toward the
-        // respective horizon. Movement is suppressed while aiming
-        // (see physics.js), so no conflict with the walk keys.
+        // Rotate the lightning aim while the spell-2 slot is held.
+        // Default points straight up, so Left/Right swings the bolt
+        // toward the respective horizon. Movement is suppressed while
+        // aiming (see physics.js), so no conflict with the walk keys.
         if (isLightningAiming(state)) {
           const AIM_SPEED = 2.0;
           if (keys.has('ArrowLeft'))  adjustLightningAim(state, -AIM_SPEED * dt);

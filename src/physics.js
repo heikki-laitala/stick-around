@@ -90,13 +90,13 @@ export function updateRope(state, dt, keys) {
     // Pump strength scales inversely with rope length (longer rope = harder to pump)
     const pumpScale = Math.min(1, 160 / state.rope.ropeLen);
     const pump = SWING_PUMP * pumpScale * pumpFade;
-    if (keys.has('KeyA') || keys.has('ArrowLeft')) state.rope.swingVel -= pump * dt;
-    if (keys.has('KeyD') || keys.has('ArrowRight')) state.rope.swingVel += pump * dt;
+    if (keys.has('KeyA')) state.rope.swingVel -= pump * dt;
+    if (keys.has('KeyD')) state.rope.swingVel += pump * dt;
 
     const CLIMB_SPEED = 80;
     const MIN_ROPE_LEN = 20;
-    if (keys.has('KeyW') || keys.has('ArrowUp')) state.rope.ropeLen = Math.max(MIN_ROPE_LEN, state.rope.ropeLen - CLIMB_SPEED * dt);
-    if (keys.has('KeyS') || keys.has('ArrowDown')) state.rope.ropeLen = Math.min(ROPE_MAX_LEN, state.rope.ropeLen + CLIMB_SPEED * dt);
+    if (keys.has('KeyW')) state.rope.ropeLen = Math.max(MIN_ROPE_LEN, state.rope.ropeLen - CLIMB_SPEED * dt);
+    if (keys.has('KeyS')) state.rope.ropeLen = Math.min(ROPE_MAX_LEN, state.rope.ropeLen + CLIMB_SPEED * dt);
 
     // Cap swing velocity to prevent unrealistic spinning
     const MAX_SWING_VEL = 4.0;
@@ -173,11 +173,11 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   if (state.rope && state.rope.state === 'swinging') return;
 
   const aiming = (state.rope && state.rope.state === 'aiming') || !!state.lightningAim;
-  // WASD + Space drive the man. Arrow keys are reserved for item/spell use
-  // (rope swing, lightning aim, flashlight aim) so they never fight walking.
+  // WASD drives the man. Arrow keys are reserved for item/spell use
+  // (rope aim, lightning aim, flashlight aim) so they never fight walking.
   const left = !aiming && keys.has('KeyA');
   const right = !aiming && keys.has('KeyD');
-  const jump = !aiming && (keys.has('KeyW') || keys.has('Space'));
+  const jump = !aiming && keys.has('KeyW');
 
   if (state.dropThrough > 0) state.dropThrough -= dt;
 
