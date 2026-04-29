@@ -16,7 +16,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.cjs\" || true"
+            "command": "command -v sh >/dev/null 2>&1 && sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\" || true"
+          },
+          {
+            "type": "command",
+            "command": "where powershell >NUL 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1\""
           }
         ]
       }
