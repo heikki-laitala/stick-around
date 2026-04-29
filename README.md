@@ -121,6 +121,12 @@ The hook runs on every Claude Code session start but is idempotent
 and short-circuits when everything is up to date — first session
 after install / update is the only slow one.
 
+The hook needs `node` on `PATH`; if it isn't, the hook silently
+skips and the play skill will surface "binary not found" later.
+macOS and Windows have node in PATH by default once Claude Code
+is installed; on Debian/Ubuntu Linux you may need
+`sudo apt install nodejs` (any version) for the bootstrap to run.
+
 ### Per-platform follow-ups
 
 - **macOS**: the first run prompts for Accessibility permission
