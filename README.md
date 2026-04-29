@@ -108,7 +108,8 @@ Then from inside Claude Code:
 
 `/plugin install` only mirrors the source tree, so the binary itself
 needs to be fetched separately. A `SessionStart` hook bundled with the
-plugin (`scripts/bootstrap.cjs`) handles that automatically:
+plugin (`scripts/bootstrap.sh` on macOS / Linux, `scripts/bootstrap.ps1`
+on Windows) handles that automatically:
 
 - Reads the version from `.claude-plugin/plugin.json`.
 - Downloads the matching prebuilt binary from the GitHub release
@@ -119,13 +120,10 @@ plugin (`scripts/bootstrap.cjs`) handles that automatically:
 
 The hook runs on every Claude Code session start but is idempotent
 and short-circuits when everything is up to date — first session
-after install / update is the only slow one.
-
-The hook needs `node` on `PATH`; if it isn't, the hook silently
-skips and the play skill will surface "binary not found" later.
-macOS and Windows have node in PATH by default once Claude Code
-is installed; on Debian/Ubuntu Linux you may need
-`sudo apt install nodejs` (any version) for the bootstrap to run.
+after install / update is the only slow one. No Node or other
+runtime is required: the POSIX script uses `sh` + `curl` + `tar` +
+`sha256sum`/`shasum`, and the Windows one uses PowerShell built-ins
+(`Invoke-WebRequest`, `Get-FileHash`, `tar.exe`).
 
 ### Per-platform follow-ups
 
