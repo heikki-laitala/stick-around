@@ -198,6 +198,15 @@ fn get_version() -> &'static str {
     env!("STICK_VERSION")
 }
 
+/// Frontend toggles the V debug overlay; mirror that into the dump
+/// writer so a temp-dir snapshot starts (or stops) being produced.
+/// Returns the resolved dump path so the frontend can show it.
+#[tauri::command]
+fn set_dump_enabled(enabled: bool) -> String {
+    platform::set_default_dump_enabled(enabled);
+    platform::default_dump_path().to_string_lossy().into_owned()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let pid_file = pid_file_path();
@@ -581,7 +590,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app, set_hud_tall, get_version])
+        .invoke_handler(tauri::generate_handler![focus_terminal, activate_overlay, deactivate_overlay, quit_app, set_hud_tall, get_version, set_dump_enabled])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 

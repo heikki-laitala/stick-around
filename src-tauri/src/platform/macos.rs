@@ -898,21 +898,6 @@ fn get_ax_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<Te
         ],
     );
 
-    // Debug: capture last 8 lines for frontend display
-    let total = text_lines.len();
-    let start = if total > 8 { total - 8 } else { 0 };
-    let debug_lines: Vec<String> = text_lines[start..].iter().enumerate().map(|(i, l)| {
-        let idx = start + i;
-        let escaped: String = l.chars().take(60).map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c.to_string()
-            } else {
-                format!("U+{:04X}", c as u32)
-            }
-        }).collect();
-        format!("[{}] {}", idx, escaped)
-    }).collect();
-
     Some(TerminalContent {
         text_offset_y: scroll_y - win_y,
         text_offset_x: scroll_x - win_x,
@@ -925,7 +910,6 @@ fn get_ax_terminal_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<Te
         lines,
         line_offsets,
         hashes,
-        debug_lines,
         prompt_rect: None,
         footer_rect: None,
     })
@@ -1201,20 +1185,6 @@ fn get_iterm_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<Terminal
         ],
     );
 
-    let total = text_lines.len();
-    let start = if total > 8 { total - 8 } else { 0 };
-    let debug_lines: Vec<String> = text_lines[start..].iter().enumerate().map(|(i, l)| {
-        let idx = start + i;
-        let escaped: String = l.chars().take(60).map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c.to_string()
-            } else {
-                format!("U+{:04X}", c as u32)
-            }
-        }).collect();
-        format!("[{}] {}", idx, escaped)
-    }).collect();
-
     Some(TerminalContent {
         text_offset_y,
         text_offset_x,
@@ -1227,7 +1197,6 @@ fn get_iterm_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<Terminal
         lines,
         line_offsets,
         hashes,
-        debug_lines,
         prompt_rect,
         footer_rect,
     })

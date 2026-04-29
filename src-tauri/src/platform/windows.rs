@@ -662,28 +662,6 @@ pub fn get_terminal_content(
             })
         });
 
-        let total = text_lines.len();
-        let start = if total > 8 { total - 8 } else { 0 };
-        let debug_lines: Vec<String> = text_lines[start..]
-            .iter()
-            .enumerate()
-            .map(|(i, l)| {
-                let idx = start + i;
-                let escaped: String = l
-                    .chars()
-                    .take(60)
-                    .map(|c| {
-                        if c.is_ascii_graphic() || c == ' ' {
-                            c.to_string()
-                        } else {
-                            format!("U+{:04X}", c as u32)
-                        }
-                    })
-                    .collect();
-                format!("[{}] {}", idx, escaped)
-            })
-            .collect();
-
         Some(TerminalContent {
             text_offset_y,
             text_offset_x,
@@ -696,7 +674,6 @@ pub fn get_terminal_content(
             lines,
             line_offsets,
             hashes,
-            debug_lines,
             prompt_rect,
             footer_rect,
         })
