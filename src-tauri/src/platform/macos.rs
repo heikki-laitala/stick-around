@@ -1008,15 +1008,17 @@ struct ItermAx {
     sa_y: f64,
     sa_w: f64,
     sa_h: f64,
-    /// Top of the AXTextArea in screen coords. The Nth paragraph's top
-    /// sits at `ta_y + N * line_height` — `sa_y` is the viewport top,
-    /// which can differ from the first visible paragraph's top by a few
-    /// pixels of inset and accumulates noticeable drift if used as the
-    /// row-0 anchor.
+    /// Top of the AXTextArea in screen coords — the position of
+    /// paragraph 0. Surfaced in the detection dump for diagnostics
+    /// (verifying that `sa_y - ta_y == first_vis * line_height`),
+    /// not used for rect math.
+    #[allow(dead_code)]
     ta_y: f64,
-    /// Real per-paragraph pitch from `taH / numPara`. iTerm renders rows
-    /// at this pitch; `sa_h / visible_rows` rounds away ~½ a row of error
-    /// over a 24-row viewport.
+    /// Per-paragraph pitch as reported by `taH / numPara`. The rect
+    /// math uses `sa_h / term_rows` instead so that Rust and the
+    /// frontend's `platforms.js` agree to within sub-pixel; this
+    /// field is kept only for the diagnostic dump.
+    #[allow(dead_code)]
     line_height: f64,
     visible_text: String,
     visible_rows: usize,
@@ -1171,14 +1173,18 @@ fn get_iterm_content(pid: u32, target_xy: Option<(i32, i32)>) -> Option<Terminal
     let term_rows = ax.visible_rows.max(text_lines.len().max(1));
 
     // Anchor row 0 at `sa_y` (the visible viewport top — iTerm renders
-    // rows top-flush in the scroll area). Use `lh = taH / numPara` from
-    // AppleScript as the row pitch: dividing `sa_h / visible_rows` rounds
-    // away ~½ a px of fractional precision per row, which compounds into
-    // ½-row drift by the time we reach the prompt box. The footer rect
-    // still extends to `sa_y + sa_h` so any bottom inset (the gap between
-    // the last text row and the viewport bottom) is filled by the footer
-    // strip rather than left as empty space below the rect.
-    let line_height = ax.line_height.max(1.0);
+    // rows top-flush in the scroll area). Derive `line_height` as
+    // `sa_h / term_rows` rather than the AppleScript `lh = taH / numPara`
+    // so it matches what the frontend (`platforms.js`) computes when it
+    // re-derives `lineHeight = text_height / term_rows`. With AppleScript
+    // `lh` (e.g. 17.682) and the frontend's value (17.538) drifting
+    // apart, `prompt_rect.y` and the prompt-top platform y end up
+    // ~5 px apart — past the 2 px slop in `findFloor`. The man would
+    // spawn at `prompt_rect.y`, fail to find a platform under his feet,
+    // become ungrounded, and gravity pulled him to the absolute floor
+    // (visually inside the FOOTER rect). Using the same divisor on both
+    // sides keeps the rect math and the platform math in lock-step.
+    let line_height = ax.sa_h / term_rows.max(1) as f64;
     let text_offset_y = (ax.sa_y - ax.win_y).max(0.0);
     let text_height = ax.sa_h;
 
