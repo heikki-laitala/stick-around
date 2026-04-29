@@ -16,11 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v sh >/dev/null 2>&1 && sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\" || true"
-          },
-          {
-            "type": "command",
-            "command": "where powershell >NUL 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1\""
+            "command": "sh -c 'if [ -n \"${OS:-}\" ] && [ \"${OS}\" = \"Windows_NT\" ]; then powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\"; fi' >/dev/null 2>&1; true"
           }
         ]
       }
