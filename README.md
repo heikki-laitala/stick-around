@@ -24,12 +24,13 @@ wizard-hat stick hero, swing a grappling rope off a `npm install` line,
 mine a glowing mana crystal out of the ceiling, zap lightning at a
 falling meteor, and earn titles on the way.
 
-Stick Around is an overlay RPG for iTerm2, Terminal.app, and Windows
-Terminal. Your terrain is your terminal: every line of output is solid
-ground you can run, jump, and rope-swing across. When Claude streams new
-output, the world rearranges itself underneath you. You adapt — cast a
-shield, mine a crystal, push on to the next mission — or you fall into
-the void and respawn at the start.
+Stick Around is an overlay RPG for iTerm2, Terminal.app, Windows
+Terminal, and GNOME terminals (Ptyxis, GNOME Terminal). Your terrain
+is your terminal: every line of output is solid ground you can run,
+jump, and rope-swing across. When Claude streams new output, the
+world rearranges itself underneath you. You adapt — cast a shield,
+mine a crystal, push on to the next mission — or you fall into the
+void and respawn at the start.
 
 ## Features
 

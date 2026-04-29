@@ -4,9 +4,15 @@ else
 EXE :=
 endif
 
-PLUGIN_CACHE := $(HOME)/.claude/plugins/cache/stick-around/stick-around/1.0.0
-BINARY_SRC   := src-tauri/target/release/stick-around$(EXE)
-BINARY_DST   := $(PLUGIN_CACHE)/stick-around$(EXE)
+# Derive the plugin version from plugin.json so the cache path tracks
+# whatever version the manifest currently says. Hard-coding the version
+# would silently desync `make dev` from real installs after a release
+# bump (Claude Code keys cache dirs on this value, and bootstrap reads
+# the same field to build the binary download URL).
+PLUGIN_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
+PLUGIN_CACHE   := $(HOME)/.claude/plugins/cache/stick-around/stick-around/$(PLUGIN_VERSION)
+BINARY_SRC     := src-tauri/target/release/stick-around$(EXE)
+BINARY_DST     := $(PLUGIN_CACHE)/stick-around$(EXE)
 
 GNOME_EXTENSION_UUID := stick-around@stickaround.dev
 GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
@@ -14,7 +20,7 @@ GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTE
 DESKTOP_FILE_DIR := $(HOME)/.local/share/applications
 DESKTOP_ICON_DIR := $(HOME)/.local/share/icons/hicolor/512x512/apps
 
-.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop
+.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop release
 
 ## Build the Tauri overlay binary (release mode). The binary stays under
 ## src-tauri/target/release; we don't copy it to the repo root because a
@@ -115,6 +121,40 @@ uninstall-desktop:
 	rm -f $(DESKTOP_FILE_DIR)/stick-around.desktop
 	rm -f $(DESKTOP_ICON_DIR)/stick-around.png
 	@echo "Removed .desktop entry and icon."
+
+## Cut a release: bump plugin.json, commit, tag.
+##
+## Usage: make release V=YYYY.MM.DD     (e.g. V=2026.04.29)
+##
+## The version string MUST be zero-padded calver (YYYY.MM.DD) because
+## Claude Code currently compares plugin versions lexicographically, not
+## as semver — without leading zeros, "2026.4.29" sorts after
+## "2026.4.5" and update detection breaks. The bootstrap URL is built
+## from this field as releases/download/v$(V)/..., so plugin.json,
+## the git tag, and the GitHub Release asset path stay aligned.
+##
+## Push is intentionally NOT automatic so the commit + tag can be
+## reviewed locally before they go public; copy the printed command
+## to publish.
+release:
+	@test -n "$(V)" || { echo "usage: make release V=YYYY.MM.DD"; exit 1; }
+	@echo "$(V)" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$$' || { \
+		echo "version $(V) must match YYYY.MM.DD with zero-padded month/day"; \
+		echo "(Claude Code uses lexicographic comparison — see issue #16705)"; \
+		exit 1; \
+	}
+	@test -z "$$(git status --porcelain)" || { echo "working tree dirty — commit or stash first"; exit 1; }
+	@if git rev-parse --verify --quiet "v$(V)" >/dev/null; then \
+		echo "tag v$(V) already exists"; exit 1; \
+	fi
+	sed -i.bak 's/"version"[[:space:]]*:[[:space:]]*"[^"]*"/"version": "$(V)"/' .claude-plugin/plugin.json
+	rm -f .claude-plugin/plugin.json.bak
+	git add .claude-plugin/plugin.json
+	git commit -m "chore: release v$(V)"
+	git tag "v$(V)"
+	@echo ""
+	@echo "Tagged v$(V). To publish:"
+	@echo "  git push origin $$(git branch --show-current) v$(V)"
 
 ## Remove the release build artifacts
 clean:
