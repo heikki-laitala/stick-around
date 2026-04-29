@@ -23,8 +23,6 @@ pub struct TerminalContent {
     pub line_offsets: Vec<usize>,
     /// Simple hash per line for content-based coloring
     pub hashes: Vec<u32>,
-    /// Debug: last few lines of raw text for prompt detection debugging
-    pub debug_lines: Vec<String>,
     /// Direct pixel bounds of the prompt box (between the top and bottom
     /// box-drawing separators), relative to the window's top-left. Measured
     /// via `AXBoundsForRange` on macOS/iTerm so the overlay's PROMPT rect
@@ -39,6 +37,7 @@ pub struct TerminalContent {
 }
 
 mod text_analysis;
+pub use text_analysis::{default_dump_path, set_default_dump_enabled};
 
 #[cfg(target_os = "macos")]
 mod macos;

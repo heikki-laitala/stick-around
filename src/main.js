@@ -117,13 +117,9 @@ const state = {
   cachedFooterIdx: null,
 
   // Debug
-  DEBUG_DRAW: false,
   DEBUG_PLATFORMS: false,
   debugAnchorX: null, // captured when DEBUG_PLATFORMS turns on — anchor for pinned mine/ball
   debugAnchorY: null,
-  lastDebugLines: [],
-  lastInputLine: null,
-  lastFooterLine: null,
 };
 
 // ── Fallback Platforms ───────────────────────────────────────────────
@@ -211,9 +207,6 @@ function handleTerminalContent(content) {
   state.lineHeight = result.lineHeight;
   state.cachedInputIdx = result.cachedInputIdx;
   state.cachedFooterIdx = result.cachedFooterIdx;
-  state.lastDebugLines = result.lastDebugLines;
-  state.lastInputLine = result.lastInputLine;
-  state.lastFooterLine = result.lastFooterLine;
 
   // On resize, clear items so they respawn fresh on the new layout, and
   // force the spawn branch below to re-place the man on the prompt box.
@@ -429,7 +422,6 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.code === 'KeyB') { state.DEBUG_DRAW = !state.DEBUG_DRAW; return; }
   if (e.code === 'KeyV') {
     state.DEBUG_PLATFORMS = !state.DEBUG_PLATFORMS;
     if (state.DEBUG_PLATFORMS) {
@@ -440,6 +432,11 @@ document.addEventListener('keydown', e => {
       state.debugAnchorY = null;
       state.collectibles = state.collectibles.filter((c) => !c.debug);
       state.manaMines = state.manaMines.filter((m) => !m.debug);
+    }
+    if (window.__TAURI__) {
+      window.__TAURI__.core.invoke('set_dump_enabled', { enabled: state.DEBUG_PLATFORMS })
+        .then((path) => { console.log(`[debug] detection dump ${state.DEBUG_PLATFORMS ? 'on' : 'off'} at ${path}`); })
+        .catch(() => {});
     }
     return;
   }

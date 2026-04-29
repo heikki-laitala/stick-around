@@ -68,7 +68,7 @@ export function isInHole(holes, x, platY) {
  *
  * @param {object} content - Terminal content from backend
  * @param {object} cached  - { cachedInputIdx, cachedFooterIdx } fallback cache
- * @returns {{ platforms, promptArea, footerArea, textOffsetX, textOffsetY, textWidth, textHeight, lineHeight, cachedInputIdx, cachedFooterIdx, lastDebugLines, lastInputLine, lastFooterLine }}
+ * @returns {{ platforms, promptArea, footerArea, textOffsetX, textOffsetY, textWidth, textHeight, lineHeight, cachedInputIdx, cachedFooterIdx }}
  */
 export function buildPlatforms(content, cached) {
   const textOffsetX = content.text_offset_x;
@@ -79,9 +79,6 @@ export function buildPlatforms(content, cached) {
   const lineOffsets = content.line_offsets || [];
   const hashes = content.hashes || [];
   const numVisible = lines.length;
-  const lastDebugLines = content.debug_lines || [];
-  const lastInputLine = content.input_line;
-  const lastFooterLine = content.footer_line;
 
   if (numVisible === 0) {
     return {
@@ -89,7 +86,6 @@ export function buildPlatforms(content, cached) {
       textOffsetX, textOffsetY, textWidth, textHeight, lineHeight: 16,
       cachedInputIdx: cached.cachedInputIdx || null,
       cachedFooterIdx: cached.cachedFooterIdx || null,
-      lastDebugLines, lastInputLine, lastFooterLine,
     };
   }
 
@@ -191,6 +187,5 @@ export function buildPlatforms(content, cached) {
     textOffsetX, textOffsetY, textWidth, textHeight, lineHeight,
     cachedInputIdx: newCachedInputIdx,
     cachedFooterIdx: newCachedFooterIdx,
-    lastDebugLines, lastInputLine, lastFooterLine,
   };
 }

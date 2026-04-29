@@ -75,7 +75,6 @@ describe('buildPlatforms', () => {
     hashes: new Array(20).fill(0).map((_, i) => i + 1),
     input_line: 16,
     footer_line: 18,
-    debug_lines: [],
     ...overrides,
   });
 

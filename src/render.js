@@ -51,12 +51,11 @@ export function render(ctx, state, screenW, screenH) {
   }
 
   if (!state.hasSpawned) {
-    // Linux: render debug overlays even pre-spawn so the user can press
-    // B/V to inspect why the man hasn't appeared yet (AT-SPI failures,
-    // missing prompt detection, etc.). macOS/Windows keep the original
+    // Linux: render debug overlay even pre-spawn so the user can press V
+    // to inspect why the man hasn't appeared yet (AT-SPI failures, missing
+    // prompt detection, etc.). macOS/Windows keep the original
     // post-spawn-only gate.
-    if (IS_LINUX && state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
-    if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
+    if (IS_LINUX && state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
     // Linux passive mode shrinks the overlay to the HUD strip; the strip
     // is the only thing on screen for the user to look at, so always
     // paint the HUD on Linux even when blurred. macOS/Windows keep the
@@ -487,8 +486,7 @@ export function render(ctx, state, screenW, screenH) {
   }
   if (state.lightningBolt) drawLightningBolt(ctx, state.lightningBolt);
 
-  if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state);
-  if (state.DEBUG_DRAW) renderDebugOverlays(ctx, state, screenH);
+  if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 
   // See the no-spawn branch above: Linux's strip is the only visual
   // surface in passive mode, so keep the HUD rendered there.
@@ -733,8 +731,37 @@ function drawManaMine(ctx, m) {
 /**
  * Render all platforms as visible rectangles with posture/clearance info.
  */
-function renderPlatformOverlay(ctx, state) {
+function renderPlatformOverlay(ctx, state, screenH) {
   const lh = state.lineHeight;
+
+  if (state.footerArea) {
+    ctx.fillStyle = 'rgba(0, 200, 50, 0.15)';
+    ctx.fillRect(state.footerArea.x, state.footerArea.y, state.footerArea.w, state.footerArea.h);
+    ctx.strokeStyle = 'rgba(0, 200, 50, 0.6)';
+    ctx.lineWidth = 2;
+    // Inset stroke by 1 so lineWidth=2 (which draws ±1 around the path)
+    // stays entirely inside the fill rect. Without inset, the bottom
+    // stroke bleeds 1 px into the row below.
+    ctx.strokeRect(state.footerArea.x + 1, state.footerArea.y + 1, state.footerArea.w - 2, state.footerArea.h - 2);
+    ctx.fillStyle = 'rgba(0, 200, 50, 0.9)';
+    ctx.font = '10px monospace';
+    ctx.fillText('FOOTER', state.footerArea.x + 4, state.footerArea.y + 12);
+  }
+  if (state.promptArea) {
+    ctx.fillStyle = 'rgba(0, 100, 255, 0.15)';
+    ctx.fillRect(state.promptArea.x, state.promptArea.y, state.promptArea.w, state.promptArea.h);
+    ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(state.promptArea.x + 1, state.promptArea.y + 1, state.promptArea.w - 2, state.promptArea.h - 2);
+    ctx.fillStyle = 'rgba(0, 100, 255, 0.9)';
+    ctx.font = '10px monospace';
+    ctx.fillText('PROMPT', state.promptArea.x + 4, state.promptArea.y + 12);
+  }
+  if (!state.footerArea && !state.promptArea && screenH != null) {
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
+    ctx.font = '12px monospace';
+    ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
+  }
 
   // Draw every platform
   for (let i = 0; i < state.platforms.length; i++) {
@@ -790,67 +817,3 @@ function renderPlatformOverlay(ctx, state) {
   }
 }
 
-/**
- * Render debug overlays: prompt/footer boxes, debug text.
- */
-export function renderDebugOverlays(ctx, state, screenH) {
-  if (state.footerArea) {
-    ctx.fillStyle = 'rgba(0, 200, 50, 0.15)';
-    ctx.fillRect(state.footerArea.x, state.footerArea.y, state.footerArea.w, state.footerArea.h);
-    ctx.strokeStyle = 'rgba(0, 200, 50, 0.6)';
-    ctx.lineWidth = 2;
-    // Inset stroke by 1 so lineWidth=2 (which draws ±1 around the path)
-    // stays entirely inside the fill rect. Without inset, the bottom
-    // stroke bleeds 1 px into the row below.
-    ctx.strokeRect(state.footerArea.x + 1, state.footerArea.y + 1, state.footerArea.w - 2, state.footerArea.h - 2);
-    ctx.fillStyle = 'rgba(0, 200, 50, 0.9)';
-    ctx.font = '10px monospace';
-    ctx.fillText('FOOTER', state.footerArea.x + 4, state.footerArea.y + 12);
-  }
-  if (state.promptArea) {
-    ctx.fillStyle = 'rgba(0, 100, 255, 0.15)';
-    ctx.fillRect(state.promptArea.x, state.promptArea.y, state.promptArea.w, state.promptArea.h);
-    ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(state.promptArea.x + 1, state.promptArea.y + 1, state.promptArea.w - 2, state.promptArea.h - 2);
-    ctx.fillStyle = 'rgba(0, 100, 255, 0.9)';
-    ctx.font = '10px monospace';
-    ctx.fillText('PROMPT', state.promptArea.x + 4, state.promptArea.y + 12);
-  }
-  if (!state.footerArea && !state.promptArea) {
-    ctx.fillStyle = 'rgba(255, 50, 50, 0.9)';
-    ctx.font = '12px monospace';
-    ctx.fillText('NO PROMPT DETECTED', 10, screenH - 10);
-  }
-  if (state.lineHeight > 0 && state.textHeight > 0) {
-    const rows = Math.round(state.textHeight / state.lineHeight);
-    const x0 = state.textOffsetX || 0;
-    const xW = state.textWidth || 600;
-    ctx.font = '9px monospace';
-    for (let i = 0; i <= rows; i++) {
-      const y = state.textOffsetY + i * state.lineHeight;
-      const major = i % 5 === 0;
-      ctx.strokeStyle = major ? 'rgba(255, 200, 0, 0.8)' : 'rgba(255, 0, 0, 0.35)';
-      ctx.lineWidth = major ? 1 : 0.5;
-      ctx.beginPath();
-      ctx.moveTo(x0, y);
-      ctx.lineTo(x0 + xW, y);
-      ctx.stroke();
-      if (major) {
-        ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
-        ctx.fillText(`r${i}`, x0 + 2, y - 1);
-      }
-    }
-  }
-  if (state.lastDebugLines && state.lastDebugLines.length > 0) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    const dbgH = state.lastDebugLines.length * 14 + 20;
-    ctx.fillRect(0, 0, 600, dbgH);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.font = '11px monospace';
-    ctx.fillText(`footer: ${state.lastFooterLine}  input: ${state.lastInputLine}`, 10, 14);
-    for (let i = 0; i < state.lastDebugLines.length; i++) {
-      ctx.fillText(state.lastDebugLines[i], 10, 28 + i * 14);
-    }
-  }
-}

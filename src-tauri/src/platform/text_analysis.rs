@@ -9,9 +9,29 @@
 //! canonical implementation here means a fix in one place applies
 //! everywhere.
 
-/// Dump the detector's view of a poll cycle to a file when the
-/// `STICK_AROUND_DUMP_DETECTION` env var is set. Used to debug
-/// prompt / footer detection across all backends.
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Runtime toggle for the dump file. The V debug overlay flips this on
+/// so a diagnostic snapshot lands in the temp dir without the user
+/// having to set an env var. The env var still wins when set, so
+/// custom paths keep working.
+static DUMP_TO_DEFAULT: AtomicBool = AtomicBool::new(false);
+
+pub fn set_default_dump_enabled(enabled: bool) {
+    DUMP_TO_DEFAULT.store(enabled, Ordering::Relaxed);
+}
+
+/// Default dump path used when `set_default_dump_enabled(true)` has
+/// fired and the env var is unset.
+pub fn default_dump_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("stick-around-detection.dump")
+}
+
+/// Dump the detector's view of a poll cycle to a file. Writes when the
+/// `STICK_AROUND_DUMP_DETECTION` env var is set (custom path) or when
+/// the V debug overlay has called `set_default_dump_enabled(true)`
+/// (default temp-dir path). Used to debug prompt / footer detection
+/// across all backends.
 ///
 /// Each call truncates and rewrites the file, so the latest snapshot
 /// is always there — kill the overlay (`Q` or `pkill stick-around`) to
@@ -26,9 +46,14 @@ pub fn dump_detection_snapshot(
     footer_rect: Option<(f64, f64, f64, f64)>,
     extras: &[(&str, String)],
 ) {
-    let path = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
-        Ok(p) if !p.is_empty() => p,
-        _ => return,
+    let path: std::path::PathBuf = match std::env::var("STICK_AROUND_DUMP_DETECTION") {
+        Ok(p) if !p.is_empty() => p.into(),
+        _ => {
+            if !DUMP_TO_DEFAULT.load(Ordering::Relaxed) {
+                return;
+            }
+            default_dump_path()
+        }
     };
     use std::fmt::Write as _;
     let mut out = String::new();

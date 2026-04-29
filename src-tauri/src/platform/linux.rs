@@ -352,28 +352,6 @@ pub fn get_terminal_content(
 
     let (input_line, footer_line) = detect_terminal_regions(&text_lines);
 
-    let total = text_lines.len();
-    let start = total.saturating_sub(8);
-    let debug_lines: Vec<String> = text_lines[start..]
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let idx = start + i;
-            let escaped: String = l
-                .chars()
-                .take(60)
-                .map(|c| {
-                    if c.is_ascii_graphic() || c == ' ' {
-                        c.to_string()
-                    } else {
-                        format!("U+{:04X}", c as u32)
-                    }
-                })
-                .collect();
-            format!("[{}] {}", idx, escaped)
-        })
-        .collect();
-
     // Refine geometry with exact per-line measurements via AT-SPI's
     // GetCharacterExtents. The component bbox overshoots actual line
     // height by ~0.7 px on Ptyxis and is ~17 px wider than the real
@@ -507,7 +485,6 @@ pub fn get_terminal_content(
         lines,
         line_offsets,
         hashes,
-        debug_lines,
         prompt_rect,
         footer_rect,
     })
