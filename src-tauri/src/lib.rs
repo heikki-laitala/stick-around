@@ -208,6 +208,22 @@ pub fn run() {
     // at launch by walking visible windows for a known terminal host as
     // fallback. Without this, the overlay would pin to e.g. Chrome and
     // track that for the rest of the session.
+    //
+    // On macOS we also capture the controlling TTY of the closest shell
+    // ancestor (the one running Claude Code). Both iTerm and Terminal.app
+    // expose `tty` per session in their AppleScript dictionaries, which
+    // lets us pin the overlay to the *specific* window/tab Claude is
+    // running in instead of whatever window of that terminal app
+    // happens to be front (relevant for users with multiple iTerm
+    // windows or split tabs).
+    #[cfg(target_os = "macos")]
+    let (pid_opt, launch_tty): (Option<u32>, Option<String>) = {
+        match platform::launch_terminal_ancestor() {
+            Some(a) => (Some(a.pid), a.tty),
+            None => (platform::find_terminal_pid(), None),
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
     let pid_opt = platform::find_terminal_pid();
 
     let pid = match pid_opt {
@@ -222,6 +238,15 @@ pub fn run() {
     // backend (Terminal.app's AX hierarchy vs iTerm's native scripting).
     let terminal_name = platform::get_name_by_pid(pid).unwrap_or_default();
 
+    // Prefer the TTY-resolved window's bounds when we have one. Falls
+    // back to "front window of pid" if the TTY lookup fails (scripting
+    // permission denied, session closed, …).
+    #[cfg(target_os = "macos")]
+    let initial_bounds = launch_tty
+        .as_deref()
+        .and_then(|tty| platform::get_window_bounds_for_tty(&terminal_name, tty))
+        .or_else(|| platform::get_front_window_bounds(pid));
+    #[cfg(not(target_os = "macos"))]
     let initial_bounds = platform::get_front_window_bounds(pid);
     let shared_bounds = Arc::new(Mutex::new(initial_bounds.unwrap_or((0, 0, 800, 600))));
     let poll_bounds = shared_bounds.clone();
@@ -239,11 +264,15 @@ pub fn run() {
     // Position heuristics can't disambiguate two same-PID windows — if the
     // user drags our tracked window past another Ghostty/iTerm window, the
     // overlay would otherwise snap to whichever sibling ended up closer.
-    // We pick by z-order (the frontmost same-PID window right now) rather
-    // than by bounds, because same-app windows often share geometry and a
-    // bounds match is ambiguous.
+    // Prefer the TTY-resolved window's CGWindowID (matches the bounds we
+    // looked up above) so multi-window iTerm / Terminal users get pinned
+    // to the *specific* window running Claude Code, not just z-order top.
+    // Falls back to z-order if the TTY-resolved bounds match no on-screen
+    // window of `pid` (window in another Mission Control space, etc.).
     #[cfg(target_os = "macos")]
-    let tracked_window_id: Option<u32> = platform::get_frontmost_window_id_for_pid(pid);
+    let tracked_window_id: Option<u32> = initial_bounds
+        .and_then(|(x, y, _, _)| platform::get_window_id_for_pid_at(pid, x, y))
+        .or_else(|| platform::get_frontmost_window_id_for_pid(pid));
 
     // Overlay activation state. macOS/Windows track this implicitly via
     // ignore_cursor_events + key-window state. On Linux we read this in
