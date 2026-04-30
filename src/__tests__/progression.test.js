@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MISSIONS,
+  FIXED_MISSION_COUNT,
   advanceMission,
   debugSkipMission,
   displayClass,
@@ -20,6 +21,15 @@ function makeState(overrides = {}) {
     ...initialProgression(),
     ...overrides,
   };
+}
+
+// Tests that push a synthesized mission rely on it being the last one
+// reached by completeRealMissions. With the random tail order, that's not
+// guaranteed — pin the most-recent push to the end of the play order so
+// the assertions stay deterministic.
+function pinLatestMissionLast(s) {
+  const last = MISSIONS.length - 1;
+  s.missionOrder = [...s.missionOrder.filter((i) => i !== last), last];
 }
 
 /**
@@ -71,6 +81,32 @@ describe('initialProgression', () => {
     expect(s.unlocks.size).toBe(0);
     expect(s.completedMissionIds.size).toBe(0);
   });
+
+  it('pins the fixed-prefix missions to the start of the play order', () => {
+    const s = makeState();
+    for (let i = 0; i < FIXED_MISSION_COUNT; i++) {
+      expect(s.missionOrder[i]).toBe(i);
+    }
+  });
+
+  it('produces a permutation of every mission index — no dupes, no gaps', () => {
+    const s = makeState();
+    expect(s.missionOrder.length).toBe(MISSIONS.length);
+    const seen = new Set(s.missionOrder);
+    expect(seen.size).toBe(MISSIONS.length);
+    for (let i = 0; i < MISSIONS.length; i++) expect(seen.has(i)).toBe(true);
+  });
+
+  it('shuffles the variable tail across runs (statistical — at least one differs)', () => {
+    if (MISSIONS.length - FIXED_MISSION_COUNT < 2) return;       // not enough variance to shuffle
+    let differs = false;
+    const baseline = makeState().missionOrder.slice(FIXED_MISSION_COUNT).join(',');
+    for (let attempt = 0; attempt < 30 && !differs; attempt++) {
+      const tail = makeState().missionOrder.slice(FIXED_MISSION_COUNT).join(',');
+      if (tail !== baseline) differs = true;
+    }
+    expect(differs).toBe(true);
+  });
 });
 
 describe('MISSIONS', () => {
@@ -105,7 +141,9 @@ describe('advanceMission', () => {
     const s2 = makeState({ score: 5 });
     advanceMission(s2);
     expect(s2.mission).toBe(MISSIONS[1].text);
-    expect(s2.nextMission).toBe(MISSIONS[2]?.text ?? null);
+    // After mission 0 completes, nextMission previews whatever the play
+    // order has at index 2 (random per session, beyond the fixed prefix).
+    expect(s2.nextMission).toBe(MISSIONS[s2.missionOrder[2]]?.text ?? null);
     const s3 = makeState();
     completeRealMissions(s3);
     expect(s3.nextMission).toBeNull();
@@ -117,6 +155,7 @@ describe('advanceMission', () => {
     const titleMission = { id: 'test-title', text: 't', check: () => true, rewardTitle: 'legend' };
     const s = makeState();
     MISSIONS.push(titleMission);
+    pinLatestMissionLast(s);
     try {
       completeRealMissions(s);
       expect(s.titles).toContain('legend');
@@ -135,6 +174,7 @@ describe('advanceMission', () => {
     };
     const s = makeState();
     MISSIONS.push(unlockMission);
+    pinLatestMissionLast(s);
     try {
       completeRealMissions(s);
       expect(hasUnlock(s, 'dark-mode')).toBe(true);
@@ -187,7 +227,17 @@ describe('advanceMission', () => {
 describe('mission lifecycle hooks', () => {
   function withMission(mission, fn) {
     MISSIONS.push(mission);
-    try { fn(); } finally { MISSIONS.pop(); }
+    // Hand the inner test a state factory so each one runs with the
+    // synthesized mission pinned to the tail of the play order. Without
+    // this, the random tail can put the test mission anywhere from
+    // position 2 onward, which breaks tests that assume completeRealMissions
+    // lands on it last.
+    const buildState = (overrides = {}) => {
+      const s = makeState(overrides);
+      pinLatestMissionLast(s);
+      return s;
+    };
+    try { fn(buildState); } finally { MISSIONS.pop(); }
   }
 
   it('calls onEnter exactly once when the mission becomes active', () => {
@@ -199,8 +249,8 @@ describe('mission lifecycle hooks', () => {
         check: () => false,
         onEnter: () => { enters += 1; },
       },
-      () => {
-        const s = makeState();
+      (buildState) => {
+        const s = buildState();
         completeRealMissions(s); // walks past real missions, enters the test mission
         expect(enters).toBe(1);
         advanceMission(s); // re-advance: check still false, no re-enter
@@ -217,8 +267,8 @@ describe('mission lifecycle hooks', () => {
         check: (s) => !!s.missionScene?.won,
         onEnter: (s) => { s.missionScene.lavaY = 100; },
       },
-      () => {
-        const s = makeState();
+      (buildState) => {
+        const s = buildState();
         completeRealMissions(s);
         expect(s.missionScene).toEqual({ lavaY: 100 });
         s.missionScene.won = true;
@@ -237,8 +287,8 @@ describe('mission lifecycle hooks', () => {
         check: () => false,
         update: (_s, dt) => { accum += dt; },
       },
-      () => {
-        const s = makeState();
+      (buildState) => {
+        const s = buildState();
         completeRealMissions(s);
         tickActiveMission(s, 0.016);
         tickActiveMission(s, 0.016);
@@ -256,8 +306,8 @@ describe('mission lifecycle hooks', () => {
         check: () => false,
         render: (ctx, _s, W, H) => { calls.push({ ctx, W, H }); },
       },
-      () => {
-        const s = makeState();
+      (buildState) => {
+        const s = buildState();
         completeRealMissions(s);
         const fakeCtx = { id: 'ctx' };
         renderActiveMission(fakeCtx, s, 800, 600);
@@ -275,8 +325,8 @@ describe('mission lifecycle hooks', () => {
         check: (s) => !!s.missionScene?.won,
         onExit: () => { exits += 1; },
       },
-      () => {
-        const s = makeState();
+      (buildState) => {
+        const s = buildState();
         completeRealMissions(s);
         expect(exits).toBe(0);
         s.missionScene.won = true;

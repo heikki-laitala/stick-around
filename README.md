@@ -216,24 +216,29 @@ Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
 ## Missions
 
-The game runs a short progression. Each mission reseeds the world and
-sets an objective shown in the HUD:
+The game runs a short progression. The first two missions always come
+in the same order — a warm-up. After that, the remaining missions are
+shuffled per session, so each run plays the variable tail in a fresh
+sequence (no repeats within a run).
 
 1. **Collect 5 glowing balls** — warm-up run across the rooftops.
 2. **Collect 4 mana crystals** — use `F` to mine them.
-3. **Escape the lava** — keep moving up before the floor catches you.
-4. **Meteor shower** — dodge falling rocks; you spawn at a safe point
-   when it starts.
-5. **Alone in the dark** — the world goes black and you carry a
-   flashlight. Sweep its beam with the arrow keys, and press `R` to
-   burn a collected ball into battery charge when the light fades.
-6. **Ice age** — every platform freezes (sliding-with-momentum), and
-   giant icicles hang from the terminal ceiling. Mine snow chunks
-   with `F` (they age out and respawn elsewhere), deliver three of
-   them to the build zone above the prompt to grow a snowman base
-   → torso → head. A shaking icicle telegraphs with a warm tint and
-   a pulsing red shadow on the platform it's about to hit; getting
-   crushed is instant fail unless your shield is up.
+
+After the warm-up, in random order:
+
+- **Escape the lava** — keep moving up before the floor catches you.
+- **Meteor shower** — dodge falling rocks; you spawn at a safe point
+  when it starts.
+- **Alone in the dark** — the world goes black and you carry a
+  flashlight. Sweep its beam with the arrow keys, and press `R` to
+  burn a collected ball into battery charge when the light fades.
+- **Ice age** — every platform freezes (sliding-with-momentum), and
+  giant icicles hang from the terminal ceiling. Mine snow chunks
+  with `F` (they age out and respawn elsewhere), deliver three of
+  them to the build zone above the prompt to grow a snowman base →
+  torso → head. A shaking icicle telegraphs with a warm tint and a
+  pulsing red shadow on the platform it's about to hit; getting
+  crushed is instant fail unless your shield is up.
 
 `Shift + R` restarts just the current mission if you get stuck.
 
