@@ -6,6 +6,10 @@ import {
   EVIL_TWIN_DELAY_INITIAL,
   EVIL_TWIN_HIT_COOLDOWN,
   EVIL_TWIN_HIT_RADIUS,
+  TWIN_SPELL_AIM_DURATION,
+  TWIN_BOLT_LIFE,
+  TWIN_STUN_DURATION,
+  EVIL_TWIN_PRIMER_MANA,
   twinSnapshotAt,
 } from '../missions/evilTwin.js';
 import { IDLE } from '../poses.js';
@@ -61,6 +65,18 @@ describe('EVIL_TWIN_MISSION onEnter', () => {
     const s = makeState();
     EVIL_TWIN_MISSION.onEnter(s);
     expect(s.missionScene.delaySec).toBeCloseTo(EVIL_TWIN_DELAY_INITIAL, 5);
+  });
+
+  it('primes the player with at least EVIL_TWIN_PRIMER_MANA so they have a zap on hand', () => {
+    const s = makeState({ mana: 0 });
+    EVIL_TWIN_MISSION.onEnter(s);
+    expect(s.mana).toBe(EVIL_TWIN_PRIMER_MANA);
+  });
+
+  it('does not lower the player\'s mana if they walked in with more', () => {
+    const s = makeState({ mana: 12 });
+    EVIL_TWIN_MISSION.onEnter(s);
+    expect(s.mana).toBe(12);
   });
 });
 
@@ -195,6 +211,169 @@ describe('EVIL_TWIN_MISSION goal', () => {
     s.missionScene.ballsCollected = EVIL_TWIN_GOAL_BALLS - 1;
     EVIL_TWIN_MISSION.update(s, 0.016);
     expect(s.missionScene.delaySec).toBeLessThan(initial);
+  });
+});
+
+describe('EVIL_TWIN_MISSION shield', () => {
+  function plantTwinAtPlayer(s) {
+    s.missionScene.elapsed = EVIL_TWIN_DELAY_INITIAL + 1;
+    s.missionScene.buffer = [{
+      t: s.missionScene.elapsed - EVIL_TWIN_DELAY_INITIAL,
+      gx: s.gx, feetY: s.feetY,
+      faceR: s.faceR,
+      curPose: clonePose(),
+      posture: s.posture,
+    }];
+  }
+
+  it('a shielded contact hit leaves lives untouched', () => {
+    const s = makeState({ shieldActive: true });
+    EVIL_TWIN_MISSION.onEnter(s);
+    plantTwinAtPlayer(s);
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.missionScene.lives).toBe(EVIL_TWIN_INITIAL_LIVES);
+  });
+
+  it('a shielded player survives a direct twin lightning hit', () => {
+    const s = makeState({ shieldActive: true });
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.missionScene.spellState = 'firing';
+    s.missionScene.twinBolt = {
+      x: s.gx, y: s.feetY - 16,                         // bolt origin near player torso
+      angle: -Math.PI / 2,                              // straight up
+      life: TWIN_BOLT_LIFE,
+      maxLife: TWIN_BOLT_LIFE,
+      zig: [],
+      struck: false,
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+  });
+});
+
+describe('EVIL_TWIN_MISSION twin lightning', () => {
+  function planTwinReady(s) {
+    // Walk far enough that the buffer has a valid older entry to feed the
+    // cast origin. Without this the twin might still be "asleep" at spawn
+    // and the spell tick would defer.
+    s.missionScene.elapsed = EVIL_TWIN_DELAY_INITIAL + 1;
+    s.missionScene.buffer = [{
+      t: s.missionScene.elapsed - EVIL_TWIN_DELAY_INITIAL,
+      gx: s.gx + 200, feetY: s.feetY,
+      faceR: false,
+      curPose: clonePose(),
+      posture: s.posture,
+    }];
+  }
+
+  it('idle → aiming once the next-spell timer elapses', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    planTwinReady(s);
+    s.missionScene.spellNextAt = 0;                     // fire on the next tick
+    s.missionScene.spellT = 0;
+    EVIL_TWIN_MISSION.update(s, 0.05);
+    expect(s.missionScene.spellState).toBe('aiming');
+    expect(s.missionScene.twinAim).toBeDefined();
+  });
+
+  it('aiming → firing produces a twinBolt after the aim duration', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    planTwinReady(s);
+    s.missionScene.spellState = 'aiming';
+    s.missionScene.spellT = 0;
+    s.missionScene.twinAim = { angle: -Math.PI / 2, originX: 0, originY: 0 };
+    EVIL_TWIN_MISSION.update(s, TWIN_SPELL_AIM_DURATION + 0.01);
+    expect(s.missionScene.spellState).toBe('firing');
+    expect(s.missionScene.twinBolt).toBeDefined();
+    expect(s.missionScene.twinAim).toBeNull();
+  });
+
+  it('a live twin bolt that strikes the player ends the run', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.missionScene.spellState = 'firing';
+    s.missionScene.twinBolt = {
+      x: s.gx, y: s.feetY - 16,
+      angle: -Math.PI / 2,
+      life: TWIN_BOLT_LIFE,
+      maxLife: TWIN_BOLT_LIFE,
+      zig: [],
+      struck: false,
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(true);
+  });
+
+  it('a near-miss bolt leaves the player alive', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.missionScene.spellState = 'firing';
+    s.missionScene.twinBolt = {
+      x: s.gx + 200, y: s.feetY - 16,                   // ray far to the right
+      angle: -Math.PI / 2,
+      life: TWIN_BOLT_LIFE,
+      maxLife: TWIN_BOLT_LIFE,
+      zig: [],
+      struck: false,
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+  });
+});
+
+describe('EVIL_TWIN_MISSION stun', () => {
+  function plantTwin(s, twinGx, twinFeetY = s.feetY) {
+    s.missionScene.elapsed = EVIL_TWIN_DELAY_INITIAL + 1;
+    s.missionScene.buffer = [{
+      t: s.missionScene.elapsed - EVIL_TWIN_DELAY_INITIAL,
+      gx: twinGx, feetY: twinFeetY,
+      faceR: s.faceR,
+      curPose: clonePose(),
+      posture: s.posture,
+    }];
+  }
+
+  it('player lightning that passes through the twin stuns it', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    plantTwin(s, s.gx);                                 // twin overlaps player
+    // Live player bolt straight up through the twin's torso.
+    s.lightningBolt = {
+      x: s.gx, y: s.feetY,
+      angle: -Math.PI / 2,
+      life: 0.3, maxLife: 0.3,
+      zig: [],
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.missionScene.stunT).toBeGreaterThan(0);
+  });
+
+  it('contact during stun is harmless', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    plantTwin(s, s.gx);
+    s.missionScene.stunT = TWIN_STUN_DURATION;
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.missionScene.lives).toBe(EVIL_TWIN_INITIAL_LIVES);
+  });
+
+  it('a player zap interrupts a charging twin spell', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    plantTwin(s, s.gx);
+    s.missionScene.spellState = 'aiming';
+    s.missionScene.twinAim = { angle: 0, originX: 0, originY: 0 };
+    s.lightningBolt = {
+      x: s.gx, y: s.feetY,
+      angle: -Math.PI / 2,
+      life: 0.3, maxLife: 0.3,
+      zig: [],
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.missionScene.spellState).toBe('idle');
+    expect(s.missionScene.twinAim).toBeNull();
   });
 });
 

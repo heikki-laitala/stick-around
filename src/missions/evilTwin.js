@@ -1,7 +1,13 @@
-import { STANDING_HEIGHT } from '../poses.js';
+import { STANDING_HEIGHT, SCALE } from '../poses.js';
 import { resetPlayer } from '../physics.js';
-import { renderGameOver } from './_shared.js';
-import { drawShadowTwin, renderEvilTwinHud } from './evilTwin/render.js';
+import { isShielded, lightningStrikesPoint } from '../spells.js';
+import { renderGameOver, burstParticles } from './_shared.js';
+import {
+  drawShadowTwin,
+  drawTwinLightningAim,
+  drawTwinLightningBolt,
+  renderEvilTwinHud,
+} from './evilTwin/render.js';
 
 /**
  * "Evil Twin" mission.
@@ -23,6 +29,28 @@ export const EVIL_TWIN_DELAY_INITIAL = 3.0;       // seconds the twin lags at st
 export const EVIL_TWIN_DELAY_FINAL = 1.5;         // delay once the goal is in sight
 export const EVIL_TWIN_HIT_COOLDOWN = 1.0;        // seconds of invuln after a touch
 export const EVIL_TWIN_HIT_RADIUS = 16;
+// Spell timings — twin charges up for AIM_DURATION (visible aim line is the
+// player's chance to dodge or raise the shield), then a bolt strikes for
+// BOLT_LIFE. Direct hit = game over (parity with icicle / meteor).
+export const TWIN_SPELL_INTERVAL_MIN = 4.5;       // shortest gap between twin casts
+export const TWIN_SPELL_INTERVAL_MAX = 8.0;       // longest gap between twin casts
+export const TWIN_SPELL_AIM_DURATION = 0.9;       // seconds of telegraph before firing
+// Imperfect tracking: during the charge the angle slews toward the
+// player at this rate (rad/s). Enough to catch lazy drift, but not a
+// hard juke — the player can still side-jump out of the lane.
+export const TWIN_SPELL_TRACK_RATE = 0.7;
+export const TWIN_BOLT_LIFE = 0.4;                // seconds the bolt sits visible
+export const TWIN_BOLT_RANGE = 1200;
+export const TWIN_BOLT_BEAM_WIDTH = 26;
+// Player's lightning is the only thing that touches the twin. A hit
+// stuns it for this many seconds — invisible, non-damaging, no spells —
+// long enough to use as a tactical reset, short enough to keep the
+// resource scarce given mana costs (2 per cast).
+export const TWIN_STUN_DURATION = 2.0;
+// Prime the player with enough mana for two lightning zaps so they
+// always have a defensive option, regardless of how the random mission
+// order ran. Won't overwrite if they walked in with more.
+export const EVIL_TWIN_PRIMER_MANA = 7;
 // Trim entries older than this so the buffer stays bounded across long
 // missions. Keep enough headroom that the initial-delay readback always
 // has data even when the player is moving slowly.
@@ -88,6 +116,141 @@ function twinHitsPlayer(state, twin) {
   return Math.hypot(twin.gx - state.gx, twinTorsoY - torsoY) < EVIL_TWIN_HIT_RADIUS;
 }
 
+// Same casting origin convention as the player's wand — fire from the
+// twin's head joint so the bolt visibly erupts off the silhouette
+// instead of the man's feet.
+function twinCastOrigin(twin) {
+  const head = twin?.curPose?.head;
+  if (!head) return null;
+  const fl = twin.faceR ? 1 : -1;
+  return {
+    x: twin.gx + head.x * SCALE * fl,
+    y: twin.feetY + (head.y - 44) * SCALE,
+  };
+}
+
+function rollSpellInterval() {
+  return TWIN_SPELL_INTERVAL_MIN
+    + Math.random() * (TWIN_SPELL_INTERVAL_MAX - TWIN_SPELL_INTERVAL_MIN);
+}
+
+function makeZig() {
+  // Same shape the player's bolt uses — alternating perpendicular offsets,
+  // tapering toward the tip so the ray narrows to a point.
+  const n = 22;
+  const arr = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const taper = 1 - i / n;
+    arr[i] = ((i % 2 === 0 ? -1 : 1) * (8 + Math.random() * 10)) * taper;
+  }
+  return arr;
+}
+
+/**
+ * Is the player's torso within the bolt's beam? Mirrors the player's
+ * `lightningStrikesPoint` math: project onto the ray, accept if the
+ * along-ray distance is within range and the perpendicular distance is
+ * within half the beam width.
+ */
+export function twinBoltStrikesPoint(bolt, x, y) {
+  if (!bolt) return false;
+  const dx = x - bolt.x;
+  const dy = y - bolt.y;
+  const cos = Math.cos(bolt.angle);
+  const sin = Math.sin(bolt.angle);
+  const along = dx * cos + dy * sin;
+  const across = -dx * sin + dy * cos;
+  if (along < 0 || along > TWIN_BOLT_RANGE) return false;
+  return Math.abs(across) <= TWIN_BOLT_BEAM_WIDTH / 2;
+}
+
+function tickTwinSpell(state, scene, twin, dt) {
+  scene.spellT = (scene.spellT || 0) + dt;
+  // 'idle' — count down to next charge attempt.
+  if (scene.spellState === 'idle') {
+    if (!twin) return;                                 // need a body to cast from
+    if (scene.spellT >= scene.spellNextAt) {
+      const origin = twinCastOrigin(twin);
+      if (!origin) {                                   // pose not ready, retry next tick
+        scene.spellT = scene.spellNextAt - 0.2;
+        return;
+      }
+      const torsoY = state.feetY - STANDING_HEIGHT / 2;
+      const angle = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+      scene.twinAim = { angle, originX: origin.x, originY: origin.y };
+      scene.spellState = 'aiming';
+      scene.spellT = 0;
+    }
+    return;
+  }
+  // 'aiming' — line stays attached to the twin's head while it moves.
+  // The angle slews toward the player at TWIN_SPELL_TRACK_RATE (rad/s),
+  // so steady drift gets tracked but a sharp juke still escapes the
+  // lane. Final angle locks at fire-time.
+  if (scene.spellState === 'aiming') {
+    const origin = twin ? twinCastOrigin(twin) : null;
+    if (origin && scene.twinAim) {
+      scene.twinAim.originX = origin.x;
+      scene.twinAim.originY = origin.y;
+      const torsoY = state.feetY - STANDING_HEIGHT / 2;
+      const desired = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+      let diff = desired - scene.twinAim.angle;
+      // Wrap to (-π, π] so we slew the short way around.
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const step = TWIN_SPELL_TRACK_RATE * dt;
+      const clamped = Math.max(-step, Math.min(step, diff));
+      scene.twinAim.angle += clamped;
+    }
+    if (scene.spellT >= TWIN_SPELL_AIM_DURATION) {
+      const aim = scene.twinAim;
+      if (aim) {
+        scene.twinBolt = {
+          x: aim.originX, y: aim.originY,
+          angle: aim.angle,
+          life: TWIN_BOLT_LIFE,
+          maxLife: TWIN_BOLT_LIFE,
+          zig: makeZig(),
+          struck: false,                               // gates the once-per-bolt damage
+        };
+      }
+      scene.twinAim = null;
+      scene.spellState = 'firing';
+      scene.spellT = 0;
+    }
+    return;
+  }
+  // 'firing' — age the bolt; while it's live, a torso intersection is fatal.
+  if (scene.spellState === 'firing') {
+    const bolt = scene.twinBolt;
+    if (bolt) {
+      bolt.life -= dt;
+      if (!bolt.struck && !state.gameOver) {
+        const torsoY = state.feetY - STANDING_HEIGHT / 2;
+        if (twinBoltStrikesPoint(bolt, state.gx, torsoY)) {
+          bolt.struck = true;
+          if (!isShielded(state)) {
+            state.gameOver = true;
+            state.gvx = 0;
+            state.gvy = 0;
+          }
+        }
+      }
+      if (bolt.life <= 0) {
+        scene.twinBolt = null;
+        scene.spellState = 'idle';
+        scene.spellT = 0;
+        scene.spellNextAt = rollSpellInterval();
+      }
+    } else {
+      // Defensive: no bolt object — skip back to idle.
+      scene.spellState = 'idle';
+      scene.spellT = 0;
+      scene.spellNextAt = rollSpellInterval();
+    }
+  }
+}
+
 function currentDelay(scene) {
   const progress = Math.min(1, (scene.ballsCollected || 0) / EVIL_TWIN_GOAL_BALLS);
   return EVIL_TWIN_DELAY_INITIAL
@@ -111,6 +274,7 @@ export const EVIL_TWIN_MISSION = {
   onEnter(state) {
     const scene = state.missionScene;
     resetPlayer(state);
+    if ((state.mana || 0) < EVIL_TWIN_PRIMER_MANA) state.mana = EVIL_TWIN_PRIMER_MANA;
     scene.lives = EVIL_TWIN_INITIAL_LIVES;
     scene.ballsCollected = 0;
     scene.lastScore = state.score || 0;
@@ -118,6 +282,12 @@ export const EVIL_TWIN_MISSION = {
     scene.elapsed = 0;
     scene.invulnTimer = 0;
     scene.buffer = [];
+    scene.spellState = 'idle';
+    scene.spellT = 0;
+    scene.spellNextAt = rollSpellInterval();
+    scene.twinAim = null;
+    scene.twinBolt = null;
+    scene.stunT = 0;
     pushSnapshot(scene, state);
     state.gameOver = false;
   },
@@ -153,10 +323,37 @@ export const EVIL_TWIN_MISSION = {
     scene.lastScore = state.score || 0;
 
     scene.invulnTimer = Math.max(0, (scene.invulnTimer || 0) - dt);
+    scene.stunT = Math.max(0, (scene.stunT || 0) - dt);
 
     const twin = twinSnapshotAt(scene, scene.delaySec);
-    if (twin && twinHitsPlayer(state, twin)) {
-      if (scene.invulnTimer <= 0) {
+    const stunned = scene.stunT > 0;
+
+    // Player's lightning bolt zaps the twin — stun for a couple of seconds,
+    // burst red sparks at the twin's torso so the hit reads visually.
+    if (twin && !stunned && state.lightningBolt) {
+      const twinTorsoY = twin.feetY - STANDING_HEIGHT / 2;
+      if (lightningStrikesPoint(state, twin.gx, twinTorsoY)) {
+        scene.stunT = TWIN_STUN_DURATION;
+        burstParticles(state, twin.gx, twinTorsoY, {
+          count: 14,
+          speedMax: 220,
+          life: 0.45,
+        });
+        // Drop any in-flight twin spell so the player can also interrupt
+        // an incoming bolt with a well-timed zap.
+        scene.spellState = 'idle';
+        scene.spellT = 0;
+        scene.spellNextAt = rollSpellInterval();
+        scene.twinAim = null;
+        scene.twinBolt = null;
+      }
+    }
+
+    if (twin && !stunned && twinHitsPlayer(state, twin)) {
+      // Shield neutralises contact damage (parity with lava / meteor /
+      // ice age / icicle). The cooldown still ticks so the player gets a
+      // brief window to escape after the shield drops.
+      if (scene.invulnTimer <= 0 && !isShielded(state)) {
         scene.lives = Math.max(0, (scene.lives || 0) - 1);
         scene.invulnTimer = EVIL_TWIN_HIT_COOLDOWN;
         if (scene.lives === 0) {
@@ -166,14 +363,19 @@ export const EVIL_TWIN_MISSION = {
         }
       }
     }
+
+    if (!stunned) tickTwinSpell(state, scene, twin, dt);
   },
 
   render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
     const paused = state.overlayActive === false;
+    const stunned = (scene.stunT || 0) > 0;
     const twin = twinSnapshotAt(scene, scene.delaySec);
-    drawShadowTwin(ctx, twin, paused);
+    if (!stunned) drawShadowTwin(ctx, twin, paused);
+    if (scene.twinAim) drawTwinLightningAim(ctx, scene.twinAim);
+    if (scene.twinBolt) drawTwinLightningBolt(ctx, scene.twinBolt);
     renderEvilTwinHud(ctx, scene, state.screenW || W);
     if (state.gameOver) renderGameOver(ctx, W, H);
   },

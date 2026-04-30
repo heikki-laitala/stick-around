@@ -8,7 +8,7 @@ import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
-  initialSpells, castSpellByName, releaseCast,
+  initialSpells, castSpell, castSpellByName, releaseCast,
   adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
@@ -460,10 +460,17 @@ document.addEventListener('keydown', e => {
     resetPlayer(state);
     return;
   }
-  // Bare R spends one glowing ball to top up the flashlight battery during
+  // Bare R casts the spell currently shown in the HUD — same effect as
+  // the slot key for that spell (1 = shield toggle, 2 = lightning hold).
+  // Reachable from the WASD posture without stretching for the number row.
+  if (e.code === 'KeyR') {
+    castSpell(state);
+    return;
+  }
+  // Bare G spends one glowing ball to top up the flashlight battery during
   // the alone-in-dark mission. Silently refused when out of balls or already
   // at full charge — no wasted balls. Outside that mission the key is inert.
-  if (e.code === 'KeyR') {
+  if (e.code === 'KeyG') {
     if (isAloneInDarkActive(state)) spendBallForBattery(state);
     return;
   }
@@ -529,10 +536,10 @@ document.addEventListener('keyup', e => {
     state.rope.tipX = state.gx;
     state.rope.tipY = state.feetY - 15 * SCALE;
   }
-  if (e.code === 'Digit2' && isLightningAiming(state)) {
-    // Fire from the wand tip so the bolt visibly erupts from the wand,
-    // not the man's head. The forward hand carries the wand, mirroring
-    // how the rope is drawn.
+  // Both Digit2 (the slot key) and R (the active-spell shortcut) release
+  // a lightning charge — whichever the player used to start the aim,
+  // letting go of either key fires from the wand tip.
+  if ((e.code === 'Digit2' || e.code === 'KeyR') && isLightningAiming(state)) {
     const hand = jointWorldPos(state, state.faceR ? 'rh' : 'lh');
     const tip = wandTip(hand.x, hand.y, state.lightningAim.angle);
     releaseCast(state, tip.x, tip.y);
