@@ -7,6 +7,9 @@ import {
   ICICLE_FALL_SPEED,
   ICICLE_PLAYER_HIT_R,
   ICICLE_SPAWN_INTERVAL,
+  SNOW_CHUNK_LIFETIME,
+  SNOW_CHUNK_SPAWN_INTERVAL,
+  SNOW_CHUNK_COUNT,
 } from '../missions/iceAge.js';
 
 function makeState(overrides = {}) {
@@ -275,5 +278,77 @@ describe('ICE_AGE_MISSION icicles', () => {
     }];
     ICE_AGE_MISSION.update(s, 0.001);
     expect(s.gameOver).toBe(false);
+  });
+});
+
+describe('ICE_AGE_MISSION snow chunk lifecycle', () => {
+  it('seeds chunks with an age field of zero', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    for (const c of s.missionScene.snowChunks) {
+      expect(c.age).toBe(0);
+    }
+  });
+
+  it('ages chunks every tick', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;                                              // keep clear of build zone
+    const original = s.missionScene.snowChunks[0];
+    ICE_AGE_MISSION.update(s, 0.5);
+    expect(original.age).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('despawns a chunk once it ages past SNOW_CHUNK_LIFETIME', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    // Pre-age every chunk so the next tick pushes them past lifetime in
+    // one step — no need to simulate seconds in real time.
+    for (const c of s.missionScene.snowChunks) c.age = SNOW_CHUNK_LIFETIME - 0.01;
+    const before = s.missionScene.snowChunks.length;
+    ICE_AGE_MISSION.update(s, 0.05);
+    expect(s.missionScene.snowChunks.length).toBeLessThan(before);
+  });
+
+  it('respawns a fresh chunk after the spawn interval when below cap', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    // Drop the chunk count below max, then advance time enough to fire
+    // the spawner. Building the platforms list big enough so the spawner
+    // can place a fresh chunk far from the surviving one.
+    s.missionScene.snowChunks = [s.missionScene.snowChunks[0]];
+    s.missionScene.snowChunkSpawnTimer = 0;
+    ICE_AGE_MISSION.update(s, SNOW_CHUNK_SPAWN_INTERVAL + 0.05);
+    expect(s.missionScene.snowChunks.length).toBe(2);
+  });
+
+  it('does not spawn a chunk on the build-zone platform', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    const buildHash = s.missionScene.buildZone.anchorHash;
+    s.gx = -9999;
+    // Run many spawn attempts back-to-back; none of the resulting chunks
+    // should land on the build-zone platform.
+    s.missionScene.snowChunks = [];
+    for (let i = 0; i < 30; i++) {
+      s.missionScene.snowChunkSpawnTimer = 0;
+      ICE_AGE_MISSION.update(s, SNOW_CHUNK_SPAWN_INTERVAL + 0.01);
+    }
+    for (const c of s.missionScene.snowChunks) {
+      expect(c.hash).not.toBe(buildHash);
+    }
+  });
+
+  it('does not exceed SNOW_CHUNK_COUNT chunks at once', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    for (let i = 0; i < 50; i++) {
+      s.missionScene.snowChunkSpawnTimer = 0;
+      ICE_AGE_MISSION.update(s, SNOW_CHUNK_SPAWN_INTERVAL + 0.01);
+    }
+    expect(s.missionScene.snowChunks.length).toBeLessThanOrEqual(SNOW_CHUNK_COUNT);
   });
 });
