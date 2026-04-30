@@ -63,24 +63,58 @@ export const MISSIONS = [
   ICE_AGE_MISSION,
 ];
 
+// The first two missions are fixed-order tutorials (collect balls, then
+// collect mines). Everything past that is shuffled per session so the
+// player gets a fresh ladder each run without ever repeating a mission
+// they've already played in this run.
+export const FIXED_MISSION_COUNT = 2;
+
 const ALL_DONE_MISSION = 'All missions complete!';
+
+/**
+ * Build a per-session play order. Fixed prefix (`FIXED_MISSION_COUNT`
+ * entries) is preserved; everything past that is Fisher-Yates shuffled so
+ * each run sees the variable missions in a different sequence. Returns a
+ * permutation of every index in MISSIONS.
+ */
+function defaultMissionOrder() {
+  const order = [];
+  const fixed = Math.min(FIXED_MISSION_COUNT, MISSIONS.length);
+  for (let i = 0; i < fixed; i++) order.push(i);
+  const tail = [];
+  for (let i = fixed; i < MISSIONS.length; i++) tail.push(i);
+  for (let i = tail.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [tail[i], tail[j]] = [tail[j], tail[i]];
+  }
+  return [...order, ...tail];
+}
 
 /**
  * Fresh progression fields. Spread into the game's state object at init.
  * main.js doesn't need to know the internal shape.
  */
 export function initialProgression() {
+  const missionOrder = defaultMissionOrder();
   return {
     rank: INITIAL_RANK,
     titles: [],
     missionIdx: 0,
-    mission: MISSIONS[0]?.text ?? ALL_DONE_MISSION,
-    nextMission: MISSIONS[1]?.text ?? null,
+    missionOrder,             // play order — fixed prefix, shuffled tail
+    mission: MISSIONS[missionOrder[0]]?.text ?? ALL_DONE_MISSION,
+    nextMission: MISSIONS[missionOrder[1]]?.text ?? null,
     unlocks: new Set(),
     completedMissionIds: new Set(),
     currentMissionId: null,   // set once onEnter has fired for the active mission
     missionScene: null,       // per-mission scratchpad — cleared on transitions
   };
+}
+
+function missionAt(state, idx) {
+  if (idx < 0) return null;
+  const order = state.missionOrder;
+  if (!order || idx >= order.length) return null;
+  return MISSIONS[order[idx]] || null;
 }
 
 export function displayClass(state) {
@@ -90,7 +124,7 @@ export function displayClass(state) {
 }
 
 export function getActiveMission(state) {
-  return MISSIONS[state.missionIdx] || null;
+  return missionAt(state, state.missionIdx);
 }
 
 export function hasUnlock(state, unlock) {
@@ -111,8 +145,9 @@ export function advanceMission(state) {
   ensureFields(state);
   ensureEntered(state);
 
-  while (state.missionIdx < MISSIONS.length && MISSIONS[state.missionIdx].check(state)) {
-    const m = MISSIONS[state.missionIdx];
+  while (state.missionIdx < state.missionOrder.length) {
+    const m = missionAt(state, state.missionIdx);
+    if (!m || !m.check(state)) break;
     if (m.rewardRank) state.rank = m.rewardRank;
     if (m.rewardTitle) state.titles.push(m.rewardTitle);
     if (m.unlocks) for (const u of m.unlocks) state.unlocks.add(u);
@@ -127,10 +162,8 @@ export function advanceMission(state) {
     ensureEntered(state);
   }
 
-  state.mission = state.missionIdx < MISSIONS.length
-    ? MISSIONS[state.missionIdx].text
-    : ALL_DONE_MISSION;
-  state.nextMission = MISSIONS[state.missionIdx + 1]?.text ?? null;
+  state.mission = missionAt(state, state.missionIdx)?.text ?? ALL_DONE_MISSION;
+  state.nextMission = missionAt(state, state.missionIdx + 1)?.text ?? null;
 }
 
 /**
@@ -142,11 +175,13 @@ export function advanceMission(state) {
 export function debugSkipMission(state) {
   ensureFields(state);
   ensureEntered(state);
-  // When already past the end, cycle back to the first mission and clear
-  // progress so the ladder plays through again. Counters (score,
-  // minesMined) are zeroed so simple check-missions don't auto-complete.
-  if (state.missionIdx >= MISSIONS.length) {
+  // When already past the end, cycle back to the first mission, reshuffle
+  // the variable tail, and clear progress so the ladder plays through
+  // again with a fresh order. Counters (score, minesMined) are zeroed so
+  // simple check-missions don't auto-complete.
+  if (state.missionIdx >= state.missionOrder.length) {
     state.missionIdx = 0;
+    state.missionOrder = defaultMissionOrder();
     state.rank = INITIAL_RANK;
     state.titles = [];
     state.unlocks = new Set();
@@ -159,7 +194,8 @@ export function debugSkipMission(state) {
     advanceMission(state);
     return;
   }
-  const m = MISSIONS[state.missionIdx];
+  const m = missionAt(state, state.missionIdx);
+  if (!m) return;
   if (m.rewardRank) state.rank = m.rewardRank;
   if (m.rewardTitle) state.titles.push(m.rewardTitle);
   if (m.unlocks) for (const u of m.unlocks) state.unlocks.add(u);
@@ -210,10 +246,21 @@ function ensureFields(state) {
   if (!state.completedMissionIds) state.completedMissionIds = new Set();
   if (!state.titles) state.titles = [];
   if (state.missionIdx == null) state.missionIdx = 0;
+  if (!Array.isArray(state.missionOrder)) {
+    state.missionOrder = defaultMissionOrder();
+  } else {
+    // Pick up missions registered after the order was built — primarily a
+    // test-time concern, since MISSIONS is a module constant in production.
+    // Append at the tail so already-played indices keep their position.
+    const present = new Set(state.missionOrder);
+    for (let i = 0; i < MISSIONS.length; i++) {
+      if (!present.has(i)) state.missionOrder.push(i);
+    }
+  }
 }
 
 function ensureEntered(state) {
-  const m = MISSIONS[state.missionIdx];
+  const m = missionAt(state, state.missionIdx);
   if (!m) return;
   if (state.currentMissionId === m.id) return;
   state.missionScene = {};
