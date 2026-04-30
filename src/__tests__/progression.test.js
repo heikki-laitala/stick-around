@@ -50,6 +50,12 @@ function completeRealMissions(s) {
       s.missionScene.items = [{ kind: 'key', picked: true }];
       continue;
     }
+    if (m.id === 'ice-age' && s.missionScene) {
+      // Skip past the snowman build + the win-hold by stamping both fields.
+      s.missionScene.builtLayers = 3;
+      s.missionScene.winT = 999;
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }

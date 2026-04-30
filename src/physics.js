@@ -1,4 +1,4 @@
-import { GRAV, JUMP_V, ACCEL, FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
+import { GRAV, JUMP_V, ACCEL, FRIC, ICE_FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
 import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
 import { findFloor, findCeiling, isInHole } from './platforms.js';
 export { isInHole };
@@ -194,7 +194,16 @@ export function updateMovement(state, dt, keys, screenW, screenH) {
   const maxv = MAXV * speedMul;
   if (left) { state.gvx -= accel * dt; state.faceR = false; }
   if (right) { state.gvx += accel * dt; state.faceR = true; }
-  if (!left && !right) { state.gvx *= Math.pow(FRIC, dt * 60); if (Math.abs(state.gvx) < 1) state.gvx = 0; }
+  // Ice-age missions flag missionScene.iceFloor so coasting decays slowly
+  // (sliding-with-momentum). Stop snapping to zero while on ice — even tiny
+  // residual velocity should keep the man drifting until input or impact
+  // takes over.
+  if (!left && !right) {
+    const onIce = state.missionScene?.iceFloor === true;
+    const fric = onIce ? ICE_FRIC : FRIC;
+    state.gvx *= Math.pow(fric, dt * 60);
+    if (!onIce && Math.abs(state.gvx) < 1) state.gvx = 0;
+  }
   state.gvx = Math.max(-maxv, Math.min(maxv, state.gvx));
 
   // Jump
@@ -514,7 +523,59 @@ const PLATFORM_MINE_HOLE_W = 30;
 
 function resolveAxeHit(state) {
   if (resolveAxeMineHit(state)) return;
+  if (resolveAxeSnowHit(state)) return;
   resolveAxePlatformHit(state);
+}
+
+/**
+ * Mission-supplied snow chunks (ice-age) are mined with the same axe.
+ * Geometry mirrors the mana-mine resolution above; depletion increments
+ * `missionScene.snowballsCollected` so the active mission can advance the
+ * snowman state machine. Mana mines take priority when both sit at the
+ * same axe target — keeps existing mining behavior intact even when the
+ * mission seeds chunks alongside.
+ */
+function resolveAxeSnowHit(state) {
+  const chunks = state.missionScene?.snowChunks;
+  if (!chunks || chunks.length === 0) return false;
+  const dir = state.faceR ? 1 : -1;
+  const hx = state.gx + dir * AXE_REACH;
+  const hy = state.feetY - 10;
+
+  let hitIdx = -1;
+  let bestManDist = Infinity;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (Math.hypot(c.x - hx, c.y - hy) >= AXE_HIT_RADIUS) continue;
+    const manDist = Math.hypot(c.x - state.gx, c.y - state.feetY);
+    if (manDist < bestManDist) {
+      bestManDist = manDist;
+      hitIdx = i;
+    }
+  }
+  if (hitIdx === -1) return false;
+
+  const c = chunks[hitIdx];
+  c.hits -= 1;
+  if (state.particles) {
+    for (let j = 0; j < 5; j++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 30 + Math.random() * 60;
+      state.particles.push({
+        x: c.x, y: c.y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 30,
+        life: 0.3,
+        maxLife: 0.3,
+      });
+    }
+  }
+  if (c.hits <= 0) {
+    const scene = state.missionScene;
+    scene.snowballsCollected = (scene.snowballsCollected || 0) + 1;
+    chunks.splice(hitIdx, 1);
+  }
+  return true;
 }
 
 function resolveAxeMineHit(state) {

@@ -3,6 +3,11 @@ export const GRAV = 800;
 export const JUMP_V = 230;
 export const ACCEL = 800;
 export const FRIC = 0.88;
+// Ice-age missions swap dry friction for this near-1 multiplier so the
+// man slides almost frictionlessly when no input is held. Same per-frame
+// rule as FRIC (raised to dt*60), just much closer to 1 — sliding-with-
+// momentum that takes a couple of seconds to coast to a stop.
+export const ICE_FRIC = 0.997;
 export const MAXV = 250;
 
 // Overlay layout
