@@ -360,8 +360,15 @@ describe('ICE_AGE_MISSION snow chunk lifecycle', () => {
     const s = makeState();
     ICE_AGE_MISSION.onEnter(s);
     s.gx = -9999;
-    // Run many seconds at cap.
-    for (let i = 0; i < 300; i++) ICE_AGE_MISSION.update(s, 0.05);
+    // Force the field to cap deterministically — random spawns can't
+    // always fit SNOW_CHUNK_COUNT items on this 3-platform test layout.
+    while (s.missionScene.snowChunks.length < SNOW_CHUNK_COUNT) {
+      s.missionScene.snowChunks.push({
+        x: 200, y: 200, hits: 2, age: 0, hash: 0, dxFrac: 0.5,
+      });
+    }
+    s.missionScene.snowChunkSpawnTimer = 999;            // already banked up
+    ICE_AGE_MISSION.update(s, 0.05);
     expect(s.missionScene.snowChunkSpawnTimer).toBe(0);
     // Pop a chunk; the very next tick must not spawn a replacement.
     s.missionScene.snowChunks.pop();
