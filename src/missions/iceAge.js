@@ -166,12 +166,15 @@ function ageAndRespawnChunks(state, scene, dt) {
       scene.snowChunks.splice(i, 1);
     }
   }
-  // Refill toward SNOW_CHUNK_COUNT on the spawn cadence.
+  // Refill toward SNOW_CHUNK_COUNT on the spawn cadence. The timer only
+  // advances while the field has room — otherwise time would bank up at
+  // cap and the next axe-out triggers an immediate respawn.
+  if (scene.snowChunks.length >= SNOW_CHUNK_COUNT) {
+    scene.snowChunkSpawnTimer = 0;
+    return;
+  }
   scene.snowChunkSpawnTimer = (scene.snowChunkSpawnTimer || 0) + dt;
-  if (
-    scene.snowChunkSpawnTimer >= SNOW_CHUNK_SPAWN_INTERVAL
-    && scene.snowChunks.length < SNOW_CHUNK_COUNT
-  ) {
+  if (scene.snowChunkSpawnTimer >= SNOW_CHUNK_SPAWN_INTERVAL) {
     scene.snowChunkSpawnTimer = 0;
     const fresh = spawnSnowChunk(state, scene);
     if (fresh) scene.snowChunks.push(fresh);

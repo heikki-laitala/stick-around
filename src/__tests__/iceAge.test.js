@@ -351,6 +351,23 @@ describe('ICE_AGE_MISSION snow chunk lifecycle', () => {
     }
     expect(s.missionScene.snowChunks.length).toBeLessThanOrEqual(SNOW_CHUNK_COUNT);
   });
+
+  it('does not bank up respawn time while the field is full', () => {
+    // Same regression as the evil-twin orb timer: if the spawn timer
+    // accumulates while at cap, a chunk depletion after a long full
+    // stretch causes an instant respawn instead of waiting the full
+    // interval. The timer should reset to 0 while the field is full.
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    // Run many seconds at cap.
+    for (let i = 0; i < 300; i++) ICE_AGE_MISSION.update(s, 0.05);
+    expect(s.missionScene.snowChunkSpawnTimer).toBe(0);
+    // Pop a chunk; the very next tick must not spawn a replacement.
+    s.missionScene.snowChunks.pop();
+    ICE_AGE_MISSION.update(s, 0.05);
+    expect(s.missionScene.snowChunks.length).toBeLessThan(SNOW_CHUNK_COUNT);
+  });
 });
 
 describe('ICE_AGE_MISSION ambient snow', () => {
