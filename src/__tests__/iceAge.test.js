@@ -352,3 +352,32 @@ describe('ICE_AGE_MISSION snow chunk lifecycle', () => {
     expect(s.missionScene.snowChunks.length).toBeLessThanOrEqual(SNOW_CHUNK_COUNT);
   });
 });
+
+describe('ICE_AGE_MISSION ambient snow', () => {
+  it('seeds a populated drift of snow flakes', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    expect(Array.isArray(s.missionScene.snowFlakes)).toBe(true);
+    expect(s.missionScene.snowFlakes.length).toBeGreaterThan(0);
+  });
+
+  it('drifts each flake downward every tick', () => {
+    const s = makeState();
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    const flake = s.missionScene.snowFlakes[0];
+    flake.x = 100; flake.y = 100; flake.vx = 0; flake.vy = 20;
+    ICE_AGE_MISSION.update(s, 0.5);
+    expect(flake.y).toBeCloseTo(110, 1);
+  });
+
+  it('recycles a flake that falls past the bottom of the screen', () => {
+    const s = makeState({ screenH: 600 });
+    ICE_AGE_MISSION.onEnter(s);
+    s.gx = -9999;
+    const flake = s.missionScene.snowFlakes[0];
+    flake.x = 100; flake.y = 605; flake.vx = 0; flake.vy = 20;
+    ICE_AGE_MISSION.update(s, 0.05);
+    expect(flake.y).toBeLessThan(0);
+  });
+});

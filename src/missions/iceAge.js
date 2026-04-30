@@ -55,6 +55,9 @@ export const ICICLE_PLAYER_HIT_R = 16;
 export const CEILING_ICICLE_COUNT = 9;
 export const ICICLE_SHAKE_DURATION = 0.7;     // seconds of warning shake before drop
 export const ICICLE_SHAKE_AMPLITUDE = 2.5;    // pixels of horizontal jiggle
+export const ICICLE_DANGER_W = 28;            // ground shadow width = approx icicle hole width
+// Drifting snow ambience — purely cosmetic, never collides with anything.
+export const SNOW_AMBIENT_COUNT = 60;
 
 const PROMPT_PLATFORM_HASH = 0xFFFF;
 
@@ -242,6 +245,7 @@ export const ICE_AGE_MISSION = {
     scene.wasInBuildZone = false;
     scene.icicles = seedCeilingIcicles(state);
     scene.icicleSpawnTimer = 0;
+    scene.snowFlakes = seedSnowFlakes(state);
     scene.winT = 0;
     scene.requestRestart = false;
     state.gameOver = false;
@@ -286,6 +290,7 @@ export const ICE_AGE_MISSION = {
     advanceIcicles(state, scene, dt);
     scheduleIcicleSpawn(state, scene, dt);
     ageAndRespawnChunks(state, scene, dt);
+    advanceSnowFlakes(state, scene, dt);
   },
 
   render(ctx, state, W, H) {
@@ -293,7 +298,15 @@ export const ICE_AGE_MISSION = {
     if (!scene) return;
     const paused = state.overlayActive === false;
 
+    // Ambient drift sits behind everything else — pure mood, no gameplay
+    // weight. Drawn first so platforms/snowman/icicles all read on top.
+    renderSnowFlakes(ctx, scene, paused);
+
     renderIceTint(ctx, state, paused);
+    // Danger shadows on platforms underneath shaking icicles — telegraphs
+    // the impact zone without forcing the player to look up while they
+    // navigate the slip.
+    renderIcicleDangerShadows(ctx, state, scene, paused);
     renderBuildZone(ctx, scene);
     renderSnowman(ctx, scene);
     renderSnowChunks(ctx, scene);
@@ -311,6 +324,102 @@ export const ICE_AGE_MISSION = {
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };
+
+// ── Snow ambience ───────────────────────────────────────────────────────
+
+function seedSnowFlakes(state) {
+  const screenW = state.screenW || 800;
+  const screenH = state.screenH || 600;
+  const result = [];
+  for (let i = 0; i < SNOW_AMBIENT_COUNT; i++) {
+    result.push({
+      x: Math.random() * screenW,
+      y: Math.random() * screenH,
+      vx: -6 + Math.random() * 12,             // slight lateral drift, both ways
+      vy: 14 + Math.random() * 24,             // slow gentle fall
+      r: 0.7 + Math.random() * 1.4,            // sub-pixel-ish dot variation
+      alpha: 0.4 + Math.random() * 0.5,
+    });
+  }
+  return result;
+}
+
+function advanceSnowFlakes(state, scene, dt) {
+  if (!scene.snowFlakes) return;
+  const screenW = state.screenW || 800;
+  const screenH = state.screenH || 600;
+  for (const f of scene.snowFlakes) {
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    if (f.y > screenH + 4 || f.x < -10 || f.x > screenW + 10) {
+      // Recycle to the top — fresh x and slightly randomized velocities so
+      // the flow stays varied over time.
+      f.x = Math.random() * screenW;
+      f.y = -4;
+      f.vx = -6 + Math.random() * 12;
+      f.vy = 14 + Math.random() * 24;
+    }
+  }
+}
+
+function renderSnowFlakes(ctx, scene, paused) {
+  if (!scene.snowFlakes) return;
+  ctx.save();
+  ctx.globalAlpha = paused ? 0.3 : 1;
+  ctx.fillStyle = 'rgba(245, 250, 255, 1)';
+  for (const f of scene.snowFlakes) {
+    ctx.globalAlpha = (paused ? 0.3 : 1) * f.alpha;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Icicle danger shadow ────────────────────────────────────────────────
+
+function findFirstPlatformBelow(state, x, fromY) {
+  // The first platform a falling icicle would land on. Used to project a
+  // warning shadow onto its top so the player can read the danger zone
+  // without taking their eyes off the slip.
+  let best = null;
+  for (const p of state.platforms || []) {
+    if (!p || p.x == null) continue;
+    if (p.y <= fromY) continue;
+    if (x < p.x || x > p.x + p.w) continue;
+    if (!best || p.y < best.y) best = p;
+  }
+  return best;
+}
+
+function renderIcicleDangerShadows(ctx, state, scene, paused) {
+  if (!scene.icicles) return;
+  ctx.save();
+  for (const ic of scene.icicles) {
+    if (ic.state !== 'shaking') continue;
+    const target = findFirstPlatformBelow(state, ic.anchorX, ic.y);
+    if (!target) continue;
+    // Shadow pulses with the same intensity ramp as the icicle's warning
+    // tint so the two reads are synchronized.
+    const intensity = Math.min(1, (ic.shakeT || 0) / ICICLE_SHAKE_DURATION);
+    const pulse = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(ic.shakeT * 18));
+    ctx.globalAlpha = (paused ? 0.3 : 1) * intensity * pulse * 0.85;
+
+    // Soft radial wash centered on the impact column. Sits a hair above
+    // the platform top so it overlays the snow ridge cleanly.
+    const cx = ic.anchorX;
+    const cy = target.y - 1;
+    const grad = ctx.createRadialGradient(cx, cy, 1, cx, cy, ICICLE_DANGER_W * 0.7);
+    grad.addColorStop(0, 'rgba(255, 80, 110, 0.85)');
+    grad.addColorStop(0.6, 'rgba(220, 110, 160, 0.55)');
+    grad.addColorStop(1, 'rgba(220, 110, 160, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, ICICLE_DANGER_W * 0.7, 4 + 2 * intensity, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 // ── Ceiling icicles & state machine ─────────────────────────────────────
 
