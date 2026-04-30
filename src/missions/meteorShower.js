@@ -4,6 +4,7 @@ import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
 import { isShielded, lightningStrikesPoint } from '../spells.js';
+import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
 
 /**
  * "Dodge the meteor shower" mission.
@@ -32,14 +33,6 @@ function spawnY(state) {
     ? state.textOffsetY
     : effectiveHudHeight(state.screenW);
   return top - METEOR_SPAWN_Y_MARGIN;
-}
-
-function spawnXRange(state) {
-  const x0 = typeof state.textOffsetX === 'number' ? state.textOffsetX : 0;
-  const w = typeof state.textWidth === 'number' && state.textWidth > 0
-    ? state.textWidth
-    : (state.screenW || 800);
-  return { x0, x1: x0 + w };
 }
 
 export const METEOR_SHOWER_MISSION = {
@@ -100,7 +93,7 @@ export const METEOR_SHOWER_MISSION = {
       // Struck by a live lightning bolt? Vaporise cleanly — no platform
       // damage, no man damage, just sparks.
       if (lightningStrikesPoint(state, m.x, m.y)) {
-        spawnImpactParticles(state, m.x, m.y);
+        burstParticles(state, m.x, m.y);
         scene.meteors.splice(i, 1);
         continue;
       }
@@ -108,7 +101,7 @@ export const METEOR_SHOWER_MISSION = {
       burstPlatformsBetween(state, xBefore, yBefore, m.x, m.y);
 
       if (hitsMan(state, m)) {
-        spawnImpactParticles(state, m.x, m.y);
+        burstParticles(state, m.x, m.y);
         scene.meteors.splice(i, 1);
         if (isShielded(state)) continue;
         state.gameOver = true;
@@ -218,27 +211,13 @@ function burstPlatformsBetween(state, xBefore, yBefore, xAfter, yAfter) {
     if (crossX < p.x || crossX > p.x + p.w) continue;
     if (isInHole(state.holes, crossX, p.y)) continue;
     state.holes.push({ x: crossX - METEOR_HOLE_W / 2, y: p.y, w: METEOR_HOLE_W, age: 0 });
-    spawnImpactParticles(state, crossX, p.y);
+    burstParticles(state, crossX, p.y);
   }
 }
 
 function hitsMan(state, m) {
   const torsoY = state.feetY - STANDING_HEIGHT / 2;
   return Math.hypot(m.x - state.gx, m.y - torsoY) < METEOR_MAN_HIT_R;
-}
-
-function spawnImpactParticles(state, x, y) {
-  if (!state.particles) return;
-  for (let i = 0; i < 10; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const sp = 60 + Math.random() * 120;
-    state.particles.push({
-      x, y,
-      vx: Math.cos(a) * sp,
-      vy: Math.sin(a) * sp,
-      life: 0.4, maxLife: 0.4,
-    });
-  }
 }
 
 /**
@@ -317,17 +296,3 @@ function renderCountdown(ctx, scene, W, screenW) {
   ctx.restore();
 }
 
-function renderGameOver(ctx, W, H) {
-  ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.98)';
-  ctx.font = "bold 48px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('GAME OVER', W / 2, H / 2 - 16);
-  ctx.font = "16px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.75)';
-  ctx.fillText('press R to try again', W / 2, H / 2 + 20);
-  ctx.restore();
-}
