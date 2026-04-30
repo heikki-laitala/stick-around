@@ -227,6 +227,39 @@ export function drawTwinLightningBolt(ctx, bolt) {
   ctx.restore();
 }
 
+/**
+ * Brief scorch streaks left on each platform a twin bolt crossed.
+ * Fade from a bright red core to nothing over the scorch's lifetime so
+ * the player can read where danger zones just were without leaving
+ * permanent terrain damage.
+ */
+export function drawScorches(ctx, scorches) {
+  if (!Array.isArray(scorches) || scorches.length === 0) return;
+  ctx.save();
+  for (const sc of scorches) {
+    const t = Math.max(0, Math.min(1, 1 - (sc.age / sc.maxAge)));
+    if (t <= 0) continue;
+    const halfW = 14;
+    const grad = ctx.createLinearGradient(sc.x - halfW, sc.y, sc.x + halfW, sc.y);
+    grad.addColorStop(0, `rgba(255, 80, 100, 0)`);
+    grad.addColorStop(0.5, `rgba(255, 90, 110, ${0.85 * t})`);
+    grad.addColorStop(1, `rgba(255, 80, 100, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(sc.x - halfW, sc.y - 1, halfW * 2, 2);
+    // Faint smolder above the line — small radial tint that lifts as the
+    // mark ages, suggesting heat dissipating off the platform.
+    const lift = (1 - t) * 4;
+    const halo = ctx.createRadialGradient(sc.x, sc.y - lift, 1, sc.x, sc.y - lift, 9);
+    halo.addColorStop(0, `rgba(255, 160, 90, ${0.5 * t})`);
+    halo.addColorStop(1, `rgba(255, 160, 90, 0)`);
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y - lift, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function renderEvilTwinHud(ctx, scene, screenW) {
   const balls = scene.ballsCollected || 0;
   const lives = scene.lives ?? EVIL_TWIN_INITIAL_LIVES;
