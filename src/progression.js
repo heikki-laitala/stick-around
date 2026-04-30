@@ -38,6 +38,7 @@
  */
 
 import { ALONE_IN_DARK_MISSION } from './missions/aloneInDark.js';
+import { CONSTELLATION_MISSION } from './missions/constellation.js';
 import { ESCAPE_LAVA_MISSION } from './missions/escapeLava.js';
 import { EVIL_TWIN_MISSION } from './missions/evilTwin.js';
 import { ICE_AGE_MISSION } from './missions/iceAge.js';
@@ -63,6 +64,7 @@ export const MISSIONS = [
   ALONE_IN_DARK_MISSION,
   ICE_AGE_MISSION,
   EVIL_TWIN_MISSION,
+  CONSTELLATION_MISSION,
 ];
 
 // The first two missions are fixed-order tutorials (collect balls, then

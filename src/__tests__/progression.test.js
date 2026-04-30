@@ -71,6 +71,11 @@ function completeRealMissions(s) {
       s.missionScene.ballsCollected = 5;
       continue;
     }
+    if (m.id === 'constellation' && s.missionScene) {
+      // Skip past the constellation by marking every edge drawn.
+      for (const e of s.missionScene.edges || []) e.drawn = true;
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }

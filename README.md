@@ -243,6 +243,14 @@ After the warm-up, in random order:
   torso → head. A shaking icicle telegraphs with a warm tint and a
   pulsing red shadow on the platform it's about to hit; getting
   crushed is instant fail unless your shield is up.
+- **Constellation maker** — five fixed stars hang in the sky and the
+  HUD shows a target diagram of which pairs need to be linked. Each
+  lightning bolt walks along a ray from your wand; if the ray
+  crosses two of the target stars in one shot, the edge lights up.
+  Wrong pair flashes red and the line fades. The puzzle is spatial:
+  find a perch where two specific stars line up along a single
+  upward-pointing ray, fire, repeat. Mission primes ~18 mana so you
+  have nine shots; 90-second timer.
 - **Evil twin** — a second stick figure shadows you, replaying your
   movements (and your rope swings) from a few seconds back. Goal:
   collect 5 glowing balls while it stalks you.
