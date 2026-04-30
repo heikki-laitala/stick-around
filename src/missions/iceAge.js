@@ -276,6 +276,7 @@ export const ICE_AGE_MISSION = {
       if (scene.snowballsCollected > 0 && scene.builtLayers < SNOWMAN_LAYERS) {
         scene.snowballsCollected -= 1;
         scene.builtLayers += 1;
+        spawnLayerPuff(state, scene);
       }
     }
     scene.wasInBuildZone = inZone;
@@ -594,6 +595,28 @@ function burstPlatformsBetween(state, x, yBefore, yAfter, buildZone) {
   }
 }
 
+function spawnLayerPuff(state, scene) {
+  // Quick burst of snow particles when a layer lands on the snowman, so
+  // each delivery has a satisfying "pat" instead of a silent grow.
+  if (!state.particles) return;
+  const z = scene.buildZone;
+  if (!z) return;
+  const cx = z.x + z.w / 2;
+  const cy = z.y - 2;
+  for (let i = 0; i < 16; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.1; // upward fan
+    const sp = 40 + Math.random() * 90;
+    state.particles.push({
+      x: cx + (Math.random() - 0.5) * 8,
+      y: cy,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.55,
+      maxLife: 0.55,
+    });
+  }
+}
+
 function spawnImpactParticles(state, x, y) {
   if (!state.particles) return;
   for (let i = 0; i < 10; i++) {
@@ -726,13 +749,22 @@ function renderSnowman(ctx, scene) {
   const baseY = z.y + 2;                       // sit just above the snow drift
   const radii = [13, 10, 7];                   // base, torso, head
   let bottomY = baseY;
+
+  // Animation timer kicks in once the snowman is finished — the win-hold
+  // gets a celebrating snowman instead of a still life.
+  const aliveT = scene.winT || 0;
+  const alive = aliveT > 0;
+  // Subtle breathing scale. Stays close to 1 so the silhouette doesn't
+  // visibly shudder, just feels alive.
+  const breathe = alive ? 1 + Math.sin(aliveT * 4.5) * 0.03 : 1;
+
   ctx.save();
   for (let i = 0; i < scene.builtLayers; i++) {
-    const r = radii[i];
+    const r = radii[i] * breathe;
     const cy = bottomY - r;
     drawSnowBall(ctx, cx, cy, r);
-    if (i === 1) drawArms(ctx, cx, cy, r);
-    if (i === 2) drawFace(ctx, cx, cy, r);
+    if (i === 1) drawArms(ctx, cx, cy, r, aliveT);
+    if (i === 2) drawFace(ctx, cx, cy, r, aliveT);
     bottomY = cy - r + 2;                      // overlap a hair so seams don't show
   }
   ctx.restore();
@@ -754,38 +786,52 @@ function drawSnowBall(ctx, cx, cy, r) {
   ctx.stroke();
 }
 
-function drawArms(ctx, cx, cy, r) {
+function drawArms(ctx, cx, cy, r, aliveT = 0) {
   ctx.save();
   ctx.strokeStyle = 'rgb(95, 60, 30)';
   ctx.lineWidth = 1.4;
   ctx.lineCap = 'round';
+  // Mirrored sway — left twig rises while right twig dips. Slightly
+  // bigger than the breathing scale so it reads as a wave, not a wobble.
+  const sway = aliveT > 0 ? Math.sin(aliveT * 3.2) * r * 0.45 : 0;
   // Left twig.
   ctx.beginPath();
   ctx.moveTo(cx - r * 0.7, cy);
-  ctx.lineTo(cx - r * 1.9, cy - r * 0.8);
-  ctx.moveTo(cx - r * 1.6, cy - r * 0.6);
-  ctx.lineTo(cx - r * 1.9, cy - r * 1.3);
+  ctx.lineTo(cx - r * 1.9, cy - r * 0.8 - sway);
+  ctx.moveTo(cx - r * 1.55, cy - r * 0.6 - sway * 0.7);
+  ctx.lineTo(cx - r * 1.9, cy - r * 1.3 - sway);
   ctx.stroke();
-  // Right twig.
+  // Right twig — opposite phase so the snowman waves both arms.
   ctx.beginPath();
   ctx.moveTo(cx + r * 0.7, cy);
-  ctx.lineTo(cx + r * 1.9, cy - r * 0.8);
-  ctx.moveTo(cx + r * 1.6, cy - r * 0.6);
-  ctx.lineTo(cx + r * 1.9, cy - r * 1.3);
+  ctx.lineTo(cx + r * 1.9, cy - r * 0.8 + sway);
+  ctx.moveTo(cx + r * 1.55, cy - r * 0.6 + sway * 0.7);
+  ctx.lineTo(cx + r * 1.9, cy - r * 1.3 + sway);
   ctx.stroke();
   ctx.restore();
 }
 
-function drawFace(ctx, cx, cy, r) {
+function drawFace(ctx, cx, cy, r, aliveT = 0) {
   ctx.save();
-  // Coal eyes.
-  ctx.fillStyle = 'rgb(30, 30, 35)';
-  ctx.beginPath();
-  ctx.arc(cx - r * 0.38, cy - r * 0.2, 1.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx + r * 0.38, cy - r * 0.2, 1.3, 0, Math.PI * 2);
-  ctx.fill();
+  // Eye blink: closed for a fraction of every cycle so the face reads as
+  // alive without the eyes constantly disappearing. Cycle length kept
+  // long so blinks are noticeable but not distracting.
+  const eyeY = cy - r * 0.2;
+  const blinkPhase = aliveT > 0 ? aliveT % 1.7 : 1;
+  const blinking = blinkPhase < 0.13;
+  if (blinking) {
+    ctx.strokeStyle = 'rgb(30, 30, 35)';
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.55, eyeY); ctx.lineTo(cx - r * 0.2, eyeY);
+    ctx.moveTo(cx + r * 0.2, eyeY);  ctx.lineTo(cx + r * 0.55, eyeY);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = 'rgb(30, 30, 35)';
+    ctx.beginPath(); ctx.arc(cx - r * 0.38, eyeY, 1.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + r * 0.38, eyeY, 1.3, 0, Math.PI * 2); ctx.fill();
+  }
   // Carrot nose — short, straight on, so it doesn't look like a horn.
   ctx.fillStyle = 'rgb(240, 130, 40)';
   ctx.beginPath();
@@ -797,11 +843,14 @@ function drawFace(ctx, cx, cy, r) {
   ctx.strokeStyle = 'rgba(180, 80, 20, 0.7)';
   ctx.lineWidth = 0.5;
   ctx.stroke();
-  // Coal smile — three dots curving up so the face reads happy at any size.
+  // Coal smile — three dots curving up so the face reads happy at any
+  // size. Smile widens slightly during the alive state.
   ctx.fillStyle = 'rgb(30, 30, 35)';
+  const smileSpread = aliveT > 0 ? 0.36 : 0.32;
+  const smileLift = aliveT > 0 ? Math.sin(aliveT * 2.2) * r * 0.05 : 0;
   for (let i = -1; i <= 1; i++) {
-    const sx = cx + i * r * 0.32;
-    const sy = cy + r * 0.55 + Math.abs(i) * r * 0.08;
+    const sx = cx + i * r * smileSpread;
+    const sy = cy + r * 0.55 + Math.abs(i) * r * 0.1 - smileLift;
     ctx.beginPath();
     ctx.arc(sx, sy, 0.9, 0, Math.PI * 2);
     ctx.fill();
