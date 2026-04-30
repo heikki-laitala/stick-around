@@ -244,10 +244,22 @@ After the warm-up, in random order:
   pulsing red shadow on the platform it's about to hit; getting
   crushed is instant fail unless your shield is up.
 - **Evil twin** — a second stick figure shadows you, replaying your
-  movements from a few seconds ago. Touch it and you lose a life;
-  three hits and the run ends. Collect 5 glowing balls while the
-  twin chases. The lag tightens as you progress, so the late game
-  forces decisive moves rather than dawdling.
+  movements (and your rope swings) from a few seconds back. Goal:
+  collect 5 glowing balls while it stalks you.
+  - Touching the twin costs a life; three hits and the run ends.
+    Shield blocks contact damage.
+  - Every few seconds the twin charges a lightning bolt at you — a
+    dashed red aim line draws from its head with imperfect tracking,
+    so a sharp sidestep escapes the lane. Direct bolt hit ends the
+    run unless the shield is up.
+  - Your own lightning (cast from `1`/`2` or `R`) stuns the twin for
+    ~2 s and interrupts any in-flight charge. The mission primes you
+    with 7 mana and seeds walk-over **blue mana orbs** on the
+    platforms (touch to refill, +2 mana each) so you can keep zapping.
+  - Twin bolts leave brief red scorch marks on the platforms they
+    crossed — read where the danger lanes have been.
+  - The lag tightens from ~3 s down to ~1.5 s as you collect balls,
+    forcing decisive endgame movement.
 
 `Shift + R` restarts just the current mission if you get stuck.
 

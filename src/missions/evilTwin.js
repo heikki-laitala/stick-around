@@ -1,13 +1,18 @@
 import { STANDING_HEIGHT, SCALE } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { isShielded, lightningStrikesPoint } from '../spells.js';
-import { spawnManaMine } from '../manaMines.js';
-import { renderGameOver, burstParticles } from './_shared.js';
+import {
+  burstParticles,
+  findPlatformByHash,
+  renderGameOver,
+  spawnOnPlatform,
+} from './_shared.js';
 import {
   drawShadowTwin,
   drawTwinLightningAim,
   drawTwinLightningBolt,
   drawScorches,
+  drawManaOrbs,
   renderEvilTwinHud,
 } from './evilTwin/render.js';
 
@@ -53,10 +58,15 @@ export const TWIN_STUN_DURATION = 2.0;
 // always have a defensive option, regardless of how the random mission
 // order ran. Won't overwrite if they walked in with more.
 export const EVIL_TWIN_PRIMER_MANA = 7;
-// Pre-seed this many mana mines so the player can keep refilling zaps
-// during the chase. The global manaMines spawner handles respawns from
-// there.
-export const EVIL_TWIN_SEED_MINES = 2;
+// Walk-over blue mana orbs — same touch-to-pickup feel as the yellow
+// glowing balls, but they award mana instead of score. Mission-local so
+// they can't bleed into other runs. A small respawning pool means the
+// player can refill zaps without standing still to mine.
+export const EVIL_TWIN_MANA_ORB_COUNT = 2;        // max alive at once
+export const EVIL_TWIN_MANA_ORB_LIFETIME = 18;    // seconds before orb fades out
+export const EVIL_TWIN_MANA_ORB_SPAWN_INTERVAL = 5;
+export const EVIL_TWIN_MANA_ORB_PICKUP_R = 18;
+export const EVIL_TWIN_MANA_PER_ORB = 2;          // one zap's worth per orb
 // Brief scorch left on each platform a twin bolt crossed — a visual
 // breadcrumb of where the danger zones just were.
 export const TWIN_BOLT_SCORCH_LIFE = 1.0;
@@ -143,16 +153,69 @@ function rollSpellInterval() {
     + Math.random() * (TWIN_SPELL_INTERVAL_MAX - TWIN_SPELL_INTERVAL_MIN);
 }
 
-function ensureSeedMines(state) {
-  // Pre-seed the playfield so the player has visible mana sources from
-  // spawn instead of waiting on the global manaMines spawner. The global
-  // system continues to respawn after these are mined out.
-  if (!Array.isArray(state.platforms) || state.platforms.length === 0) return;
-  if (!state.manaMines) state.manaMines = [];
-  while (state.manaMines.length < EVIL_TWIN_SEED_MINES) {
-    const m = spawnManaMine(state.platforms, state.manaMines, state.lineHeight);
-    if (!m) break;                                  // no valid spot — stop trying
-    state.manaMines.push(m);
+function spawnManaOrb(state, scene) {
+  return spawnOnPlatform(state.platforms, {
+    minW: 32,
+    dxFracMin: 0.18,
+    dxFracMax: 0.82,
+    minDist: 60,
+    existing: scene.manaOrbs || [],
+    attempts: 10,
+    makeItem(plat, dxFrac, x, y) {
+      return { x, y, age: 0, hash: plat.hash || 0, dxFrac };
+    },
+  });
+}
+
+function seedManaOrbs(state, scene) {
+  scene.manaOrbs = [];
+  while (scene.manaOrbs.length < EVIL_TWIN_MANA_ORB_COUNT) {
+    const o = spawnManaOrb(state, scene);
+    if (!o) break;
+    scene.manaOrbs.push(o);
+  }
+}
+
+function tickManaOrbs(state, scene, dt) {
+  if (!Array.isArray(scene.manaOrbs)) scene.manaOrbs = [];
+  // Sync each orb's position to its anchor platform (terminal scroll
+  // moves the line; the orb rides it). Then age + pickup check.
+  for (let i = scene.manaOrbs.length - 1; i >= 0; i--) {
+    const orb = scene.manaOrbs[i];
+    const anchor = findPlatformByHash(state.platforms, orb.hash);
+    if (anchor) {
+      orb.x = anchor.x + anchor.w * orb.dxFrac;
+      orb.y = anchor.y;
+    }
+    orb.age += dt;
+    if (orb.age >= EVIL_TWIN_MANA_ORB_LIFETIME) {
+      scene.manaOrbs.splice(i, 1);
+      continue;
+    }
+    // Walk-over pickup — torso overlap with the orb's centre.
+    const torsoY = state.feetY - STANDING_HEIGHT / 2;
+    const orbY = orb.y - 6;                          // matches render offset
+    if (Math.hypot(orb.x - state.gx, orbY - torsoY) < EVIL_TWIN_MANA_ORB_PICKUP_R) {
+      state.mana = (state.mana || 0) + EVIL_TWIN_MANA_PER_ORB;
+      burstParticles(state, orb.x, orbY, {
+        count: 8,
+        speedMin: 30,
+        speedMax: 110,
+        life: 0.35,
+      });
+      scene.manaOrbs.splice(i, 1);
+    }
+  }
+  // Refill toward the cap on a steady cadence so the player can plan
+  // their refuel runs.
+  scene.manaOrbSpawnTimer = (scene.manaOrbSpawnTimer || 0) + dt;
+  if (
+    scene.manaOrbSpawnTimer >= EVIL_TWIN_MANA_ORB_SPAWN_INTERVAL
+    && scene.manaOrbs.length < EVIL_TWIN_MANA_ORB_COUNT
+  ) {
+    scene.manaOrbSpawnTimer = 0;
+    const fresh = spawnManaOrb(state, scene);
+    if (fresh) scene.manaOrbs.push(fresh);
   }
 }
 
@@ -219,92 +282,102 @@ export function twinBoltStrikesPoint(bolt, x, y) {
   return Math.abs(across) <= TWIN_BOLT_BEAM_WIDTH / 2;
 }
 
+function resetSpellToIdle(scene) {
+  scene.spellState = 'idle';
+  scene.spellT = 0;
+  scene.spellNextAt = rollSpellInterval();
+  scene.twinAim = null;
+  scene.twinBolt = null;
+}
+
+// 'idle' phase — count down to the next charge attempt and arm an aim
+// when the timer elapses. Bails out without arming if the twin's pose
+// hasn't produced a valid casting origin yet.
+function tickSpellIdle(state, scene, twin) {
+  if (!twin) return;
+  if (scene.spellT < scene.spellNextAt) return;
+  const origin = twinCastOrigin(twin);
+  if (!origin) {
+    // Pose not ready — back the timer off slightly so we retry on the
+    // next tick instead of every following tick fighting itself.
+    scene.spellT = scene.spellNextAt - 0.2;
+    return;
+  }
+  const torsoY = state.feetY - STANDING_HEIGHT / 2;
+  const angle = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+  scene.twinAim = { angle, originX: origin.x, originY: origin.y };
+  scene.spellState = 'aiming';
+  scene.spellT = 0;
+}
+
+// 'aiming' phase — line stays attached to the twin's head while the
+// angle slews toward the player at TWIN_SPELL_TRACK_RATE. Steady drift
+// gets tracked, a sharp juke escapes the lane. Locks the angle on fire.
+function tickSpellAiming(state, scene, twin, dt) {
+  const origin = twin ? twinCastOrigin(twin) : null;
+  if (origin && scene.twinAim) {
+    scene.twinAim.originX = origin.x;
+    scene.twinAim.originY = origin.y;
+    const torsoY = state.feetY - STANDING_HEIGHT / 2;
+    const desired = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+    let diff = desired - scene.twinAim.angle;
+    // Wrap to (-π, π] so we slew the short way around.
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const step = TWIN_SPELL_TRACK_RATE * dt;
+    scene.twinAim.angle += Math.max(-step, Math.min(step, diff));
+  }
+  if (scene.spellT < TWIN_SPELL_AIM_DURATION) return;
+  const aim = scene.twinAim;
+  if (aim) {
+    const bolt = {
+      x: aim.originX, y: aim.originY,
+      angle: aim.angle,
+      life: TWIN_BOLT_LIFE,
+      maxLife: TWIN_BOLT_LIFE,
+      zig: makeZig(),
+      struck: false,                                   // gates the once-per-bolt damage
+    };
+    scene.twinBolt = bolt;
+    addBoltScorches(state, scene, bolt);
+  }
+  scene.twinAim = null;
+  scene.spellState = 'firing';
+  scene.spellT = 0;
+}
+
+// 'firing' phase — age the bolt, resolve a single torso intersection
+// (game over unless shielded), then return to idle once the bolt's
+// life expires.
+function tickSpellFiring(state, scene, dt) {
+  const bolt = scene.twinBolt;
+  if (!bolt) {                                         // defensive: no bolt → idle
+    resetSpellToIdle(scene);
+    return;
+  }
+  bolt.life -= dt;
+  if (!bolt.struck && !state.gameOver) {
+    const torsoY = state.feetY - STANDING_HEIGHT / 2;
+    if (twinBoltStrikesPoint(bolt, state.gx, torsoY)) {
+      bolt.struck = true;
+      if (!isShielded(state)) {
+        state.gameOver = true;
+        state.gvx = 0;
+        state.gvy = 0;
+      }
+    }
+  }
+  if (bolt.life <= 0) resetSpellToIdle(scene);
+}
+
 function tickTwinSpell(state, scene, twin, dt) {
   scene.spellT = (scene.spellT || 0) + dt;
-  // 'idle' — count down to next charge attempt.
-  if (scene.spellState === 'idle') {
-    if (!twin) return;                                 // need a body to cast from
-    if (scene.spellT >= scene.spellNextAt) {
-      const origin = twinCastOrigin(twin);
-      if (!origin) {                                   // pose not ready, retry next tick
-        scene.spellT = scene.spellNextAt - 0.2;
-        return;
-      }
-      const torsoY = state.feetY - STANDING_HEIGHT / 2;
-      const angle = Math.atan2(torsoY - origin.y, state.gx - origin.x);
-      scene.twinAim = { angle, originX: origin.x, originY: origin.y };
-      scene.spellState = 'aiming';
-      scene.spellT = 0;
-    }
-    return;
-  }
-  // 'aiming' — line stays attached to the twin's head while it moves.
-  // The angle slews toward the player at TWIN_SPELL_TRACK_RATE (rad/s),
-  // so steady drift gets tracked but a sharp juke still escapes the
-  // lane. Final angle locks at fire-time.
-  if (scene.spellState === 'aiming') {
-    const origin = twin ? twinCastOrigin(twin) : null;
-    if (origin && scene.twinAim) {
-      scene.twinAim.originX = origin.x;
-      scene.twinAim.originY = origin.y;
-      const torsoY = state.feetY - STANDING_HEIGHT / 2;
-      const desired = Math.atan2(torsoY - origin.y, state.gx - origin.x);
-      let diff = desired - scene.twinAim.angle;
-      // Wrap to (-π, π] so we slew the short way around.
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const step = TWIN_SPELL_TRACK_RATE * dt;
-      const clamped = Math.max(-step, Math.min(step, diff));
-      scene.twinAim.angle += clamped;
-    }
-    if (scene.spellT >= TWIN_SPELL_AIM_DURATION) {
-      const aim = scene.twinAim;
-      if (aim) {
-        const bolt = {
-          x: aim.originX, y: aim.originY,
-          angle: aim.angle,
-          life: TWIN_BOLT_LIFE,
-          maxLife: TWIN_BOLT_LIFE,
-          zig: makeZig(),
-          struck: false,                               // gates the once-per-bolt damage
-        };
-        scene.twinBolt = bolt;
-        addBoltScorches(state, scene, bolt);
-      }
-      scene.twinAim = null;
-      scene.spellState = 'firing';
-      scene.spellT = 0;
-    }
-    return;
-  }
-  // 'firing' — age the bolt; while it's live, a torso intersection is fatal.
-  if (scene.spellState === 'firing') {
-    const bolt = scene.twinBolt;
-    if (bolt) {
-      bolt.life -= dt;
-      if (!bolt.struck && !state.gameOver) {
-        const torsoY = state.feetY - STANDING_HEIGHT / 2;
-        if (twinBoltStrikesPoint(bolt, state.gx, torsoY)) {
-          bolt.struck = true;
-          if (!isShielded(state)) {
-            state.gameOver = true;
-            state.gvx = 0;
-            state.gvy = 0;
-          }
-        }
-      }
-      if (bolt.life <= 0) {
-        scene.twinBolt = null;
-        scene.spellState = 'idle';
-        scene.spellT = 0;
-        scene.spellNextAt = rollSpellInterval();
-      }
-    } else {
-      // Defensive: no bolt object — skip back to idle.
-      scene.spellState = 'idle';
-      scene.spellT = 0;
-      scene.spellNextAt = rollSpellInterval();
-    }
+  switch (scene.spellState) {
+    case 'idle':   tickSpellIdle(state, scene, twin); return;
+    case 'aiming': tickSpellAiming(state, scene, twin, dt); return;
+    case 'firing': tickSpellFiring(state, scene, dt); return;
+    default:                                           // unknown state → reset
+      resetSpellToIdle(scene);
   }
 }
 
@@ -339,15 +412,12 @@ export const EVIL_TWIN_MISSION = {
     scene.elapsed = 0;
     scene.invulnTimer = 0;
     scene.buffer = [];
-    scene.spellState = 'idle';
-    scene.spellT = 0;
-    scene.spellNextAt = rollSpellInterval();
-    scene.twinAim = null;
-    scene.twinBolt = null;
+    resetSpellToIdle(scene);
     scene.stunT = 0;
     scene.scorches = [];
+    scene.manaOrbSpawnTimer = 0;
+    seedManaOrbs(state, scene);
     pushSnapshot(scene, state);
-    ensureSeedMines(state);
     state.gameOver = false;
   },
 
@@ -400,11 +470,7 @@ export const EVIL_TWIN_MISSION = {
         });
         // Drop any in-flight twin spell so the player can also interrupt
         // an incoming bolt with a well-timed zap.
-        scene.spellState = 'idle';
-        scene.spellT = 0;
-        scene.spellNextAt = rollSpellInterval();
-        scene.twinAim = null;
-        scene.twinBolt = null;
+        resetSpellToIdle(scene);
       }
     }
 
@@ -426,6 +492,7 @@ export const EVIL_TWIN_MISSION = {
     if (!stunned) tickTwinSpell(state, scene, twin, dt);
 
     ageScorches(scene, dt);
+    tickManaOrbs(state, scene, dt);
   },
 
   render(ctx, state, W, H) {
@@ -435,6 +502,7 @@ export const EVIL_TWIN_MISSION = {
     const stunned = (scene.stunT || 0) > 0;
     const twin = twinSnapshotAt(scene, scene.delaySec);
     drawScorches(ctx, scene.scorches);
+    drawManaOrbs(ctx, scene.manaOrbs);
     if (!stunned) drawShadowTwin(ctx, twin, paused);
     if (scene.twinAim) drawTwinLightningAim(ctx, scene.twinAim);
     if (scene.twinBolt) drawTwinLightningBolt(ctx, scene.twinBolt);

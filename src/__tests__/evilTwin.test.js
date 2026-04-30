@@ -10,7 +10,10 @@ import {
   TWIN_BOLT_LIFE,
   TWIN_STUN_DURATION,
   EVIL_TWIN_PRIMER_MANA,
-  EVIL_TWIN_SEED_MINES,
+  EVIL_TWIN_MANA_ORB_COUNT,
+  EVIL_TWIN_MANA_ORB_LIFETIME,
+  EVIL_TWIN_MANA_ORB_PICKUP_R,
+  EVIL_TWIN_MANA_PER_ORB,
   TWIN_BOLT_SCORCH_LIFE,
   twinSnapshotAt,
 } from '../missions/evilTwin.js';
@@ -81,14 +84,12 @@ describe('EVIL_TWIN_MISSION onEnter', () => {
     expect(s.mana).toBe(12);
   });
 
-  it('seeds at least one mineable mana crystal so the player can refuel zaps', () => {
+  it('seeds walk-over mana orbs so the player has visible refills from spawn', () => {
     const s = makeState();
     EVIL_TWIN_MISSION.onEnter(s);
-    expect(Array.isArray(s.manaMines)).toBe(true);
-    // Up to EVIL_TWIN_SEED_MINES, but spawnManaMine can decline if no
-    // valid platform fits — a single mine still validates the contract.
-    expect(s.manaMines.length).toBeGreaterThanOrEqual(1);
-    expect(s.manaMines.length).toBeLessThanOrEqual(EVIL_TWIN_SEED_MINES);
+    expect(Array.isArray(s.missionScene.manaOrbs)).toBe(true);
+    expect(s.missionScene.manaOrbs.length).toBeGreaterThanOrEqual(1);
+    expect(s.missionScene.manaOrbs.length).toBeLessThanOrEqual(EVIL_TWIN_MANA_ORB_COUNT);
   });
 
   it('initializes an empty scorch list', () => {
@@ -135,6 +136,61 @@ describe('EVIL_TWIN_MISSION bolt scorches', () => {
     s.missionScene.scorches = [{ x: 100, y: 200, age: 0, maxAge: TWIN_BOLT_SCORCH_LIFE }];
     EVIL_TWIN_MISSION.update(s, TWIN_BOLT_SCORCH_LIFE + 0.05);
     expect(s.missionScene.scorches.length).toBe(0);
+  });
+});
+
+describe('EVIL_TWIN_MISSION mana orbs', () => {
+  it('walking onto an orb awards EVIL_TWIN_MANA_PER_ORB and removes it', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.mana = 0;                                          // override the primer for a clean delta
+    // hash: null so the platform-sync step doesn't override the planted x/y.
+    s.missionScene.manaOrbs = [{
+      x: s.gx, y: s.feetY,
+      age: 0, hash: null, dxFrac: 0.5,
+    }];
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.mana).toBe(EVIL_TWIN_MANA_PER_ORB);
+    expect(s.missionScene.manaOrbs.length).toBe(0);
+  });
+
+  it('a clear miss leaves the orb in place', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.mana = 0;
+    s.missionScene.manaOrbs = [{
+      x: s.gx + 200, y: s.feetY,
+      age: 0, hash: null, dxFrac: 0.5,
+    }];
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.mana).toBe(0);
+    expect(s.missionScene.manaOrbs.length).toBe(1);
+  });
+
+  it('orbs age out after EVIL_TWIN_MANA_ORB_LIFETIME', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.gx = -9999;                                          // keep player far so it doesn't pick up
+    s.missionScene.manaOrbs = [{
+      x: 100, y: 200,
+      age: EVIL_TWIN_MANA_ORB_LIFETIME - 0.01,
+      hash: null, dxFrac: 0.5,
+    }];
+    EVIL_TWIN_MISSION.update(s, 0.05);
+    expect(s.missionScene.manaOrbs.length).toBe(0);
+  });
+
+  it('respects EVIL_TWIN_MANA_ORB_PICKUP_R — narrow miss stays', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    const baseline = s.mana;
+    s.missionScene.manaOrbs = [{
+      x: s.gx + EVIL_TWIN_MANA_ORB_PICKUP_R + 6, y: s.feetY,
+      age: 0, hash: null, dxFrac: 0.5,
+    }];
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.mana).toBe(baseline);
+    expect(s.missionScene.manaOrbs.length).toBe(1);
   });
 });
 
