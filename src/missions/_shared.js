@@ -48,6 +48,63 @@ export function spawnXRange(state) {
 }
 
 /**
+ * Try to place a new item on a random platform that satisfies the
+ * mission's constraints. Mirrors the pattern shared by mana mines, ice-
+ * age snow chunks, and evil-twin mana orbs: pick a random wide platform,
+ * sample a fractional offset, reject if too close to existing items or
+ * if a mission-supplied predicate refuses the spot, return null after
+ * a fixed number of attempts.
+ *
+ * Options:
+ *   minW         minimum platform width
+ *   edgePx       per-platform pixel inset (auto-clamps the fractional
+ *                range so items don't spawn within `edgePx` of the edges)
+ *   dxFracMin    additional fractional-offset lower bound (defaults 0)
+ *   dxFracMax    additional fractional-offset upper bound (defaults 1)
+ *   existing     items to avoid; rejection radius = `minDist`
+ *   minDist      px distance below which a candidate is rejected
+ *   attempts     how many platforms to try before giving up
+ *   accept       optional `(plat, dxFrac, x, y) → bool` filter
+ *   makeItem     `(plat, dxFrac, x, y) → item` factory — required
+ *
+ * Returns the constructed item, or null when no spot satisfies the
+ * constraints within `attempts` tries.
+ */
+export function spawnOnPlatform(platforms, opts) {
+  if (!Array.isArray(platforms) || platforms.length === 0) return null;
+  const minW = opts.minW ?? 32;
+  const edgePx = opts.edgePx ?? 0;
+  const dxMinDefault = opts.dxFracMin ?? 0;
+  const dxMaxDefault = opts.dxFracMax ?? 1;
+  const minDist = opts.minDist ?? 60;
+  const existing = opts.existing || [];
+  const attempts = opts.attempts ?? 12;
+  const accept = opts.accept;
+  const makeItem = opts.makeItem;
+  if (typeof makeItem !== 'function') return null;
+
+  for (let n = 0; n < attempts; n++) {
+    const plat = platforms[Math.floor(Math.random() * platforms.length)];
+    if (!plat || plat.w < minW) continue;
+    const edgeFrac = plat.w > 0 ? edgePx / plat.w : 0;
+    const fmin = Math.max(dxMinDefault, edgeFrac);
+    const fmax = Math.min(dxMaxDefault, 1 - edgeFrac);
+    if (fmin >= fmax) continue;
+    const dxFrac = fmin + Math.random() * (fmax - fmin);
+    const x = plat.x + plat.w * dxFrac;
+    const y = plat.y;
+    if (accept && !accept(plat, dxFrac, x, y)) continue;
+    let tooClose = false;
+    for (const e of existing) {
+      if (Math.hypot(e.x - x, e.y - y) < minDist) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+    return makeItem(plat, dxFrac, x, y);
+  }
+  return null;
+}
+
+/**
  * Spray a quick burst of debris particles at (x, y). Used for hazard
  * impacts (lava splashes, meteor crashes, icicle bursts). Defaults match
  * the existing meteor/icicle impact look — wider/fatter or upward-fanned

@@ -3,7 +3,13 @@ import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
 import { isShielded } from '../spells.js';
-import { burstParticles, findPlatformByHash, renderGameOver, spawnXRange } from './_shared.js';
+import {
+  burstParticles,
+  findPlatformByHash,
+  renderGameOver,
+  spawnOnPlatform,
+  spawnXRange,
+} from './_shared.js';
 import {
   renderBuildZone,
   renderIceCeiling,
@@ -131,30 +137,23 @@ function seedSnowChunks(state) {
  * number of attempts to avoid spinning when the layout is full.
  */
 function spawnSnowChunk(state, scene) {
-  const plats = eligiblePlatforms(state);
-  if (plats.length === 0) return null;
   const buildZoneHash = scene.buildZone?.anchorHash;
-
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const plat = plats[Math.floor(Math.random() * plats.length)];
-    if (!plat || plat.w < 32) continue;
-    if (buildZoneHash != null && plat.hash === buildZoneHash) continue;
-    const dxFrac = 0.18 + Math.random() * 0.64;       // stay clear of platform edges
-    const x = plat.x + plat.w * dxFrac;
-    const y = plat.y - SNOW_CHUNK_Y_OFFSET;
-
-    let tooClose = false;
-    for (const existing of scene.snowChunks || []) {
-      if (Math.hypot(existing.x - x, existing.y - y) < SNOW_CHUNK_MIN_DIST) {
-        tooClose = true;
-        break;
-      }
-    }
-    if (tooClose) continue;
-
-    return makeSnowChunk(plat, dxFrac);
-  }
-  return null;
+  return spawnOnPlatform(eligiblePlatforms(state), {
+    minW: 32,
+    dxFracMin: 0.18,
+    dxFracMax: 0.82,
+    minDist: SNOW_CHUNK_MIN_DIST,
+    existing: scene.snowChunks || [],
+    attempts: 12,
+    accept(plat) {
+      // Don't seed chunks on the build-zone platform — keeps that line
+      // clean for the snowman.
+      return buildZoneHash == null || plat.hash !== buildZoneHash;
+    },
+    makeItem(plat, dxFrac) {
+      return makeSnowChunk(plat, dxFrac);
+    },
+  });
 }
 
 function ageAndRespawnChunks(state, scene, dt) {

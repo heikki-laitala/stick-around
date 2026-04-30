@@ -8,6 +8,7 @@ import {
 import { findCeiling } from './platforms.js';
 import { stepItemPhysics } from './itemPhysics.js';
 import { PRONE_HEIGHT } from './poses.js';
+import { spawnOnPlatform } from './missions/_shared.js';
 
 // The man can swing an axe in any posture, so a mine only needs enough
 // clearance for the prone pose — that's the lowest way he can approach
@@ -22,39 +23,32 @@ let spawnTimer = 0;
  * reach the spot and swing an axe. Returns null if no valid spot is found.
  */
 export function spawnManaMine(platforms, existing, lineHeight = 16) {
-  if (platforms.length === 0) return null;
-
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const plat = platforms[Math.floor(Math.random() * platforms.length)];
-    if (plat.w < 40) continue;
-
-    const x = plat.x + 16 + Math.random() * (plat.w - 32);
-    const y = plat.y;
-
-    // Reject if a ceiling platform is close enough to block standing.
-    const ceiling = findCeiling(platforms, y, x, lineHeight);
-    if (ceiling) {
+  return spawnOnPlatform(platforms, {
+    minW: 40,
+    edgePx: 16,                              // keep mines clear of platform edges
+    minDist: MANA_MINE_MIN_DIST,
+    existing,
+    attempts: 15,
+    accept(plat, dxFrac, x, y) {
+      // Reject if the ceiling above this column is close enough to
+      // block standing — the player needs prone-pose clearance to swing.
+      const ceiling = findCeiling(platforms, y, x, lineHeight);
+      if (!ceiling) return true;
       const ceilingBottom = ceiling.y + lineHeight;
-      if (y - ceilingBottom < MIN_CLEARANCE) continue;
-    }
-
-    // Reject if too close to another mine.
-    let tooClose = false;
-    for (const e of existing) {
-      if (Math.hypot(e.x - x, e.y - y) < MANA_MINE_MIN_DIST) {
-        tooClose = true;
-        break;
-      }
-    }
-    if (tooClose) continue;
-
-    // See collectibles.js — fractional offset within the platform is
-    // resize-stable where an absolute pixel dx is not.
-    const dxFrac = plat.w > 0 ? (x - plat.x) / plat.w : 0;
-    return { x, y, hits: MANA_MINE_HITS, age: 0, hash: plat.hash || 0, dxFrac, vy: 0, grounded: true };
-  }
-
-  return null;
+      return y - ceilingBottom >= MIN_CLEARANCE;
+    },
+    makeItem(plat, dxFrac, x, y) {
+      return {
+        x, y,
+        hits: MANA_MINE_HITS,
+        age: 0,
+        hash: plat.hash || 0,
+        dxFrac,
+        vy: 0,
+        grounded: true,
+      };
+    },
+  });
 }
 
 /**

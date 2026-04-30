@@ -3,6 +3,7 @@ import { effectiveHudHeight } from '../../constants.js';
 import {
   EVIL_TWIN_GOAL_BALLS,
   EVIL_TWIN_INITIAL_LIVES,
+  EVIL_TWIN_MANA_ORB_LIFETIME,
   TWIN_BOLT_BEAM_WIDTH,
   TWIN_BOLT_RANGE,
 } from '../evilTwin.js';
@@ -256,6 +257,43 @@ export function drawScorches(ctx, scorches) {
     ctx.beginPath();
     ctx.arc(sc.x, sc.y - lift, 9, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+/**
+ * Walk-over mana orbs — same shape as the yellow glowing balls but in
+ * an icy blue palette so they read instantly as "mana, not score".
+ * Pulse + fade-in/fade-out match the glowing-ball polish so it feels
+ * like the same family of pickups.
+ */
+export function drawManaOrbs(ctx, orbs) {
+  if (!Array.isArray(orbs) || orbs.length === 0) return;
+  ctx.save();
+  for (const orb of orbs) {
+    const fadeIn = Math.min(1, orb.age * 2);
+    const fadeOut = orb.age > EVIL_TWIN_MANA_ORB_LIFETIME - 3
+      ? Math.max(0, 1 - (orb.age - (EVIL_TWIN_MANA_ORB_LIFETIME - 3)) / 3)
+      : 1;
+    const alpha = fadeIn * fadeOut;
+    if (alpha <= 0) continue;
+    const expiring = orb.age > EVIL_TWIN_MANA_ORB_LIFETIME - 3;
+    const pulse = 1 + 0.2 * Math.sin(orb.age * (expiring ? 12 : 4));
+    const r = 4 * pulse;
+    const orbY = orb.y - r - 2;
+    ctx.shadowColor = `rgba(120, 180, 255, ${0.7 * alpha})`;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = `rgba(110, 170, 250, ${0.92 * alpha})`;
+    ctx.beginPath();
+    ctx.arc(orb.x, orbY, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Bright inner core — slightly cyan to read as a different orb than
+    // the warm glowing-ball core.
+    ctx.fillStyle = `rgba(220, 240, 255, ${0.85 * alpha})`;
+    ctx.beginPath();
+    ctx.arc(orb.x, orbY, r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
 }
