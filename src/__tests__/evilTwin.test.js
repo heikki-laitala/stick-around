@@ -10,6 +10,8 @@ import {
   TWIN_BOLT_LIFE,
   TWIN_STUN_DURATION,
   EVIL_TWIN_PRIMER_MANA,
+  EVIL_TWIN_SEED_MINES,
+  TWIN_BOLT_SCORCH_LIFE,
   twinSnapshotAt,
 } from '../missions/evilTwin.js';
 import { IDLE } from '../poses.js';
@@ -77,6 +79,62 @@ describe('EVIL_TWIN_MISSION onEnter', () => {
     const s = makeState({ mana: 12 });
     EVIL_TWIN_MISSION.onEnter(s);
     expect(s.mana).toBe(12);
+  });
+
+  it('seeds at least one mineable mana crystal so the player can refuel zaps', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    expect(Array.isArray(s.manaMines)).toBe(true);
+    // Up to EVIL_TWIN_SEED_MINES, but spawnManaMine can decline if no
+    // valid platform fits — a single mine still validates the contract.
+    expect(s.manaMines.length).toBeGreaterThanOrEqual(1);
+    expect(s.manaMines.length).toBeLessThanOrEqual(EVIL_TWIN_SEED_MINES);
+  });
+
+  it('initializes an empty scorch list', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    expect(s.missionScene.scorches).toEqual([]);
+  });
+});
+
+describe('EVIL_TWIN_MISSION bolt scorches', () => {
+  function plantTwinReadyDownward(s) {
+    // Twin sits centered over a platform, ready to fire straight down so
+    // the bolt crosses a platform-top and we can confirm the scorch lands.
+    const plat = s.platforms.find((p) => p.hash === 0xFFFF);
+    s.missionScene.elapsed = EVIL_TWIN_DELAY_INITIAL + 1;
+    s.missionScene.buffer = [{
+      t: s.missionScene.elapsed - EVIL_TWIN_DELAY_INITIAL,
+      gx: plat.x + 100,
+      feetY: plat.y - 30,
+      faceR: true,
+      curPose: clonePose(),
+      posture: 'standing',
+    }];
+    s.missionScene.spellState = 'aiming';
+    s.missionScene.spellT = TWIN_SPELL_AIM_DURATION;            // ready to fire next tick
+    s.missionScene.twinAim = {
+      angle: Math.PI / 2,                                        // straight down
+      originX: plat.x + 100,
+      originY: plat.y - 30,
+    };
+  }
+
+  it('a fired bolt drops a scorch on each platform-top it crossed', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    plantTwinReadyDownward(s);
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.missionScene.scorches.length).toBeGreaterThan(0);
+  });
+
+  it('scorches age out after TWIN_BOLT_SCORCH_LIFE', () => {
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.missionScene.scorches = [{ x: 100, y: 200, age: 0, maxAge: TWIN_BOLT_SCORCH_LIFE }];
+    EVIL_TWIN_MISSION.update(s, TWIN_BOLT_SCORCH_LIFE + 0.05);
+    expect(s.missionScene.scorches.length).toBe(0);
   });
 });
 

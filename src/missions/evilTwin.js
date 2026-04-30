@@ -1,11 +1,13 @@
 import { STANDING_HEIGHT, SCALE } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { isShielded, lightningStrikesPoint } from '../spells.js';
+import { spawnManaMine } from '../manaMines.js';
 import { renderGameOver, burstParticles } from './_shared.js';
 import {
   drawShadowTwin,
   drawTwinLightningAim,
   drawTwinLightningBolt,
+  drawScorches,
   renderEvilTwinHud,
 } from './evilTwin/render.js';
 
@@ -51,6 +53,13 @@ export const TWIN_STUN_DURATION = 2.0;
 // always have a defensive option, regardless of how the random mission
 // order ran. Won't overwrite if they walked in with more.
 export const EVIL_TWIN_PRIMER_MANA = 7;
+// Pre-seed this many mana mines so the player can keep refilling zaps
+// during the chase. The global manaMines spawner handles respawns from
+// there.
+export const EVIL_TWIN_SEED_MINES = 2;
+// Brief scorch left on each platform a twin bolt crossed — a visual
+// breadcrumb of where the danger zones just were.
+export const TWIN_BOLT_SCORCH_LIFE = 1.0;
 // Trim entries older than this so the buffer stays bounded across long
 // missions. Keep enough headroom that the initial-delay readback always
 // has data even when the player is moving slowly.
@@ -134,6 +143,52 @@ function rollSpellInterval() {
     + Math.random() * (TWIN_SPELL_INTERVAL_MAX - TWIN_SPELL_INTERVAL_MIN);
 }
 
+function ensureSeedMines(state) {
+  // Pre-seed the playfield so the player has visible mana sources from
+  // spawn instead of waiting on the global manaMines spawner. The global
+  // system continues to respawn after these are mined out.
+  if (!Array.isArray(state.platforms) || state.platforms.length === 0) return;
+  if (!state.manaMines) state.manaMines = [];
+  while (state.manaMines.length < EVIL_TWIN_SEED_MINES) {
+    const m = spawnManaMine(state.platforms, state.manaMines, state.lineHeight);
+    if (!m) break;                                  // no valid spot — stop trying
+    state.manaMines.push(m);
+  }
+}
+
+function addBoltScorches(state, scene, bolt) {
+  if (!state.platforms || !scene) return;
+  if (!Array.isArray(scene.scorches)) scene.scorches = [];
+  const sin = Math.sin(bolt.angle);
+  const cos = Math.cos(bolt.angle);
+  // A horizontal ray doesn't have a well-defined platform crossing —
+  // the aim arc clamp prevents this in practice; guard anyway.
+  if (Math.abs(sin) < 0.001) return;
+  for (const p of state.platforms) {
+    if (!p || p.x == null) continue;
+    const t = (p.y - bolt.y) / sin;
+    if (t < 0 || t > TWIN_BOLT_RANGE) continue;
+    const crossX = bolt.x + cos * t;
+    if (crossX < p.x || crossX > p.x + p.w) continue;
+    scene.scorches.push({
+      x: crossX,
+      y: p.y,
+      age: 0,
+      maxAge: TWIN_BOLT_SCORCH_LIFE,
+    });
+  }
+}
+
+function ageScorches(scene, dt) {
+  if (!scene.scorches || scene.scorches.length === 0) return;
+  for (let i = scene.scorches.length - 1; i >= 0; i--) {
+    scene.scorches[i].age += dt;
+    if (scene.scorches[i].age >= scene.scorches[i].maxAge) {
+      scene.scorches.splice(i, 1);
+    }
+  }
+}
+
 function makeZig() {
   // Same shape the player's bolt uses — alternating perpendicular offsets,
   // tapering toward the tip so the ray narrows to a point.
@@ -205,7 +260,7 @@ function tickTwinSpell(state, scene, twin, dt) {
     if (scene.spellT >= TWIN_SPELL_AIM_DURATION) {
       const aim = scene.twinAim;
       if (aim) {
-        scene.twinBolt = {
+        const bolt = {
           x: aim.originX, y: aim.originY,
           angle: aim.angle,
           life: TWIN_BOLT_LIFE,
@@ -213,6 +268,8 @@ function tickTwinSpell(state, scene, twin, dt) {
           zig: makeZig(),
           struck: false,                               // gates the once-per-bolt damage
         };
+        scene.twinBolt = bolt;
+        addBoltScorches(state, scene, bolt);
       }
       scene.twinAim = null;
       scene.spellState = 'firing';
@@ -288,7 +345,9 @@ export const EVIL_TWIN_MISSION = {
     scene.twinAim = null;
     scene.twinBolt = null;
     scene.stunT = 0;
+    scene.scorches = [];
     pushSnapshot(scene, state);
+    ensureSeedMines(state);
     state.gameOver = false;
   },
 
@@ -365,6 +424,8 @@ export const EVIL_TWIN_MISSION = {
     }
 
     if (!stunned) tickTwinSpell(state, scene, twin, dt);
+
+    ageScorches(scene, dt);
   },
 
   render(ctx, state, W, H) {
@@ -373,6 +434,7 @@ export const EVIL_TWIN_MISSION = {
     const paused = state.overlayActive === false;
     const stunned = (scene.stunT || 0) > 0;
     const twin = twinSnapshotAt(scene, scene.delaySec);
+    drawScorches(ctx, scene.scorches);
     if (!stunned) drawShadowTwin(ctx, twin, paused);
     if (scene.twinAim) drawTwinLightningAim(ctx, scene.twinAim);
     if (scene.twinBolt) drawTwinLightningBolt(ctx, scene.twinBolt);
