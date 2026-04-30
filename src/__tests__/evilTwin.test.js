@@ -180,6 +180,24 @@ describe('EVIL_TWIN_MISSION mana orbs', () => {
     expect(s.missionScene.manaOrbs.length).toBe(0);
   });
 
+  it('does not bank up respawn time while the pool is full', () => {
+    // Bug regression: if the spawn timer keeps accumulating while at
+    // cap, a pickup after a long full-pool stretch causes an instant
+    // respawn instead of waiting the full interval. The timer should
+    // reset whenever the pool is at cap, so a fresh interval starts
+    // the moment a slot opens.
+    const s = makeState();
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.gx = -9999;                                          // keep player far from any orbs
+    // Run many seconds at cap to bank up time under the buggy version.
+    for (let i = 0; i < 300; i++) EVIL_TWIN_MISSION.update(s, 0.05);
+    expect(s.missionScene.manaOrbSpawnTimer).toBe(0);
+    // Free a slot — the next single tick should not spawn a replacement.
+    s.missionScene.manaOrbs.pop();
+    EVIL_TWIN_MISSION.update(s, 0.05);
+    expect(s.missionScene.manaOrbs.length).toBeLessThan(EVIL_TWIN_MANA_ORB_COUNT);
+  });
+
   it('respects EVIL_TWIN_MANA_ORB_PICKUP_R — narrow miss stays', () => {
     const s = makeState();
     EVIL_TWIN_MISSION.onEnter(s);

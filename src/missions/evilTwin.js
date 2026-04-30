@@ -206,13 +206,15 @@ function tickManaOrbs(state, scene, dt) {
       scene.manaOrbs.splice(i, 1);
     }
   }
-  // Refill toward the cap on a steady cadence so the player can plan
-  // their refuel runs.
+  // Refill toward the cap on a steady cadence. The timer only advances
+  // while the pool has room, otherwise a long full-pool stretch would
+  // bank up time and cause an immediate respawn the moment a slot opens.
+  if (scene.manaOrbs.length >= EVIL_TWIN_MANA_ORB_COUNT) {
+    scene.manaOrbSpawnTimer = 0;
+    return;
+  }
   scene.manaOrbSpawnTimer = (scene.manaOrbSpawnTimer || 0) + dt;
-  if (
-    scene.manaOrbSpawnTimer >= EVIL_TWIN_MANA_ORB_SPAWN_INTERVAL
-    && scene.manaOrbs.length < EVIL_TWIN_MANA_ORB_COUNT
-  ) {
+  if (scene.manaOrbSpawnTimer >= EVIL_TWIN_MANA_ORB_SPAWN_INTERVAL) {
     scene.manaOrbSpawnTimer = 0;
     const fresh = spawnManaOrb(state, scene);
     if (fresh) scene.manaOrbs.push(fresh);
