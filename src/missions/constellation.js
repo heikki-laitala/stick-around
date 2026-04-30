@@ -9,6 +9,7 @@ import {
   drawShotFlash,
   drawCelebration,
   drawTargetDiagram,
+  drawTutorialBanner,
   renderConstellationHud,
 } from './constellation/render.js';
 
@@ -209,6 +210,7 @@ export const CONSTELLATION_MISSION = {
     scene.lastBolt = null;                         // tracks which bolt we've already scored
     scene.celebration = null;                      // started when the last edge connects
     scene.celebrationDone = false;
+    scene.bannerAge = 0;                            // tutorial banner fades after a few seconds
     state.gameOver = false;
     resetPlayer(state);
   },
@@ -223,6 +225,8 @@ export const CONSTELLATION_MISSION = {
     const scene = state.missionScene;
     if (!scene) return;
     if (state.gameOver) return;
+
+    if (typeof scene.bannerAge === 'number') scene.bannerAge += dt;
 
     // A new bolt has appeared — score it once, then mark as seen so we
     // don't double-count over its life. state.lightningBolt becomes
@@ -264,6 +268,7 @@ export const CONSTELLATION_MISSION = {
     drawCelebration(ctx, scene);
     drawTargetDiagram(ctx, scene, state.screenW || W);
     renderConstellationHud(ctx, scene, state.screenW || W);
+    drawTutorialBanner(ctx, scene, state.screenW || W);
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };

@@ -7,6 +7,13 @@ import { STAR_RADIUS, FLASH_DURATION } from '../constellation.js';
  * the corner.
  */
 
+// Target-diagram geometry. Shared so the tutorial banner can sit
+// below the diagram without overlapping it on narrow terminals.
+const DIAGRAM_PAD_X = 8;
+const DIAGRAM_PAD_Y_OFFSET = 6;
+const DIAGRAM_BOX_W = 120;
+const DIAGRAM_BOX_H = 96;
+
 function findStar(stars, id) {
   if (!Array.isArray(stars)) return null;
   for (const s of stars) if (s.id === id) return s;
@@ -245,10 +252,10 @@ export function drawShotFlash(ctx, scene) {
  */
 export function drawTargetDiagram(ctx, scene, screenW) {
   if (!scene?.edges || !scene?.stars) return;
-  const padX = 8;
-  const padY = effectiveHudHeight(screenW) + 6;
-  const boxW = 120;
-  const boxH = 96;
+  const padX = DIAGRAM_PAD_X;
+  const padY = effectiveHudHeight(screenW) + DIAGRAM_PAD_Y_OFFSET;
+  const boxW = DIAGRAM_BOX_W;
+  const boxH = DIAGRAM_BOX_H;
   ctx.save();
   // Background panel — soft dark blue to read like a star chart.
   ctx.fillStyle = 'rgba(15, 20, 40, 0.7)';
@@ -313,6 +320,66 @@ export function drawTargetDiagram(ctx, scene, screenW) {
     ctx.textAlign = labelLeft ? 'right' : 'left';
     ctx.fillText(s.id, p.x + (labelLeft ? -6 : 6), p.y);
   }
+  ctx.restore();
+}
+
+/**
+ * Brief onboarding hint at the top of the play area: tells the player
+ * what the goal is and which key fires the bolt. Fades in fast, holds
+ * for a few seconds, then fades out — long enough to read once,
+ * short enough to stay out of the way for repeat runs.
+ */
+const BANNER_HOLD = 5.0;
+const BANNER_FADE_IN = 0.4;
+const BANNER_FADE_OUT = 1.0;
+const BANNER_TOTAL = BANNER_HOLD + BANNER_FADE_IN + BANNER_FADE_OUT;
+
+export function drawTutorialBanner(ctx, scene, screenW) {
+  const age = scene?.bannerAge;
+  if (typeof age !== 'number' || age >= BANNER_TOTAL) return;
+  const fadeIn = Math.min(1, age / BANNER_FADE_IN);
+  const fadeOut = age > BANNER_FADE_IN + BANNER_HOLD
+    ? Math.max(0, 1 - (age - BANNER_FADE_IN - BANNER_HOLD) / BANNER_FADE_OUT)
+    : 1;
+  const alpha = fadeIn * fadeOut;
+  if (alpha <= 0.01) return;
+
+  const cx = screenW / 2;
+  // Sit just below the target diagram in the upper-left so the banner
+  // never overlaps it on narrow terminals.
+  const diagramBottom = effectiveHudHeight(screenW) + DIAGRAM_PAD_Y_OFFSET + DIAGRAM_BOX_H;
+  const top = diagramBottom + 8;
+  const padX = 18;
+  const padY = 10;
+  const titleFont = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const subFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const title = 'Trace the constellation';
+  const sub = 'stand where two target stars line up overhead — hold 2 to fire lightning';
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = titleFont;
+  const titleW = ctx.measureText(title).width;
+  ctx.font = subFont;
+  const subW = ctx.measureText(sub).width;
+  const bgW = Math.max(titleW, subW) + padX * 2;
+  const bgH = 22 + 18 + padY * 2;
+
+  ctx.fillStyle = `rgba(15, 20, 40, ${0.78 * alpha})`;
+  ctx.strokeStyle = `rgba(255, 240, 180, ${0.55 * alpha})`;
+  ctx.lineWidth = 1;
+  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
+  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
+
+  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
+  ctx.shadowBlur = 4;
+  ctx.font = titleFont;
+  ctx.fillStyle = `rgba(255, 240, 180, ${0.98 * alpha})`;
+  ctx.fillText(title, cx, top + padY);
+  ctx.font = subFont;
+  ctx.fillStyle = `rgba(220, 215, 200, ${0.92 * alpha})`;
+  ctx.fillText(sub, cx, top + padY + 26);
   ctx.restore();
 }
 
