@@ -116,6 +116,95 @@ export function drawEdges(ctx, scene) {
   ctx.restore();
 }
 
+/**
+ * Cascade-pulse the stars one-by-one (id order), then bloom the whole
+ * shape into a unified shimmer with a "constellation complete" flourish
+ * underneath. Plays in real time off `scene.celebration.age` so the
+ * mission's update loop can advance it however it wants.
+ */
+export function drawCelebration(ctx, scene) {
+  const c = scene?.celebration;
+  if (!c) return;
+  const t = c.age;
+  const stars = scene.stars || [];
+  const edges = scene.edges || [];
+  if (stars.length === 0) return;
+  ctx.save();
+
+  // Cascade the stars at ~130ms apart. Each pulse rises fast, holds,
+  // then trails off — the shape lights up as the wave passes.
+  const STAGGER = 0.13;
+  for (let i = 0; i < stars.length; i++) {
+    const s = stars[i];
+    const elapsed = t - i * STAGGER;
+    if (elapsed <= 0) continue;
+    const peak = elapsed < 0.35
+      ? elapsed / 0.35
+      : Math.max(0, 1 - (elapsed - 0.35) / 1.0);
+    if (peak <= 0) continue;
+    ctx.shadowColor = 'rgba(255, 240, 160, 0.95)';
+    ctx.shadowBlur = 28 * peak;
+    ctx.fillStyle = `rgba(255, 250, 220, ${0.7 * peak})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 4 + 14 * peak, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Whole-shape shimmer once the cascade has reached every star.
+  const shimmerStart = stars.length * STAGGER;
+  if (t > shimmerStart) {
+    const localT = t - shimmerStart;
+    const fadeIn = Math.min(1, localT / 0.3);
+    const fadeOut = Math.max(0, 1 - Math.max(0, localT - 0.7) / 0.4);
+    const intensity = fadeIn * fadeOut;
+    if (intensity > 0) {
+      ctx.shadowColor = 'rgba(255, 240, 200, 1)';
+      ctx.shadowBlur = 24 * intensity;
+      ctx.strokeStyle = `rgba(255, 250, 210, ${0.9 * intensity})`;
+      ctx.lineWidth = 2.4;
+      for (const edge of edges) {
+        if (!edge.drawn) continue;
+        const a = stars.find((s) => s.id === edge.a);
+        const b = stars.find((s) => s.id === edge.b);
+        if (!a || !b) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Fanfare text under the constellation, fading in slightly before
+  // the shimmer peaks so it reads as part of the same moment.
+  const textStart = shimmerStart - 0.1;
+  if (t > textStart) {
+    const localT = t - textStart;
+    const fadeIn = Math.min(1, localT / 0.25);
+    const fadeOut = Math.max(0, 1 - Math.max(0, localT - 1.0) / 0.4);
+    const alpha = fadeIn * fadeOut;
+    if (alpha > 0) {
+      let cx = 0;
+      let maxY = -Infinity;
+      for (const s of stars) {
+        cx += s.x;
+        if (s.y > maxY) maxY = s.y;
+      }
+      cx /= stars.length;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = `rgba(255, 240, 180, ${alpha})`;
+      ctx.font = "bold 22px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('constellation complete', cx, maxY + 56);
+    }
+  }
+
+  ctx.restore();
+}
+
 export function drawShotFlash(ctx, scene) {
   const f = scene?.flash;
   if (!f) return;
@@ -202,9 +291,13 @@ export function drawTargetDiagram(ctx, scene, screenW) {
   }
   // Star dots on top of the edges, with a dark halo so they read on
   // top of the line bundle, plus an id label tucked just outside the
-  // dot so each star is identifiable against the in-world stars.
+  // dot so each star is identifiable against the in-world stars. The
+  // label is anchored to whichever side of the dot has more room
+  // inside the box, so the rightmost star's label never spills past
+  // the right border.
   ctx.font = "bold 9px 'Cinzel', serif";
   ctx.textBaseline = 'middle';
+  const midX = padX + boxW / 2;
   for (const s of scene.stars) {
     const p = project(s);
     ctx.fillStyle = 'rgba(15, 20, 40, 0.95)';
@@ -216,8 +309,9 @@ export function drawTargetDiagram(ctx, scene, screenW) {
     ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = 'rgba(255, 240, 180, 0.9)';
-    ctx.textAlign = 'left';
-    ctx.fillText(s.id, p.x + 6, p.y);
+    const labelLeft = p.x > midX;
+    ctx.textAlign = labelLeft ? 'right' : 'left';
+    ctx.fillText(s.id, p.x + (labelLeft ? -6 : 6), p.y);
   }
   ctx.restore();
 }

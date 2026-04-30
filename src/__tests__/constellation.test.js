@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   CONSTELLATION_MISSION,
   CONSTELLATION_DURATION,
   CONSTELLATION_PRIMER_MANA,
+  CONSTELLATION_PATTERNS,
+  CELEBRATION_DURATION,
   starsHitByBolt,
 } from '../missions/constellation.js';
 
@@ -84,6 +86,12 @@ describe('starsHitByBolt', () => {
 });
 
 describe('CONSTELLATION_MISSION update — bolt scoring', () => {
+  // Pin pattern selection to the kite (index 0) so A and D align on
+  // the same column — the bolt-aim assertions below depend on that.
+  let randomSpy;
+  beforeEach(() => { randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0); });
+  afterEach(() => { randomSpy.mockRestore(); });
+
   function ctx() {
     const s = makeState();
     CONSTELLATION_MISSION.onEnter(s);
@@ -158,10 +166,18 @@ describe('CONSTELLATION_MISSION timer + check', () => {
     expect(s.gameOver).toBe(true);
   });
 
-  it('check() returns true once every edge is drawn', () => {
+  it('check() stays false until the celebration sequence finishes', () => {
     const s = makeState();
     CONSTELLATION_MISSION.onEnter(s);
     for (const e of s.missionScene.edges) e.drawn = true;
+    expect(CONSTELLATION_MISSION.check(s)).toBe(false);
+  });
+
+  it('check() returns true once every edge is drawn and celebration completes', () => {
+    const s = makeState();
+    CONSTELLATION_MISSION.onEnter(s);
+    for (const e of s.missionScene.edges) e.drawn = true;
+    CONSTELLATION_MISSION.update(s, CELEBRATION_DURATION + 0.1);
     expect(CONSTELLATION_MISSION.check(s)).toBe(true);
   });
 
@@ -178,5 +194,43 @@ describe('CONSTELLATION_MISSION timer + check', () => {
     const left = s.missionScene.timeLeft;
     CONSTELLATION_MISSION.update(s, 1.0);
     expect(s.missionScene.timeLeft).toBe(left);
+  });
+});
+
+describe('CONSTELLATION_PATTERNS', () => {
+  it('exposes more than one pattern, each non-empty', () => {
+    expect(CONSTELLATION_PATTERNS.length).toBeGreaterThan(1);
+    for (const p of CONSTELLATION_PATTERNS) {
+      expect(p.stars.length).toBeGreaterThan(0);
+      expect(p.edges.length).toBeGreaterThan(0);
+      // Every edge endpoint must reference a real star id in the pattern.
+      const ids = new Set(p.stars.map((s) => s.id));
+      for (const e of p.edges) {
+        expect(ids.has(e.a)).toBe(true);
+        expect(ids.has(e.b)).toBe(true);
+      }
+    }
+  });
+
+  it('onEnter selects one of the registered patterns', () => {
+    const s = makeState();
+    CONSTELLATION_MISSION.onEnter(s);
+    expect(CONSTELLATION_PATTERNS).toContain(s.missionScene.pattern);
+  });
+
+  it('different Math.random outputs select different patterns', () => {
+    const seen = new Set();
+    for (let i = 0; i < CONSTELLATION_PATTERNS.length; i++) {
+      const fixed = (i + 0.5) / CONSTELLATION_PATTERNS.length;
+      const spy = vi.spyOn(Math, 'random').mockReturnValue(fixed);
+      try {
+        const s = makeState();
+        CONSTELLATION_MISSION.onEnter(s);
+        seen.add(s.missionScene.pattern.name);
+      } finally {
+        spy.mockRestore();
+      }
+    }
+    expect(seen.size).toBe(CONSTELLATION_PATTERNS.length);
   });
 });

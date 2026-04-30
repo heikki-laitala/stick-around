@@ -72,8 +72,10 @@ function completeRealMissions(s) {
       continue;
     }
     if (m.id === 'constellation' && s.missionScene) {
-      // Skip past the constellation by marking every edge drawn.
+      // Skip past the constellation: stamp every edge drawn AND flush
+      // the celebration phase so check() can advance.
       for (const e of s.missionScene.edges || []) e.drawn = true;
+      s.missionScene.celebrationDone = true;
       continue;
     }
     return; // landed on something we don't know how to auto-satisfy

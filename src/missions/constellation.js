@@ -7,6 +7,7 @@ import {
   drawEdges,
   drawGuideLines,
   drawShotFlash,
+  drawCelebration,
   drawTargetDiagram,
   renderConstellationHud,
 } from './constellation/render.js';
@@ -36,35 +37,88 @@ export const CONSTELLATION_PRIMER_MANA = 24;       // ~12 shots for 5 edges — 
 export const STAR_BEAM_TOLERANCE = LIGHTNING_BEAM_WIDTH * 1.1;
 export const FLASH_DURATION = 0.6;                 // seconds the success/fail flash lingers
 export const STAR_RADIUS = 4.5;
+export const CELEBRATION_DURATION = 2.0;           // seconds of fanfare before the mission can complete
 
-function placeStars(state) {
-  // Fan-pattern stars: anchor "A" near the top, with three outliers
-  // close to vertical from it. Positions are chosen so each line
-  // through the anchor and an outlier, extended down to the prompt
-  // row, lands inside the visible text width — i.e. there's always
-  // an on-screen perch the player can walk to.
+/**
+ * Each pattern is a screen-space layout — `fx` is a fraction of the
+ * spawn x-range, `dy` is pixels below the top of the play area. Edges
+ * are picked so every pair has enough vertical separation that its
+ * perch line lands inside the visible text width.
+ *
+ * Kept as a small hand-curated list so each shape is guaranteed
+ * solvable; randomising at runtime gives replay variety without the
+ * risk of generating an unreachable pattern.
+ */
+export const CONSTELLATION_PATTERNS = [
+  {
+    // Diamond with a vertical spine. Perches land at ~0.33w / 0.5w /
+    // 0.67w of the spawn range — comfortably in the middle so the
+    // player can always find a platform underneath.
+    name: 'kite',
+    stars: [
+      { id: 'A', fx: 0.50, dy: 50 },
+      { id: 'B', fx: 0.42, dy: 140 },
+      { id: 'C', fx: 0.58, dy: 140 },
+      { id: 'D', fx: 0.50, dy: 230 },
+    ],
+    edges: [
+      { a: 'A', b: 'B' }, { a: 'A', b: 'C' }, { a: 'A', b: 'D' },
+      { a: 'D', b: 'B' }, { a: 'D', b: 'C' },
+    ],
+  },
+  {
+    // Downward V with a tail. All edges have strong vertical
+    // separation, so every perch is close to directly under the
+    // lower star.
+    name: 'arrow',
+    stars: [
+      { id: 'A', fx: 0.42, dy: 60 },
+      { id: 'B', fx: 0.58, dy: 60 },
+      { id: 'C', fx: 0.50, dy: 160 },
+      { id: 'D', fx: 0.50, dy: 250 },
+    ],
+    edges: [
+      { a: 'A', b: 'C' }, { a: 'B', b: 'C' },
+      { a: 'A', b: 'D' }, { a: 'B', b: 'D' },
+      { a: 'C', b: 'D' },
+    ],
+  },
+  {
+    // Open pentagon — the four outer edges, no bottom or top
+    // crossing. Vertical separation on every edge keeps perches in
+    // the central band.
+    name: 'pentagon',
+    stars: [
+      { id: 'A', fx: 0.50, dy: 50 },
+      { id: 'B', fx: 0.40, dy: 130 },
+      { id: 'C', fx: 0.60, dy: 130 },
+      { id: 'D', fx: 0.42, dy: 230 },
+      { id: 'E', fx: 0.58, dy: 230 },
+    ],
+    edges: [
+      { a: 'A', b: 'B' }, { a: 'A', b: 'C' },
+      { a: 'B', b: 'D' }, { a: 'C', b: 'E' },
+    ],
+  },
+];
+
+function pickPattern() {
+  return CONSTELLATION_PATTERNS[Math.floor(Math.random() * CONSTELLATION_PATTERNS.length)];
+}
+
+function placeStars(state, pattern) {
   const { x0, x1 } = spawnXRange(state);
   const w = x1 - x0;
   const top = effectiveHudHeight(state.screenW || 800);
-  const at = (id, fx, dy) => ({ id, x: x0 + w * fx, y: top + dy });
-  return [
-    at('A', 0.50, 60),                             // anchor — top centre
-    at('B', 0.40, 140),                            // lower-left of anchor
-    at('C', 0.60, 140),                            // lower-right of anchor
-    at('D', 0.50, 220),                            // directly below anchor
-  ];
+  return pattern.stars.map((s) => ({
+    id: s.id,
+    x: x0 + w * s.fx,
+    y: top + s.dy,
+  }));
 }
 
-const TARGET_EDGES = [
-  { a: 'A', b: 'B' },
-  { a: 'A', b: 'C' },
-  { a: 'A', b: 'D' },
-  { a: 'D', b: 'B' },
-  { a: 'D', b: 'C' },
-];
-
-function makeEdges() {
-  return TARGET_EDGES.map((e) => ({ a: e.a, b: e.b, drawn: false }));
+function makeEdges(pattern) {
+  return pattern.edges.map((e) => ({ a: e.a, b: e.b, drawn: false }));
 }
 
 /**
@@ -146,11 +200,15 @@ export const CONSTELLATION_MISSION = {
     if ((state.mana || 0) < CONSTELLATION_PRIMER_MANA) {
       state.mana = CONSTELLATION_PRIMER_MANA;
     }
+    const pattern = pickPattern();
+    scene.pattern = pattern;
     scene.timeLeft = CONSTELLATION_DURATION;
-    scene.stars = placeStars(state);
-    scene.edges = makeEdges();
+    scene.stars = placeStars(state, pattern);
+    scene.edges = makeEdges(pattern);
     scene.flash = null;
     scene.lastBolt = null;                         // tracks which bolt we've already scored
+    scene.celebration = null;                      // started when the last edge connects
+    scene.celebrationDone = false;
     state.gameOver = false;
     resetPlayer(state);
   },
@@ -158,7 +216,7 @@ export const CONSTELLATION_MISSION = {
   check(state) {
     const scene = state.missionScene;
     if (!scene) return false;
-    return edgesRemaining(scene) === 0;
+    return scene.celebrationDone === true;
   },
 
   update(state, dt) {
@@ -176,7 +234,17 @@ export const CONSTELLATION_MISSION = {
 
     ageFlash(scene, dt);
 
-    if (edgesRemaining(scene) === 0) return;
+    // Once every edge is drawn, kick off the celebration sequence and
+    // freeze the timer until it finishes — the player has earned the
+    // moment to watch their constellation light up.
+    if (edgesRemaining(scene) === 0) {
+      if (!scene.celebration) scene.celebration = { age: 0 };
+      scene.celebration.age += dt;
+      if (scene.celebration.age >= CELEBRATION_DURATION) {
+        scene.celebrationDone = true;
+      }
+      return;
+    }
 
     scene.timeLeft = Math.max(0, (scene.timeLeft || 0) - dt);
     if (scene.timeLeft <= 0) {
@@ -193,6 +261,7 @@ export const CONSTELLATION_MISSION = {
     drawEdges(ctx, scene);
     drawShotFlash(ctx, scene);
     drawStars(ctx, scene.stars);
+    drawCelebration(ctx, scene);
     drawTargetDiagram(ctx, scene, state.screenW || W);
     renderConstellationHud(ctx, scene, state.screenW || W);
     if (state.gameOver) renderGameOver(ctx, W, H);
