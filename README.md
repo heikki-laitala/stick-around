@@ -227,6 +227,13 @@ sets an objective shown in the HUD:
 5. **Alone in the dark** — the world goes black and you carry a
    flashlight. Sweep its beam with the arrow keys, and press `R` to
    burn a collected ball into battery charge when the light fades.
+6. **Ice age** — every platform freezes (sliding-with-momentum), and
+   giant icicles hang from the terminal ceiling. Mine snow chunks
+   with `F` (they age out and respawn elsewhere), deliver three of
+   them to the build zone above the prompt to grow a snowman base
+   → torso → head. A shaking icicle telegraphs with a warm tint and
+   a pulsing red shadow on the platform it's about to hit; getting
+   crushed is instant fail unless your shield is up.
 
 `Shift + R` restarts just the current mission if you get stuck.
 

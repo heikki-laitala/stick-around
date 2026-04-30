@@ -1,6 +1,7 @@
 import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isShielded } from '../spells.js';
+import { findPlatformByHash, renderGameOver } from './_shared.js';
 
 /**
  * "Escape the rising lava" mission.
@@ -63,12 +64,6 @@ function topmostTrackablePlatform(platforms, state, doorH) {
     if (!top || p.y < top.y) top = p;
   }
   return top;
-}
-
-function findPlatformByHash(platforms, hash) {
-  if (!platforms || hash == null) return null;
-  for (const p of platforms) if (p.hash === hash) return p;
-  return null;
 }
 
 function horizontallyOverlaps(doorX, doorW, p) {
@@ -350,17 +345,3 @@ function renderDoor(ctx, x, y, w, h) {
   ctx.restore();
 }
 
-function renderGameOver(ctx, W, H) {
-  ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.98)';
-  ctx.font = "bold 48px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('GAME OVER', W / 2, H / 2 - 16);
-  ctx.font = "16px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.75)';
-  ctx.fillText('press R to try again', W / 2, H / 2 + 20);
-  ctx.restore();
-}
