@@ -66,6 +66,11 @@ function completeRealMissions(s) {
       s.missionScene.winT = 999;
       continue;
     }
+    if (m.id === 'evil-twin' && s.missionScene) {
+      // Bypass the live ball-pickup loop by stamping the goal counter.
+      s.missionScene.ballsCollected = 5;
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }

@@ -239,6 +239,11 @@ After the warm-up, in random order:
   torso → head. A shaking icicle telegraphs with a warm tint and a
   pulsing red shadow on the platform it's about to hit; getting
   crushed is instant fail unless your shield is up.
+- **Evil twin** — a second stick figure shadows you, replaying your
+  movements from a few seconds ago. Touch it and you lose a life;
+  three hits and the run ends. Collect 5 glowing balls while the
+  twin chases. The lag tightens as you progress, so the late game
+  forces decisive moves rather than dawdling.
 
 `Shift + R` restarts just the current mission if you get stuck.
 
