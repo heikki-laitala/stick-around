@@ -196,12 +196,16 @@ The rope is your main way across gaps and up to higher platforms.
 
 ## Spells
 
-Each spell has its own slot key — no cycling.
+Each spell has its own slot key. The slot keys also set which spell
+the spare cast key (`R`) fires, so a pinch fight can stay on the
+home row.
 
 - **`1` Shield** — tap to raise the dome, tap again to drop it. Blocks
   damage while up but drains mana continuously.
 - **`2` Lightning** — *hold* `2` to aim (sweep with `←` / `→`), *release*
   `2` to fire. Costs 2 mana per bolt.
+- **`R`** — cast the spell currently shown in the HUD. Same effect as
+  pressing the slot key for that spell, just under your index finger.
 
 Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
@@ -211,7 +215,7 @@ Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 | ------------- | ----------------------------------------------------------- |
 | `F`           | Swing axe — breaks crystals and thin ceilings               |
 | `Tab`         | Cycle inventory slot                                        |
-| `R`           | Recharge flashlight (alone-in-dark mission, costs one ball) |
+| `G`           | Recharge flashlight (alone-in-dark mission, costs one ball) |
 | `Shift + R`   | Restart the current mission                                 |
 
 ## Missions
@@ -230,7 +234,7 @@ After the warm-up, in random order:
 - **Meteor shower** — dodge falling rocks; you spawn at a safe point
   when it starts.
 - **Alone in the dark** — the world goes black and you carry a
-  flashlight. Sweep its beam with the arrow keys, and press `R` to
+  flashlight. Sweep its beam with the arrow keys, and press `G` to
   burn a collected ball into battery charge when the light fades.
 - **Ice age** — every platform freezes (sliding-with-momentum), and
   giant icicles hang from the terminal ceiling. Mine snow chunks

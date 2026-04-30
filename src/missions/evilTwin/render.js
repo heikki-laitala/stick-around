@@ -3,6 +3,8 @@ import { effectiveHudHeight } from '../../constants.js';
 import {
   EVIL_TWIN_GOAL_BALLS,
   EVIL_TWIN_INITIAL_LIVES,
+  TWIN_BOLT_BEAM_WIDTH,
+  TWIN_BOLT_RANGE,
 } from '../evilTwin.js';
 
 /**
@@ -135,6 +137,93 @@ function drawTwinRope(ctx, rope, handPos) {
     ctx.arc(rope.hitX, rope.hitY, 3, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+/**
+ * Telegraph line for the twin's incoming bolt. Pulsing dashed red
+ * stripe from the casting hand toward the player so the hit zone is
+ * legible during the charge phase.
+ */
+export function drawTwinLightningAim(ctx, aim) {
+  const ox = aim.originX;
+  const oy = aim.originY;
+  const len = 280;
+  const ex = ox + Math.cos(aim.angle) * len;
+  const ey = oy + Math.sin(aim.angle) * len;
+  ctx.save();
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = 'rgba(255, 90, 110, 0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(255, 60, 90, 0.6)';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(ox, oy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255, 120, 140, 0.85)';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Live bolt — same jagged-stack rendering as the player's lightning,
+ * just in a hot crimson palette. Three-strand layout (glow, core,
+ * inner strand) keeps it visually meaty over the player's blue bolt.
+ */
+export function drawTwinLightningBolt(ctx, bolt) {
+  const cos = Math.cos(bolt.angle);
+  const sin = Math.sin(bolt.angle);
+  const nx = -sin;
+  const ny = cos;
+  const zig = bolt.zig || [];
+  const n = Math.max(2, zig.length);
+  const alpha = Math.max(0, Math.min(1, bolt.life / bolt.maxLife));
+
+  const points = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const along = t * TWIN_BOLT_RANGE;
+    const off = zig[i] || 0;
+    const px = bolt.x + cos * along + nx * off;
+    const py = bolt.y + sin * along + ny * off;
+    points.push([px, py]);
+  }
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Glow halo.
+  ctx.strokeStyle = `rgba(255, 90, 110, ${0.35 * alpha})`;
+  ctx.lineWidth = TWIN_BOLT_BEAM_WIDTH * 0.9;
+  ctx.shadowColor = 'rgba(255, 70, 100, 0.9)';
+  ctx.shadowBlur = 22;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+
+  // Mid-brightness core.
+  ctx.strokeStyle = `rgba(255, 160, 180, ${0.95 * alpha})`;
+  ctx.lineWidth = 4;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+
+  // Bright inner strand.
+  ctx.strokeStyle = `rgba(255, 235, 240, ${alpha})`;
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
   ctx.restore();
 }
 
