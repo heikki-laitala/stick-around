@@ -24,6 +24,13 @@ import { isShielded } from '../spells.js';
  */
 
 export const SNOWMAN_LAYERS = 3;
+// Snow chunks behave like mana mines: each one ages out and a fresh one
+// spawns somewhere else, so the player can't camp a single platform —
+// they're forced to traverse the map between mining sessions, which is
+// when the icicles do their job.
+export const SNOW_CHUNK_LIFETIME = 22;
+export const SNOW_CHUNK_SPAWN_INTERVAL = 3.5;
+export const SNOW_CHUNK_MIN_DIST = 80;
 // Once the head goes on, the mission holds on the screen for a beat so
 // the player can see what they built before the ladder advances. Long
 // enough for the snowman to register, short enough that it doesn't feel
@@ -73,12 +80,23 @@ function findPlatformByHash(state, hash) {
   return (state.platforms || []).find((p) => p && p.hash === hash) || null;
 }
 
+function makeSnowChunk(plat, dxFrac) {
+  const x = plat.x + plat.w * dxFrac;
+  return {
+    x, y: plat.y - SNOW_CHUNK_Y_OFFSET,
+    hits: SNOW_CHUNK_HITS,
+    hash: plat.hash,
+    dxFrac,
+    age: 0,
+  };
+}
+
 function seedSnowChunks(state) {
   const plats = eligiblePlatforms(state);
   if (plats.length === 0) return [];
-  // Spread chunks across the map by sampling platforms at evenly-spaced
-  // indices — biased toward variety so the player has to traverse to mine
-  // them all, which is where the icicle hazard does its work.
+  // Spread the initial set across the map by sampling platforms at evenly-
+  // spaced indices — gives the player a starting field to find. Aging +
+  // respawn keep them moving from there.
   plats.sort((a, b) => a.x - b.x || a.y - b.y);
   const chunks = [];
   const wanted = Math.min(SNOW_CHUNK_COUNT, plats.length);
@@ -86,17 +104,64 @@ function seedSnowChunks(state) {
     const idx = Math.floor(((i + 0.5) * plats.length) / wanted);
     const plat = plats[Math.min(idx, plats.length - 1)];
     if (plat.w < 32) continue;
-    const dxFrac = 0.5;                        // centered on the platform
-    const x = plat.x + plat.w * dxFrac;
-    const y = plat.y - SNOW_CHUNK_Y_OFFSET;
-    chunks.push({
-      x, y,
-      hits: SNOW_CHUNK_HITS,
-      hash: plat.hash,
-      dxFrac,
-    });
+    chunks.push(makeSnowChunk(plat, 0.5));
   }
   return chunks;
+}
+
+/**
+ * Try to place a fresh chunk on a random platform that (a) isn't the
+ * build-zone host, (b) is wide enough, and (c) isn't already crowded by
+ * existing chunks. Returns the new chunk on success, null after a fixed
+ * number of attempts to avoid spinning when the layout is full.
+ */
+function spawnSnowChunk(state, scene) {
+  const plats = eligiblePlatforms(state);
+  if (plats.length === 0) return null;
+  const buildZoneHash = scene.buildZone?.anchorHash;
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const plat = plats[Math.floor(Math.random() * plats.length)];
+    if (!plat || plat.w < 32) continue;
+    if (buildZoneHash != null && plat.hash === buildZoneHash) continue;
+    const dxFrac = 0.18 + Math.random() * 0.64;       // stay clear of platform edges
+    const x = plat.x + plat.w * dxFrac;
+    const y = plat.y - SNOW_CHUNK_Y_OFFSET;
+
+    let tooClose = false;
+    for (const existing of scene.snowChunks || []) {
+      if (Math.hypot(existing.x - x, existing.y - y) < SNOW_CHUNK_MIN_DIST) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    return makeSnowChunk(plat, dxFrac);
+  }
+  return null;
+}
+
+function ageAndRespawnChunks(state, scene, dt) {
+  if (!scene.snowChunks) scene.snowChunks = [];
+  // Age out expired chunks so the player can't camp one platform.
+  for (let i = scene.snowChunks.length - 1; i >= 0; i--) {
+    const c = scene.snowChunks[i];
+    c.age = (c.age || 0) + dt;
+    if (c.age >= SNOW_CHUNK_LIFETIME) {
+      scene.snowChunks.splice(i, 1);
+    }
+  }
+  // Refill toward SNOW_CHUNK_COUNT on the spawn cadence.
+  scene.snowChunkSpawnTimer = (scene.snowChunkSpawnTimer || 0) + dt;
+  if (
+    scene.snowChunkSpawnTimer >= SNOW_CHUNK_SPAWN_INTERVAL
+    && scene.snowChunks.length < SNOW_CHUNK_COUNT
+  ) {
+    scene.snowChunkSpawnTimer = 0;
+    const fresh = spawnSnowChunk(state, scene);
+    if (fresh) scene.snowChunks.push(fresh);
+  }
 }
 
 function pickBuildZone(state) {
@@ -170,6 +235,7 @@ export const ICE_AGE_MISSION = {
     const scene = state.missionScene;
     scene.iceFloor = true;
     scene.snowChunks = seedSnowChunks(state);
+    scene.snowChunkSpawnTimer = 0;
     scene.snowballsCollected = 0;
     scene.builtLayers = 0;
     scene.buildZone = pickBuildZone(state);
@@ -219,6 +285,7 @@ export const ICE_AGE_MISSION = {
 
     advanceIcicles(state, scene, dt);
     scheduleIcicleSpawn(state, scene, dt);
+    ageAndRespawnChunks(state, scene, dt);
   },
 
   render(ctx, state, W, H) {
@@ -434,22 +501,84 @@ function spawnImpactParticles(state, x, y) {
 
 // ── Render helpers ──────────────────────────────────────────────────────
 
+// Shared two-sine ripple used by both the ceiling rim and the platform
+// snow caps. Two octaves keep the line organic without burning a per-
+// frame random table — pixel positions are stable so frost reads as
+// frozen, not fizzy.
+function iceWaveAt(x) {
+  return (
+    Math.sin(x * 0.085) * 1.6 +
+    Math.sin(x * 0.23 + 1.4) * 0.9 +
+    Math.sin(x * 0.41) * 0.4
+  );
+}
+
 function renderIceTint(ctx, state, paused) {
-  // Faint icy-blue wash over each platform top. Cheap and reads instantly
-  // as "this floor is different" without obscuring the terminal text.
+  // Each platform gets the same frosted treatment as the ceiling rim:
+  // a snow ridge with a wavy top edge, a soft gradient body, a frost
+  // highlight, and a sparse glitter pattern. The wave amplitude is
+  // small (≤ 2 px) so the man's foot landing at p.y still reads as
+  // grounded — the ridges just hint at uneven snow.
+  if (!state.platforms || state.platforms.length === 0) return;
   ctx.save();
-  ctx.globalAlpha = paused ? 0.3 : 0.7;
-  ctx.fillStyle = 'rgba(180, 220, 245, 0.55)';
+  ctx.globalAlpha = paused ? 0.4 : 1;
   const lh = state.lineHeight || 16;
+  const bandH = Math.min(lh, 7);
+
   for (const p of state.platforms || []) {
-    if (!p || p.w == null) continue;
-    ctx.fillRect(p.x, p.y - 2, p.w, 3);
-    // Subtle blue underglow along the platform body so the top edge has
-    // a sense of thickness — looks more "frozen plate" than "flat line".
-    ctx.fillStyle = 'rgba(120, 180, 220, 0.18)';
-    ctx.fillRect(p.x, p.y, p.w, Math.min(lh, 6));
-    ctx.fillStyle = 'rgba(180, 220, 245, 0.55)';
+    if (!p || p.w == null || p.w < 4) continue;
+    const x0 = p.x;
+    const w = p.w;
+    const top = p.y;
+    const bottom = p.y + bandH;
+
+    // Gradient body — snow on top fading to icy blue underneath so the
+    // platform feels like a plate of ice with snow accumulated on it.
+    const grad = ctx.createLinearGradient(0, top - 2, 0, bottom);
+    grad.addColorStop(0, 'rgba(245, 250, 255, 0.95)');
+    grad.addColorStop(0.5, 'rgba(190, 220, 240, 0.82)');
+    grad.addColorStop(1, 'rgba(140, 185, 220, 0.55)');
+    ctx.fillStyle = grad;
+
+    ctx.beginPath();
+    ctx.moveTo(x0, bottom);
+    for (let x = x0; x <= x0 + w; x += 4) {
+      ctx.lineTo(x, top - 1 - iceWaveAt(x));
+    }
+    ctx.lineTo(x0 + w, bottom);
+    ctx.closePath();
+    ctx.fill();
+
+    // Frost highlight on the snow ridge — bright thin line tracing the wave.
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = x0; x <= x0 + w; x += 4) {
+      const y = top - 1 - iceWaveAt(x);
+      if (x === x0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Soft shadow line along the bottom edge so each platform reads as
+    // a 3D plate, not a flat tint.
+    ctx.strokeStyle = 'rgba(60, 100, 140, 0.3)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x0, bottom);
+    ctx.lineTo(x0 + w, bottom);
+    ctx.stroke();
+
+    // Sparse glitter — count scales with width so wide platforms don't
+    // look bare and narrow ones don't speckle.
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    const count = Math.max(1, Math.floor(w / 70));
+    for (let i = 0; i < count; i++) {
+      const sx = x0 + ((i + 0.5) * (w / count)) + ((i * 53) % 17) - 8;
+      const sy = top + 1 + ((i * 31) % Math.max(1, bandH - 2));
+      ctx.fillRect(sx, sy, 1, 1);
+    }
   }
+
   ctx.restore();
 }
 
@@ -633,11 +762,7 @@ function renderIceCeiling(ctx, state, paused) {
   ctx.lineTo(x0 + w, top);
   ctx.lineTo(x0 + w, bottom);
   for (let x = x0 + w; x >= x0; x -= 4) {
-    const wave =
-      Math.sin(x * 0.085) * 1.6 +
-      Math.sin(x * 0.23 + 1.4) * 0.9 +
-      Math.sin(x * 0.41) * 0.4;
-    ctx.lineTo(x, bottom + wave);
+    ctx.lineTo(x, bottom + iceWaveAt(x));
   }
   ctx.lineTo(x0, bottom);
   ctx.closePath();
@@ -657,12 +782,9 @@ function renderIceCeiling(ctx, state, paused) {
   ctx.lineWidth = 0.8;
   ctx.beginPath();
   for (let x = x0; x <= x0 + w; x += 4) {
-    const wave =
-      Math.sin(x * 0.085) * 1.6 +
-      Math.sin(x * 0.23 + 1.4) * 0.9 +
-      Math.sin(x * 0.41) * 0.4;
-    if (x === x0) ctx.moveTo(x, bottom + wave);
-    else ctx.lineTo(x, bottom + wave);
+    const y = bottom + iceWaveAt(x);
+    if (x === x0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
