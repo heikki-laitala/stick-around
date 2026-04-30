@@ -246,6 +246,14 @@ export const ICE_AGE_MISSION = {
   rewardTitle: 'snow architect',
   unlocks: ['ice-age-survivor'],
 
+  questSuffix(state) {
+    const scene = state.missionScene;
+    if (!scene) return '';
+    const built = scene.builtLayers || 0;
+    const carry = scene.snowballsCollected || 0;
+    return `(${built}/${SNOWMAN_LAYERS} · carrying ${carry})`;
+  },
+
   onEnter(state) {
     const scene = state.missionScene;
     scene.iceFloor = true;
