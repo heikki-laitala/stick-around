@@ -169,6 +169,67 @@ describe('updateAxeSwing', () => {
   });
 });
 
+describe('updateAxeSwing snow chunk mining', () => {
+  function makeSnowState(overrides = {}) {
+    return makeState({
+      axeSwing: { t: 0, hit: false },
+      missionScene: {
+        snowChunks: [{ x: 100 + AXE_REACH, y: 190, hits: 2 }],
+        snowballsCollected: 0,
+      },
+      ...overrides,
+    });
+  }
+
+  it('decrements hits on a nearby snow chunk at apex', () => {
+    const s = makeSnowState();
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.missionScene.snowChunks[0].hits).toBe(1);
+    expect(s.particles.length).toBeGreaterThan(0);
+  });
+
+  it('depletes a chunk on its final hit and increments snowballsCollected', () => {
+    const s = makeSnowState({
+      missionScene: {
+        snowChunks: [{ x: 100 + AXE_REACH, y: 190, hits: 1 }],
+        snowballsCollected: 0,
+      },
+    });
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.missionScene.snowChunks.length).toBe(0);
+    expect(s.missionScene.snowballsCollected).toBe(1);
+  });
+
+  it('misses when the chunk is out of reach', () => {
+    const s = makeSnowState({
+      missionScene: {
+        snowChunks: [{ x: 500, y: 190, hits: 2 }],
+        snowballsCollected: 0,
+      },
+    });
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.missionScene.snowChunks[0].hits).toBe(2);
+    expect(s.missionScene.snowballsCollected).toBe(0);
+  });
+
+  it('mana mines take priority over snow chunks at the same spot', () => {
+    // Mining order is: mine first, snow second. With both in range, only the
+    // mine should be hit on this swing.
+    const x = 100 + AXE_REACH;
+    const s = makeState({
+      axeSwing: { t: 0, hit: false },
+      manaMines: [{ x, y: 190, hits: 3, age: 0 }],
+      missionScene: {
+        snowChunks: [{ x, y: 190, hits: 2 }],
+        snowballsCollected: 0,
+      },
+    });
+    updateAxeSwing(s, AXE_SWING_DURATION * 0.55);
+    expect(s.manaMines[0].hits).toBe(2);
+    expect(s.missionScene.snowChunks[0].hits).toBe(2);
+  });
+});
+
 describe('updateAxeSwing platform mining', () => {
   // Player stands at gx=100, feetY=200 on platform A (hash 0xA1, y=200),
   // facing right. The torso hit point is feetY - STANDING_HEIGHT/2 = 184,

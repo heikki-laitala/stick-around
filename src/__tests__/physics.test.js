@@ -65,6 +65,26 @@ describe('updateMovement', () => {
     expect(s.gvx).toBeLessThanOrEqual(MAXV);
   });
 
+  it('decays gvx far slower on ice than on dry ground', () => {
+    const dry = makeState({ gvx: 200 });
+    const ice = makeState({ gvx: 200, missionScene: { iceFloor: true } });
+    for (let i = 0; i < 30; i++) {
+      updateMovement(dry, 0.016, makeKeys(), 800, 600);
+      updateMovement(ice, 0.016, makeKeys(), 800, 600);
+    }
+    // After ~half a second of coasting, ice should retain at least 2x the
+    // velocity that dry friction would leave behind.
+    expect(ice.gvx).toBeGreaterThan(dry.gvx * 2);
+    // And ice itself should still be near full speed — sliding-with-momentum.
+    expect(ice.gvx).toBeGreaterThan(150);
+  });
+
+  it('still accepts directional acceleration on ice', () => {
+    const s = makeState({ gvx: 0, missionScene: { iceFloor: true } });
+    updateMovement(s, 0.016, makeKeys('KeyD'), 800, 600);
+    expect(s.gvx).toBeGreaterThan(0);
+  });
+
   it('jumps when grounded and KeyW pressed', () => {
     const s = makeState({ grounded: true });
     updateMovement(s, 0.016, makeKeys('KeyW'), 800, 600);
