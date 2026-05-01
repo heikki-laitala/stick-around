@@ -1,4 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Force the Linux code path in render.js so the visibility regression
+// test pins Linux behavior regardless of the host OS running the tests.
+vi.mock('../platform-info.js', () => ({ IS_LINUX: true }));
+
 import {
   EVIL_TWIN_MISSION,
   EVIL_TWIN_INITIAL_LIVES,
