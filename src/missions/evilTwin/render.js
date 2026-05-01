@@ -1,5 +1,6 @@
 import { SCALE } from '../../poses.js';
 import { effectiveHudHeight } from '../../constants.js';
+import { IS_LINUX } from '../../platform-info.js';
 import {
   EVIL_TWIN_GOAL_BALLS,
   EVIL_TWIN_INITIAL_LIVES,
@@ -7,6 +8,16 @@ import {
   TWIN_BOLT_BEAM_WIDTH,
   TWIN_BOLT_RANGE,
 } from '../evilTwin.js';
+
+// WebKit2GTK on Wayland does not reliably draw canvas shadowBlur on a
+// transparent overlay window, so the dark-silhouette + red-halo look
+// collapses into "only the head is visible". On Linux we trade the
+// dark silhouette for a chroma-bearing deep red that reads on its own;
+// other platforms keep the original near-black stroke that pops
+// against the halo.
+const TWIN_LIMB_STROKE = IS_LINUX
+  ? 'rgba(140, 30, 50, 0.95)'
+  : 'rgba(40, 10, 30, 0.95)';
 
 /**
  * Visual rendering for the Evil Twin mission. The twin is just a
@@ -63,10 +74,7 @@ export function drawShadowTwin(ctx, snap, paused = false) {
   ctx.lineJoin = 'round';
   ctx.shadowColor = 'rgba(255, 60, 90, 0.6)';
   ctx.shadowBlur = 9;
-  // Deep red carrying its own chroma — shadowBlur is unreliable on
-  // Wayland WebKit2GTK overlays, so the limbs would otherwise vanish
-  // and leave only the head visible.
-  ctx.strokeStyle = 'rgba(140, 30, 50, 0.95)';
+  ctx.strokeStyle = TWIN_LIMB_STROKE;
 
   ctx.lineWidth = 2;
   drawLimb(ctx, neck.x, neck.y, hip.x, hip.y);
