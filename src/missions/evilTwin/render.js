@@ -63,7 +63,10 @@ export function drawShadowTwin(ctx, snap, paused = false) {
   ctx.lineJoin = 'round';
   ctx.shadowColor = 'rgba(255, 60, 90, 0.6)';
   ctx.shadowBlur = 9;
-  ctx.strokeStyle = 'rgba(40, 10, 30, 0.95)';
+  // Deep red carrying its own chroma — shadowBlur is unreliable on
+  // Wayland WebKit2GTK overlays, so the limbs would otherwise vanish
+  // and leave only the head visible.
+  ctx.strokeStyle = 'rgba(140, 30, 50, 0.95)';
 
   ctx.lineWidth = 2;
   drawLimb(ctx, neck.x, neck.y, hip.x, hip.y);
