@@ -17,6 +17,7 @@ import {
   TWIN_BOLT_SCORCH_LIFE,
   twinSnapshotAt,
 } from '../missions/evilTwin.js';
+import { drawShadowTwin } from '../missions/evilTwin/render.js';
 import { IDLE } from '../poses.js';
 
 function clonePose() {
@@ -526,6 +527,67 @@ describe('EVIL_TWIN_MISSION stun', () => {
     EVIL_TWIN_MISSION.update(s, 0.016);
     expect(s.missionScene.spellState).toBe('idle');
     expect(s.missionScene.twinAim).toBeNull();
+  });
+});
+
+describe('EVIL_TWIN_MISSION render — visibility', () => {
+  // Mock 2D context that records strokeStyle assignments. We only need
+  // the surface drawShadowTwin actually touches (state setters + path
+  // primitives) — no rendered output, just the recorded calls.
+  function makeMockCtx() {
+    const calls = [];
+    const noop = (name) => () => calls.push({ name });
+    return {
+      calls,
+      save: noop('save'),
+      restore: noop('restore'),
+      beginPath: noop('beginPath'),
+      moveTo: noop('moveTo'),
+      lineTo: noop('lineTo'),
+      arc: noop('arc'),
+      fill: noop('fill'),
+      stroke: noop('stroke'),
+      setLineDash: noop('setLineDash'),
+      set fillStyle(v) { calls.push({ name: 'fillStyle', value: v }); },
+      set strokeStyle(v) { calls.push({ name: 'strokeStyle', value: v }); },
+      set shadowColor(v) { calls.push({ name: 'shadowColor', value: v }); },
+      set shadowBlur(v) { calls.push({ name: 'shadowBlur', value: v }); },
+      set lineWidth(v) { calls.push({ name: 'lineWidth', value: v }); },
+      set lineCap(v) { calls.push({ name: 'lineCap', value: v }); },
+      set lineJoin(v) { calls.push({ name: 'lineJoin', value: v }); },
+      set globalAlpha(v) { calls.push({ name: 'globalAlpha', value: v }); },
+    };
+  }
+
+  function parseRgba(s) {
+    const m = /rgba?\(([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)/i.exec(s || '');
+    if (!m) return null;
+    return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]) };
+  }
+
+  it('limb stroke color stays visible without canvas shadowBlur (Linux/Wayland regression)', () => {
+    // Wayland WebKit2GTK does not reliably render canvas shadowBlur on
+    // a transparent overlay window. The twin's body must therefore read
+    // on its own — a near-black stroke that depends on a red shadow
+    // halo will be invisible on Linux. Guard the limb color so it
+    // always carries enough chroma to be seen without the glow.
+    const snap = {
+      gx: 200, feetY: 400, faceR: true,
+      curPose: JSON.parse(JSON.stringify(IDLE)),
+    };
+    const ctx = makeMockCtx();
+    drawShadowTwin(ctx, snap, false);
+
+    // The limb pass is the first strokeStyle set inside drawShadowTwin
+    // (rope drawing is gated on snap.rope, which we deliberately omit).
+    const stroke = ctx.calls.find((c) => c.name === 'strokeStyle');
+    expect(stroke).toBeDefined();
+    const rgb = parseRgba(stroke.value);
+    expect(rgb).not.toBeNull();
+    // Require at least one channel above 100/255 — enough chroma to
+    // read on its own. The original near-black (40,10,30) fails this.
+    const peak = Math.max(rgb.r, rgb.g, rgb.b);
+    expect(peak).toBeGreaterThanOrEqual(100);
   });
 });
 
