@@ -78,6 +78,21 @@ describe('SHARDFALL_MISSION onEnter', () => {
     expect(s.spellIdx).toBe(1);                     // back to lightning
   });
 
+  it('survives Shift+R restart — onEnter twice still restores the original spell', () => {
+    // Regression: Shift+R rebuilds missionScene and re-fires onEnter,
+    // but state.spellIdx is already stasis from the prior entry. The
+    // saved value lives on state (not scene) so the second onEnter
+    // doesn't clobber it with the now-stasis slot.
+    const s = makeState({ spells: ['shield', 'lightning', 'stasis'], spellIdx: 1 });
+    SHARDFALL_MISSION.onEnter(s);
+    expect(s.spellIdx).toBe(2);
+    s.missionScene = {};                            // Shift+R rebuilds the scene
+    SHARDFALL_MISSION.onEnter(s);
+    expect(s.spellIdx).toBe(2);
+    SHARDFALL_MISSION.onExit(s);
+    expect(s.spellIdx).toBe(1);                     // original lightning, not stasis
+  });
+
   it('starts the timer at SHARDFALL_DURATION', () => {
     const s = makeState();
     SHARDFALL_MISSION.onEnter(s);

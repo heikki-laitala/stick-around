@@ -1,9 +1,8 @@
 import { effectiveHudHeight } from '../constants.js';
-import { STANDING_HEIGHT } from '../poses.js';
-import { isInHole } from '../platforms.js';
+import { torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt } from '../spells.js';
-import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
+import { burstParticles, burstPlatformsBetween, renderGameOver, spawnXRange } from './_shared.js';
 import { drawShards } from './shardfall/render.js';
 
 /**
@@ -57,29 +56,7 @@ function spawnShard(state, scene) {
 }
 
 function intersectsPlayer(state, shard) {
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
-  return Math.hypot(shard.x - state.gx, shard.y - torsoY) < SHARD_HIT_RADIUS;
-}
-
-/**
- * Punch holes through every platform top the shard crossed during this
- * tick — same shape the meteor shower uses, just with a smaller hole
- * since shards are slimmer. Handy side effect: walking under a shard
- * is harder once a few have already torn the platforms above you.
- */
-function burstPlatforms(state, xBefore, yBefore, xAfter, yAfter) {
-  if (!state.platforms || !state.holes) return;
-  const dy = yAfter - yBefore;
-  for (const p of state.platforms) {
-    if (!p || p.x == null) continue;
-    if (yBefore > p.y || yAfter < p.y) continue;
-    const t = dy !== 0 ? (p.y - yBefore) / dy : 0;
-    const crossX = xBefore + (xAfter - xBefore) * t;
-    if (crossX < p.x || crossX > p.x + p.w) continue;
-    if (isInHole(state.holes, crossX, p.y)) continue;
-    state.holes.push({ x: crossX - SHARD_HOLE_W / 2, y: p.y, w: SHARD_HOLE_W, age: 0 });
-    burstParticles(state, crossX, p.y, { count: 6, speedMin: 40, speedMax: 120, life: 0.3 });
-  }
+  return Math.hypot(shard.x - state.gx, shard.y - torsoY(state)) < SHARD_HIT_RADIUS;
 }
 
 export const SHARDFALL_MISSION = {
@@ -104,11 +81,13 @@ export const SHARDFALL_MISSION = {
     // Auto-select the stasis slot so a bare R press activates the
     // spell — the player shouldn't have to remember to switch slots
     // first when the whole mission is about that spell. Save the
-    // previous selection so onExit can restore it; otherwise the
-    // selection would survive into the next mission and R would
-    // cast stasis there instead of the player's prior preference.
-    scene.prevSpellIdx = state.spellIdx;
+    // previous selection on `state` (not `scene`) so a Shift+R
+    // restart — which rebuilds the scene — doesn't clobber it with
+    // the now-stasis slot we set on the prior entry.
     const stasisIdx = state.spells ? state.spells.indexOf('stasis') : -1;
+    if (state.shardfallPrevSpellIdx == null && state.spellIdx !== stasisIdx) {
+      state.shardfallPrevSpellIdx = state.spellIdx;
+    }
     if (stasisIdx >= 0) state.spellIdx = stasisIdx;
     scene.timeLeft = SHARDFALL_DURATION;
     scene.shards = [];
@@ -133,10 +112,11 @@ export const SHARDFALL_MISSION = {
   onExit(state) {
     // Restore whichever spell the player had selected before the
     // mission auto-switched them to stasis, so the next mission's
-    // R press resumes the player's prior preference.
-    const scene = state.missionScene;
-    if (scene && typeof scene.prevSpellIdx === 'number') {
-      state.spellIdx = scene.prevSpellIdx;
+    // R press resumes the player's prior preference. Cleared so
+    // future shardfall entries snapshot the selection afresh.
+    if (typeof state.shardfallPrevSpellIdx === 'number') {
+      state.spellIdx = state.shardfallPrevSpellIdx;
+      state.shardfallPrevSpellIdx = null;
     }
   },
 
@@ -155,7 +135,10 @@ export const SHARDFALL_MISSION = {
       const shard = scene.shards[i];
       const yBefore = shard.y;
       shard.y += shard.vy * shardDt;
-      burstPlatforms(state, shard.x, yBefore, shard.x, shard.y);
+      // Punch slim holes through any platform the shard crossed,
+      // with a small particle puff at each crossing point.
+      burstPlatformsBetween(state, shard.x, yBefore, shard.x, shard.y, SHARD_HOLE_W,
+        (cx, cy) => burstParticles(state, cx, cy, { count: 6, speedMin: 40, speedMax: 120, life: 0.3 }));
       if (intersectsPlayer(state, shard)) {
         const value = shard.kind === 'gold' ? GOLD_SHARD_VALUE : 1;
         scene.caughtCount = (scene.caughtCount || 0) + value;

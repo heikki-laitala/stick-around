@@ -615,11 +615,12 @@ function loop(now) {
         tickSpells(state, dt);
         tickActiveMission(state, dt);
         // Age the mission-change toast so the renderer can fade it
-        // out — set in progression.js whenever missionIdx advances.
-        if (state.missionToast) {
-          state.missionToast.age += dt;
-          if (state.missionToast.age >= 4.0) state.missionToast = null;
-        }
+        // out — set in progression.js whenever a mission becomes
+        // active. The toast object stays around past its lifetime
+        // (the renderer skips it once age exceeds total) and gets
+        // replaced wholesale on the next mission entry; clearing it
+        // here would race the renderer's fade-out window.
+        if (state.missionToast) state.missionToast.age += dt;
         // Missions can ask for an automatic restart (e.g. lava swallowed
         // the door). Honor it before advance so onEnter re-fires on this
         // tick.

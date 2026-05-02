@@ -1,4 +1,4 @@
-import { jointWorldPos, STANDING_HEIGHT } from '../poses.js';
+import { jointWorldPos, torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { LIGHTNING_RANGE } from '../spells.js';
 
@@ -132,13 +132,13 @@ export function syncItemPositions(state) {
 }
 
 function tryPickup(state, scene) {
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
+  const ty = torsoY(state);
   for (const it of scene.items) {
     if (it.picked) continue;
     const dx = state.gx - it.x;
     // Use the closer of feet / torso to the item y so standing next to it picks it up.
     const dyFeet = state.feetY - it.y;
-    const dyTorso = torsoY - it.y;
+    const dyTorso = ty - it.y;
     const dy = Math.abs(dyFeet) < Math.abs(dyTorso) ? dyFeet : dyTorso;
     if (Math.hypot(dx, dy) > PICKUP_RADIUS) continue;
     it.picked = true;
