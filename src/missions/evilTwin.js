@@ -1,6 +1,6 @@
 import { STANDING_HEIGHT, SCALE } from '../poses.js';
 import { resetPlayer } from '../physics.js';
-import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
+import { hazardDt, isShielded, lightningStrikesPoint, STASIS_SCALE } from '../spells.js';
 import {
   burstParticles,
   findPlatformByHash,
@@ -395,7 +395,8 @@ function currentDelay(scene) {
 
 export const EVIL_TWIN_MISSION = {
   id: 'evil-twin',
-  text: 'Outrun the evil twin and grab 5 glowing balls',
+  text: 'Collect 5 glowing balls',
+  subtitle: 'a shadow twin replays your moves and casts lightning — your bolts stun it',
   rewardTitle: 'twin slipper',
   unlocks: ['evil-twin-survivor'],
 
@@ -416,6 +417,7 @@ export const EVIL_TWIN_MISSION = {
     scene.lastScore = state.score || 0;
     scene.delaySec = EVIL_TWIN_DELAY_INITIAL;
     scene.elapsed = 0;
+    scene.stasisLag = 0;
     scene.invulnTimer = 0;
     scene.buffer = [];
     resetSpellToIdle(scene);
@@ -447,7 +449,16 @@ export const EVIL_TWIN_MISSION = {
 
     // Tighten the lag as the player gets closer to the goal — endgame
     // forces more decisive movement than the opening.
-    scene.delaySec = currentDelay(scene);
+    // Stasis slows the twin's playback by stretching the playback
+    // delay: while the spell is active, `stasisLag` grows by
+    // (1 - STASIS_SCALE) * dt so the twin samples a snapshot only
+    // STASIS_SCALE * dt newer per frame — i.e. it walks at quarter
+    // speed during stasis. Lag persists after release (no catch-up
+    // sprint) so the spell's effect feels real.
+    if (state.stasisActive) {
+      scene.stasisLag = (scene.stasisLag || 0) + dt * (1 - STASIS_SCALE);
+    }
+    scene.delaySec = currentDelay(scene) + (scene.stasisLag || 0);
 
     // Track ball pickups via state.score diff. Mission-local count so
     // the player's pre-mission score doesn't spill into the goal.

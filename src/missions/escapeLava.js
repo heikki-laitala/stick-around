@@ -73,6 +73,7 @@ function horizontallyOverlaps(doorX, doorW, p) {
 export const ESCAPE_LAVA_MISSION = {
   id: 'escape-lava',
   text: 'Escape the rising lava to the door',
+  subtitle: 'climb up the platforms and reach the glowing door before the floor catches you',
   rewardRank: 'master pauper',
   unlocks: ['lava-scorch'],
 

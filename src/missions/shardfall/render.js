@@ -1,11 +1,10 @@
-import { effectiveHudHeight, hudStripHeight } from '../../constants.js';
-import { SHARD_RADIUS, SHARDFALL_GOAL } from '../shardfall.js';
+import { SHARD_RADIUS } from '../shardfall.js';
 
 /**
- * Visuals for the Shardfall mission — falling shards, the stasis
- * vignette while the spell is active, and a brief tutorial banner at
- * mission start. The persistent count + timer is shown by the global
- * HUD's `Quest:` line via `questSuffix`, so we don't repeat it here.
+ * Visuals for the Shardfall mission — falling shards and the stasis
+ * vignette while the spell is active. The mission-entry banner and
+ * the persistent count + timer come from shared HUD/render code, so
+ * this file stays narrow on shardfall-specific painting.
  */
 
 // Gold shards are rare bonus drops worth two catches. Drawn warmer
@@ -105,57 +104,3 @@ export function drawStasisVignette(ctx, W, H, age = 0, originX = W / 2, originY 
   ctx.restore();
 }
 
-const BANNER_HOLD = 5.0;
-const BANNER_FADE_IN = 0.4;
-const BANNER_FADE_OUT = 1.0;
-const BANNER_TOTAL = BANNER_HOLD + BANNER_FADE_IN + BANNER_FADE_OUT;
-
-export function drawShardfallBanner(ctx, scene, screenW, state) {
-  const age = scene?.bannerAge;
-  if (typeof age !== 'number' || age >= BANNER_TOTAL) return;
-  const fadeIn = Math.min(1, age / BANNER_FADE_IN);
-  const fadeOut = age > BANNER_FADE_IN + BANNER_HOLD
-    ? Math.max(0, 1 - (age - BANNER_FADE_IN - BANNER_HOLD) / BANNER_FADE_OUT)
-    : 1;
-  const alpha = fadeIn * fadeOut;
-  if (alpha <= 0.01) return;
-
-  const cx = screenW / 2;
-  // Sit just below the live HUD strip — using state.hudTall when
-  // available so the banner doesn't get painted over on a multi-row
-  // HUD.
-  const hudH = state ? hudStripHeight(state) : effectiveHudHeight(screenW);
-  const top = hudH + 8;
-  const padX = 18;
-  const padY = 10;
-  const titleFont = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  const subFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  const title = `Catch ${SHARDFALL_GOAL} falling shards`;
-  const sub = 'walk under or jump up to grab one — hold 3 or R to cast stasis';
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.font = titleFont;
-  const titleW = ctx.measureText(title).width;
-  ctx.font = subFont;
-  const subW = ctx.measureText(sub).width;
-  const bgW = Math.max(titleW, subW) + padX * 2;
-  const bgH = 22 + 18 + padY * 2;
-
-  ctx.fillStyle = `rgba(15, 25, 50, ${0.78 * alpha})`;
-  ctx.strokeStyle = `rgba(180, 220, 255, ${0.55 * alpha})`;
-  ctx.lineWidth = 1;
-  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
-  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
-
-  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
-  ctx.shadowBlur = 4;
-  ctx.font = titleFont;
-  ctx.fillStyle = `rgba(180, 220, 255, ${0.98 * alpha})`;
-  ctx.fillText(title, cx, top + padY);
-  ctx.font = subFont;
-  ctx.fillStyle = `rgba(220, 230, 240, ${0.92 * alpha})`;
-  ctx.fillText(sub, cx, top + padY + 26);
-  ctx.restore();
-}

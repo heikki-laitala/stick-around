@@ -381,6 +381,26 @@ describe('EVIL_TWIN_MISSION shield', () => {
     EVIL_TWIN_MISSION.update(s, 0.016);
     expect(s.gameOver).toBe(false);
   });
+
+  it('shield still protects against the twin bolt while stasis is held', () => {
+    // Regression: when stasis was added, the twin spell tick started
+    // using a stasis-scaled dt. The strike check still runs every
+    // frame and shield must still gate game-over — the stretched
+    // bolt life shouldn't break shield protection.
+    const s = makeState({ shieldActive: true, stasisActive: true });
+    EVIL_TWIN_MISSION.onEnter(s);
+    s.missionScene.spellState = 'firing';
+    s.missionScene.twinBolt = {
+      x: s.gx, y: s.feetY - 16,
+      angle: -Math.PI / 2,
+      life: TWIN_BOLT_LIFE,
+      maxLife: TWIN_BOLT_LIFE,
+      zig: [],
+      struck: false,
+    };
+    EVIL_TWIN_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+  });
 });
 
 describe('EVIL_TWIN_MISSION twin lightning', () => {

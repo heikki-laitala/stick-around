@@ -245,6 +245,7 @@ function manInBuildZone(state, zone) {
 export const ICE_AGE_MISSION = {
   id: 'ice-age',
   text: 'Build a snowman from snow chunks',
+  subtitle: 'mine snow with F, deliver three chunks to the build zone — watch for falling icicles',
   rewardTitle: 'snow architect',
   unlocks: ['ice-age-survivor'],
 
