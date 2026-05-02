@@ -35,6 +35,8 @@ export const SHARD_FALL_SPEED = 320;               // px/sec downward velocity a
 export const SHARD_HIT_RADIUS = 18;                // catch radius against the player torso
 export const SHARD_RADIUS = 9;                     // visual radius
 export const SHARD_HOLE_W = 22;                    // width of the hole a shard punches through a platform top
+export const GOLD_SHARD_CHANCE = 0.15;             // fraction of spawns that come up gold
+export const GOLD_SHARD_VALUE = 2;                 // counted toward the goal when caught
 
 function spawnY(state) {
   const top = typeof state.textOffsetY === 'number' && state.textOffsetY > 0
@@ -54,7 +56,8 @@ function spawnShard(state, scene) {
   // Speed varies a bit so the player can't memorise one cadence — the
   // slowest shards are catchable without stasis, the fastest need it.
   const vy = SHARD_FALL_SPEED * (0.85 + Math.random() * 0.5);
-  scene.shards.push({ x, y, vy, caught: false });
+  const kind = Math.random() < GOLD_SHARD_CHANCE ? 'gold' : 'common';
+  scene.shards.push({ x, y, vy, caught: false, kind });
 }
 
 function isStasisActive(state) {
@@ -121,6 +124,7 @@ export const SHARDFALL_MISSION = {
     scene.spawnInterval = SHARDFALL_DURATION / SHARDFALL_TOTAL_SHARDS;
     scene.spawnsLeft = SHARDFALL_TOTAL_SHARDS;
     scene.stasisActive = false;
+    scene.stasisAge = 0;                           // drives the vignette/ripple animation
     scene.bannerAge = 0;
     state.gameOver = false;
     resetPlayer(state);
@@ -142,6 +146,7 @@ export const SHARDFALL_MISSION = {
     const goalMet = (scene.caughtCount || 0) >= SHARDFALL_GOAL;
     const stasisActive = isStasisActive(state) && !goalMet;
     scene.stasisActive = stasisActive;
+    scene.stasisAge = stasisActive ? (scene.stasisAge || 0) + dt : 0;
     // Mana drain is owned by spells.js (`tickSpells`) so stasis stays
     // consistent with shield + lightning. The mission only reads the
     // flag and applies the gameplay effect.
@@ -154,7 +159,15 @@ export const SHARDFALL_MISSION = {
       shard.y += shard.vy * shardDt;
       burstPlatforms(state, shard.x, yBefore, shard.x, shard.y);
       if (intersectsPlayer(state, shard)) {
-        scene.caughtCount = (scene.caughtCount || 0) + 1;
+        const value = shard.kind === 'gold' ? GOLD_SHARD_VALUE : 1;
+        scene.caughtCount = (scene.caughtCount || 0) + value;
+        // Gold catch lands a bigger, warmer particle burst at the
+        // player's body so the moment reads as "you got the rare one".
+        if (shard.kind === 'gold') {
+          burstParticles(state, shard.x, shard.y, {
+            count: 14, speedMin: 80, speedMax: 220, life: 0.5,
+          });
+        }
         scene.shards.splice(i, 1);
         continue;
       }
@@ -189,7 +202,10 @@ export const SHARDFALL_MISSION = {
   render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
-    if (scene.stasisActive) drawStasisVignette(ctx, W, H);
+    if (scene.stasisActive) {
+      const torsoY = state.feetY - STANDING_HEIGHT / 2;
+      drawStasisVignette(ctx, W, H, scene.stasisAge || 0, state.gx, torsoY);
+    }
     drawShards(ctx, scene);
     drawShardfallBanner(ctx, scene, state.screenW || W, state);
     if (state.gameOver) renderGameOver(ctx, W, H);
