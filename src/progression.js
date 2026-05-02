@@ -26,7 +26,9 @@
  *   check(state)   — the win condition. When it returns true, rewards are
  *                    applied and the ladder advances to the next mission.
  *   rewardRank?    — replaces state.rank.
- *   rewardTitle?   — appended to state.titles (titles stack).
+ *   rewardTitle?   — awarded into state.titles via `awardTitle` so the
+ *                    earnedAt timestamp is captured for the end-screen
+ *                    timeline (titles stack).
  *   unlocks?       — string[] added to state.unlocks. Gameplay / render
  *                    code branches on these via `hasUnlock(state, flag)`.
  *
@@ -43,6 +45,9 @@ import { EVIL_TWIN_MISSION } from './missions/evilTwin.js';
 import { ICE_AGE_MISSION } from './missions/iceAge.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 import { SHARDFALL_MISSION } from './missions/shardfall.js';
+import {
+  awardTitle, markMissionEntered, markMissionCompleted, titleNames,
+} from './runStats.js';
 
 export const INITIAL_RANK = 'novice pauper';
 
@@ -164,7 +169,7 @@ export function initialProgression() {
   const missionOrder = defaultMissionOrder();
   return {
     rank: INITIAL_RANK,
-    titles: [],
+    titles: [],               // { name, missionId, earnedAt }[] — filled by awardTitle
     missionIdx: 0,
     missionOrder,             // play order — fixed prefix, shuffled tail
     mission: MISSIONS[missionOrder[0]]?.text ?? ALL_DONE_MISSION,
@@ -173,6 +178,8 @@ export function initialProgression() {
     completedMissionIds: new Set(),
     currentMissionId: null,   // set once onEnter has fired for the active mission
     missionScene: null,       // per-mission scratchpad — cleared on transitions
+    runStartedAt: null,       // monotonic ms at the first mission entry
+    missionStats: {},         // { [id]: { enteredAt, completedAt } } — end-screen timeline
   };
 }
 
@@ -185,8 +192,8 @@ function missionAt(state, idx) {
 
 export function displayClass(state) {
   const rank = state.rank || INITIAL_RANK;
-  const titles = state.titles || [];
-  return titles.length ? `${rank} / ${titles.join(' / ')}` : rank;
+  const names = titleNames(state);
+  return names.length ? `${rank} / ${names.join(' / ')}` : rank;
 }
 
 export function getActiveMission(state) {
@@ -215,9 +222,10 @@ export function advanceMission(state) {
     const m = missionAt(state, state.missionIdx);
     if (!m || !m.check(state)) break;
     if (m.rewardRank) state.rank = m.rewardRank;
-    if (m.rewardTitle) state.titles.push(m.rewardTitle);
+    if (m.rewardTitle) awardTitle(state, m.rewardTitle, m.id);
     if (m.unlocks) for (const u of m.unlocks) state.unlocks.add(u);
     state.completedMissionIds.add(m.id);
+    markMissionCompleted(state, m.id);
 
     m.onExit?.(state);
     state.missionScene = null;
@@ -257,15 +265,18 @@ export function debugSkipMission(state) {
     state.waterArea = null;
     state.score = 0;
     state.minesMined = 0;
+    state.runStartedAt = null;
+    state.missionStats = {};
     advanceMission(state);
     return;
   }
   const m = missionAt(state, state.missionIdx);
   if (!m) return;
   if (m.rewardRank) state.rank = m.rewardRank;
-  if (m.rewardTitle) state.titles.push(m.rewardTitle);
+  if (m.rewardTitle) awardTitle(state, m.rewardTitle, m.id);
   if (m.unlocks) for (const u of m.unlocks) state.unlocks.add(u);
   state.completedMissionIds.add(m.id);
+  markMissionCompleted(state, m.id);
   m.onExit?.(state);
   state.missionScene = null;
   state.currentMissionId = null;
@@ -324,6 +335,7 @@ function ensureFields(state) {
   if (!state.unlocks) state.unlocks = new Set();
   if (!state.completedMissionIds) state.completedMissionIds = new Set();
   if (!state.titles) state.titles = [];
+  if (!state.missionStats) state.missionStats = {};
   if (state.missionIdx == null) state.missionIdx = 0;
   if (!Array.isArray(state.missionOrder)) {
     state.missionOrder = defaultMissionOrder();
@@ -344,6 +356,7 @@ function ensureEntered(state) {
   if (state.currentMissionId === m.id) return;
   state.missionScene = {};
   state.currentMissionId = m.id;
+  markMissionEntered(state, m.id);
   m.onEnter?.(state);
   // Generic mission-entry banner — fades in/holds/out so the player
   // always gets clear feedback when the active quest changes. Per-

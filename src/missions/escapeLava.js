@@ -2,6 +2,7 @@ import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT, torsoY } from '../poses.js';
 import { hazardDt, isShielded } from '../spells.js';
 import { findPlatformByHash, renderGameOver } from './_shared.js';
+import { awardTitle, titleNames } from '../runStats.js';
 
 /**
  * "Escape the rising lava" mission.
@@ -267,8 +268,9 @@ function updateDoorPhysics(state, scene, dt) {
       !scene.luckyBestowed
     ) {
       scene.luckyBestowed = true;
-      if (!state.titles) state.titles = [];
-      if (!state.titles.includes('lava lucky')) state.titles.push('lava lucky');
+      if (!titleNames(state).includes('lava lucky')) {
+        awardTitle(state, 'lava lucky', 'escape-lava');
+      }
       scene.reachedDoor = true;
     }
   }
