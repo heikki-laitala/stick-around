@@ -46,6 +46,14 @@ function completeRealMissions(s) {
     advanceMission(s);
     const m = getActiveMission(s);
     if (!m) return;
+    if (m.id === 'collect-mines-4') {
+      // Mission 2 stamps a baseline on entry so its check requires
+      // *fresh* mines past that baseline. Bump the running counter so
+      // we satisfy the check without depending on the helper's
+      // pre-advance bulk-set.
+      s.minesMined = (s.minesMinedAtMissionStart || 0) + 10;
+      continue;
+    }
     if (m.id === 'escape-lava' && s.missionScene) {
       s.missionScene.reachedDoor = true;
       continue;
@@ -143,6 +151,25 @@ describe('advanceMission', () => {
     expect(s.rank).toBe(MISSIONS[0].rewardRank);
     expect(s.mission).toBe(MISSIONS[1].text);
     expect(hasCompleted(s, MISSIONS[0].id)).toBe(true);
+  });
+
+  it('does not auto-complete the mana-mines mission when the player came in with prior mines', () => {
+    // Regression: if the player mined 4 mana mines during mission 1
+    // (which only counts balls), the second mission's check would
+    // fire on the same advance call and skip the mission entirely.
+    // Mission 2 must require 4 *fresh* mines from its own start.
+    const s = makeState({ score: 5, minesMined: 4 });
+    advanceMission(s);
+    expect(s.missionIdx).toBe(1);
+    expect(getActiveMission(s).id).toBe('collect-mines-4');
+    // Mining 3 more during mission 2 still isn't enough (4 fresh needed).
+    s.minesMined = 7;
+    advanceMission(s);
+    expect(s.missionIdx).toBe(1);
+    // 4 fresh: 4 baseline + 4 = 8 total — now it should advance.
+    s.minesMined = 8;
+    advanceMission(s);
+    expect(s.missionIdx).toBe(2);
   });
 
   it('exposes the upcoming mission via state.nextMission (null at the end)', () => {
