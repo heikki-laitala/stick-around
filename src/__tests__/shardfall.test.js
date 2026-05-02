@@ -4,9 +4,9 @@ import {
   SHARDFALL_DURATION,
   SHARDFALL_PRIMER_MANA,
   SHARDFALL_GOAL,
-  STASIS_SCALE,
   GOLD_SHARD_VALUE,
 } from '../missions/shardfall.js';
+import { STASIS_SCALE } from '../spells.js';
 
 function makeState(overrides = {}) {
   return {
@@ -96,10 +96,10 @@ describe('SHARDFALL_MISSION shard physics', () => {
     expect(shard.y).toBeCloseTo(100 + 300 * 0.1 * STASIS_SCALE, 4);
   });
 
-  it('stasis does not slow shards when mana is empty', () => {
-    const s = makeState({ stasisActive: true });
+  it('shards run at full speed once stasis is released', () => {
+    const s = makeState({ stasisActive: true, mana: 50 });
     SHARDFALL_MISSION.onEnter(s);
-    s.mana = 0;                                     // drain after the primer fires
+    s.stasisActive = false;                         // tickSpells does this when mana hits zero
     const shard = { x: 400, y: 100, vy: 300, caught: false };
     s.missionScene.shards.push(shard);
     s.missionScene.spawnsLeft = 0;
