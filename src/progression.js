@@ -51,6 +51,7 @@ export const MISSIONS = [
     id: 'collect-balls-5',
     text: 'Collect 5 glowing balls',
     subtitle: 'walk into a glowing ball to grab it',
+    questSuffix: (s) => `(${Math.min(5, s.score || 0)}/5)`,
     check: (s) => (s.score || 0) >= 5,
     rewardRank: 'apprentice pauper',
   },
@@ -65,6 +66,10 @@ export const MISSIONS = [
     // same advance call as mission 1 and skip the mission entirely.
     onEnter(state) {
       state.minesMinedAtMissionStart = state.minesMined || 0;
+    },
+    questSuffix(s) {
+      const fresh = (s.minesMined || 0) - (s.minesMinedAtMissionStart || 0);
+      return `(${Math.min(4, Math.max(0, fresh))}/4)`;
     },
     check: (s) => (s.minesMined || 0) - (s.minesMinedAtMissionStart || 0) >= 4,
     rewardRank: 'journeyman pauper',
