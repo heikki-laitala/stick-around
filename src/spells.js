@@ -30,9 +30,13 @@
  *       precomputed jagged offset table so render stays stable.
  */
 
-export const SPELLS = ['shield', 'lightning'];
+export const SPELLS = ['shield', 'lightning', 'stasis'];
 export const SHIELD_MANA_PER_SECOND = 0.5;
 export const LIGHTNING_MANA_COST = 2;
+// Stasis: hold-to-active, drain-while-held. Effect (slow-mo on
+// hazards) is applied per-mission — most missions just see the cast
+// flash and the vignette; shardfall reads it to scale shard physics.
+export const STASIS_MANA_PER_SECOND = 6;
 export const LIGHTNING_BEAM_WIDTH = 52;
 export const LIGHTNING_BOLT_LIFE = 0.35;
 export const LIGHTNING_RANGE = 2000;
@@ -54,6 +58,7 @@ export function initialSpells() {
     castFlash: null,
     lightningAim: null,
     lightningBolt: null,
+    stasisActive: false,
   };
 }
 
@@ -70,6 +75,7 @@ export function canCastSelected(state) {
     return state.shieldActive || (state.mana || 0) > 0;
   }
   if (spell === 'lightning') return (state.mana || 0) >= LIGHTNING_MANA_COST;
+  if (spell === 'stasis') return state.stasisActive || (state.mana || 0) > 0;
   return false;
 }
 
@@ -118,7 +124,24 @@ export function castSpell(state) {
     state.lightningAim = { angle: LIGHTNING_AIM_DEFAULT };
     return true;
   }
+  if (spell === 'stasis') {
+    if (state.stasisActive) return false;
+    if ((state.mana || 0) <= 0) return false;
+    state.stasisActive = true;
+    state.castFlash = { spell, life: CAST_FLASH_DURATION, maxLife: CAST_FLASH_DURATION };
+    return true;
+  }
   return false;
+}
+
+/**
+ * Keyup handler for the stasis slot. Stops the slow-mo and clears the
+ * active flag. No-op when stasis isn't running.
+ */
+export function releaseStasis(state) {
+  if (!state.stasisActive) return false;
+  state.stasisActive = false;
+  return true;
 }
 
 /**
@@ -236,6 +259,10 @@ export function tickSpells(state, dt) {
     }
   } else if ((state.shieldFadeIn || 0) > 0) {
     state.shieldFadeIn = Math.max(0, state.shieldFadeIn - dt * 2);
+  }
+  if (state.stasisActive) {
+    state.mana = Math.max(0, (state.mana || 0) - STASIS_MANA_PER_SECOND * dt);
+    if (state.mana <= 0) state.stasisActive = false;
   }
   if (state.castFlash) {
     state.castFlash.life -= dt;

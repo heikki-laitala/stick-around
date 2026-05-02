@@ -42,6 +42,7 @@ import { ESCAPE_LAVA_MISSION } from './missions/escapeLava.js';
 import { EVIL_TWIN_MISSION } from './missions/evilTwin.js';
 import { ICE_AGE_MISSION } from './missions/iceAge.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
+import { SHARDFALL_MISSION } from './missions/shardfall.js';
 
 export const INITIAL_RANK = 'novice pauper';
 
@@ -63,6 +64,7 @@ export const MISSIONS = [
   ALONE_IN_DARK_MISSION,
   ICE_AGE_MISSION,
   EVIL_TWIN_MISSION,
+  SHARDFALL_MISSION,
 ];
 
 // The first two missions are fixed-order tutorials (collect balls, then

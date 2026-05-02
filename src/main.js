@@ -8,7 +8,7 @@ import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
-  initialSpells, castSpell, castSpellByName, releaseCast,
+  initialSpells, castSpell, castSpellByName, releaseCast, releaseStasis,
   adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
@@ -487,6 +487,7 @@ document.addEventListener('keydown', e => {
   // pair so each spell has a dedicated finger.
   if (e.code === 'Digit1') { castSpellByName(state, 'shield'); return; }
   if (e.code === 'Digit2') { castSpellByName(state, 'lightning'); return; }
+  if (e.code === 'Digit3') { castSpellByName(state, 'stasis'); return; }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {
@@ -531,6 +532,11 @@ document.addEventListener('keydown', e => {
 
 document.addEventListener('keyup', e => {
   keys.delete(e.code);
+  // Both Digit3 (the slot key) and R (the active-spell shortcut) end
+  // stasis — same pattern as lightning's release-on-keyup.
+  if ((e.code === 'Digit3' || e.code === 'KeyR') && state.stasisActive) {
+    releaseStasis(state);
+  }
   if (e.code === 'KeyE' && state.rope && state.rope.state === 'aiming') {
     state.rope.state = 'flying';
     state.rope.tipX = state.gx;

@@ -8,10 +8,12 @@ import {
   LIGHTNING_AIM_DEFAULT,
   LIGHTNING_AIM_MIN,
   LIGHTNING_AIM_MAX,
+  STASIS_MANA_PER_SECOND,
   initialSpells,
   castSpell,
   castSpellByName,
   releaseCast,
+  releaseStasis,
   adjustLightningAim,
   cancelLightningAim,
   isLightningAiming,
@@ -28,18 +30,19 @@ function make(overrides = {}) {
 }
 
 describe('initialSpells', () => {
-  it('includes shield and lightning with shield selected by default', () => {
+  it('includes shield, lightning, and stasis with shield selected by default', () => {
     const s = make();
-    expect(s.spells).toEqual(['shield', 'lightning']);
+    expect(s.spells).toEqual(['shield', 'lightning', 'stasis']);
     expect(s.spellIdx).toBe(0);
     expect(selectedSpell(s)).toBe('shield');
     expect(s.shieldActive).toBe(false);
     expect(s.shieldFadeIn).toBe(0);
     expect(s.castFlash).toBeNull();
+    expect(s.stasisActive).toBe(false);
   });
 
   it('exposes SPELLS as a stable ordered list', () => {
-    expect(SPELLS).toEqual(['shield', 'lightning']);
+    expect(SPELLS).toEqual(['shield', 'lightning', 'stasis']);
   });
 });
 
@@ -308,6 +311,44 @@ describe('lightningStrikesPoint', () => {
     const nx = -Math.sin(-Math.PI / 4) * LIGHTNING_BEAM_WIDTH;
     const ny =  Math.cos(-Math.PI / 4) * LIGHTNING_BEAM_WIDTH;
     expect(lightningStrikesPoint(s, x + nx, y + ny)).toBe(false);
+  });
+});
+
+describe('stasis', () => {
+  it('castSpellByName activates the bubble when mana is available', () => {
+    const s = make({ mana: 5 });
+    expect(castSpellByName(s, 'stasis')).toBe(true);
+    expect(s.stasisActive).toBe(true);
+    expect(selectedSpell(s)).toBe('stasis');
+  });
+
+  it('refuses to activate when mana is empty', () => {
+    const s = make({ mana: 0 });
+    expect(castSpellByName(s, 'stasis')).toBe(false);
+    expect(s.stasisActive).toBe(false);
+  });
+
+  it('releaseStasis clears the active flag', () => {
+    const s = make({ mana: 5 });
+    castSpellByName(s, 'stasis');
+    expect(releaseStasis(s)).toBe(true);
+    expect(s.stasisActive).toBe(false);
+  });
+
+  it('tickSpells drains mana while the bubble is active', () => {
+    const s = make({ mana: 10 });
+    castSpellByName(s, 'stasis');
+    tickSpells(s, 1.0);
+    expect(s.mana).toBeCloseTo(10 - STASIS_MANA_PER_SECOND, 5);
+    expect(s.stasisActive).toBe(true);
+  });
+
+  it('tickSpells drops the bubble when mana runs out', () => {
+    const s = make({ mana: 1 });
+    castSpellByName(s, 'stasis');
+    tickSpells(s, 100.0);
+    expect(s.mana).toBe(0);
+    expect(s.stasisActive).toBe(false);
   });
 });
 
