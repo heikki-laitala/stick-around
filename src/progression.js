@@ -56,7 +56,15 @@ export const MISSIONS = [
   {
     id: 'collect-mines-4',
     text: 'Collect 4 mana mines',
-    check: (s) => (s.minesMined || 0) >= 4,
+    // Stamp the running mine count when this mission opens so the
+    // check requires *4 fresh* mines from this point on. Without
+    // the baseline, mining mana incidentally during mission 1 (which
+    // only tracks ball score) would auto-complete mission 2 on the
+    // same advance call as mission 1 and skip the mission entirely.
+    onEnter(state) {
+      state.minesMinedAtMissionStart = state.minesMined || 0;
+    },
+    check: (s) => (s.minesMined || 0) - (s.minesMinedAtMissionStart || 0) >= 4,
     rewardRank: 'journeyman pauper',
   },
   ESCAPE_LAVA_MISSION,
