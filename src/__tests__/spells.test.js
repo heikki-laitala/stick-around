@@ -9,11 +9,13 @@ import {
   LIGHTNING_AIM_MIN,
   LIGHTNING_AIM_MAX,
   STASIS_MANA_PER_SECOND,
+  STASIS_SCALE,
   initialSpells,
   castSpell,
   castSpellByName,
   releaseCast,
   releaseStasis,
+  hazardDt,
   adjustLightningAim,
   cancelLightningAim,
   isLightningAiming,
@@ -349,6 +351,25 @@ describe('stasis', () => {
     tickSpells(s, 100.0);
     expect(s.mana).toBe(0);
     expect(s.stasisActive).toBe(false);
+  });
+
+  it('tickSpells ages stasis while active and resets when released', () => {
+    const s = make({ mana: 100 });
+    castSpellByName(s, 'stasis');
+    tickSpells(s, 0.4);
+    expect(s.stasisAge).toBeCloseTo(0.4, 5);
+    releaseStasis(s);
+    tickSpells(s, 0.1);
+    expect(s.stasisAge).toBe(0);
+  });
+
+  it('hazardDt scales by STASIS_SCALE while stasis is active, raw dt otherwise', () => {
+    const s = make({ mana: 100 });
+    expect(hazardDt(s, 1.0)).toBe(1.0);
+    castSpellByName(s, 'stasis');
+    expect(hazardDt(s, 1.0)).toBeCloseTo(STASIS_SCALE, 5);
+    releaseStasis(s);
+    expect(hazardDt(s, 1.0)).toBe(1.0);
   });
 });
 

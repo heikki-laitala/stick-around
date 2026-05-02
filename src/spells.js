@@ -33,10 +33,24 @@
 export const SPELLS = ['shield', 'lightning', 'stasis'];
 export const SHIELD_MANA_PER_SECOND = 0.5;
 export const LIGHTNING_MANA_COST = 2;
-// Stasis: hold-to-active, drain-while-held. Effect (slow-mo on
-// hazards) is applied per-mission — most missions just see the cast
-// flash and the vignette; shardfall reads it to scale shard physics.
+// Stasis: hold-to-active, drain-while-held. Hazard motion across the
+// whole game scales by STASIS_SCALE while it's engaged — meteors,
+// icicles, the evil twin, the lava ceiling, and the falling shards
+// all slow to a crawl. Missions read `state.stasisActive` and apply
+// `hazardDt(state, dt)` to their per-frame motion.
 export const STASIS_MANA_PER_SECOND = 6;
+export const STASIS_SCALE = 0.25;
+
+/**
+ * Scale a frame `dt` by stasis if it's active. Missions multiply
+ * their hazard motion by this helper so a single flag governs
+ * slow-mo across the game. Mission timers, spawn cadences, and
+ * player physics intentionally stay on raw `dt` — the spell slows
+ * what you're dodging, not the clock or your own legs.
+ */
+export function hazardDt(state, dt) {
+  return state && state.stasisActive ? dt * STASIS_SCALE : dt;
+}
 export const LIGHTNING_BEAM_WIDTH = 52;
 export const LIGHTNING_BOLT_LIFE = 0.35;
 export const LIGHTNING_RANGE = 2000;
@@ -59,6 +73,7 @@ export function initialSpells() {
     lightningAim: null,
     lightningBolt: null,
     stasisActive: false,
+    stasisAge: 0,
   };
 }
 
@@ -264,6 +279,10 @@ export function tickSpells(state, dt) {
     state.mana = Math.max(0, (state.mana || 0) - STASIS_MANA_PER_SECOND * dt);
     if (state.mana <= 0) state.stasisActive = false;
   }
+  // Stasis age drives the vignette + ripple animation. Reset to 0
+  // whenever the spell isn't engaged so the next activation feels
+  // punchy instead of resuming mid-breath.
+  state.stasisAge = state.stasisActive ? (state.stasisAge || 0) + dt : 0;
   if (state.castFlash) {
     state.castFlash.life -= dt;
     if (state.castFlash.life <= 0) state.castFlash = null;

@@ -2,10 +2,10 @@ import { effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
+import { hazardDt } from '../spells.js';
 import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
 import {
   drawShards,
-  drawStasisVignette,
   drawShardfallBanner,
 } from './shardfall/render.js';
 
@@ -30,7 +30,6 @@ export const SHARDFALL_DURATION = 60;              // seconds before timeout
 export const SHARDFALL_PRIMER_MANA = 30;           // ~5s of stasis on top of catching gameplay
 export const SHARDFALL_GOAL = 6;                   // shards needed to win
 export const SHARDFALL_TOTAL_SHARDS = 15;          // shards spawned across the mission — keeps falling until the timer ends
-export const STASIS_SCALE = 0.25;                  // shard time multiplier while stasis is active
 export const SHARD_FALL_SPEED = 320;               // px/sec downward velocity at spawn
 export const SHARD_HIT_RADIUS = 18;                // catch radius against the player torso
 export const SHARD_RADIUS = 9;                     // visual radius
@@ -58,10 +57,6 @@ function spawnShard(state, scene) {
   const vy = SHARD_FALL_SPEED * (0.85 + Math.random() * 0.5);
   const kind = Math.random() < GOLD_SHARD_CHANCE ? 'gold' : 'common';
   scene.shards.push({ x, y, vy, caught: false, kind });
-}
-
-function isStasisActive(state) {
-  return Boolean(state.stasisActive) && (state.mana || 0) > 0;
 }
 
 function intersectsPlayer(state, shard) {
@@ -123,8 +118,6 @@ export const SHARDFALL_MISSION = {
     // Goal is below the spawn count, so a few misses are forgivable.
     scene.spawnInterval = SHARDFALL_DURATION / SHARDFALL_TOTAL_SHARDS;
     scene.spawnsLeft = SHARDFALL_TOTAL_SHARDS;
-    scene.stasisActive = false;
-    scene.stasisAge = 0;                           // drives the vignette/ripple animation
     scene.bannerAge = 0;
     state.gameOver = false;
     resetPlayer(state);
@@ -144,13 +137,9 @@ export const SHARDFALL_MISSION = {
     if (typeof scene.bannerAge === 'number') scene.bannerAge += dt;
 
     const goalMet = (scene.caughtCount || 0) >= SHARDFALL_GOAL;
-    const stasisActive = isStasisActive(state) && !goalMet;
-    scene.stasisActive = stasisActive;
-    scene.stasisAge = stasisActive ? (scene.stasisAge || 0) + dt : 0;
-    // Mana drain is owned by spells.js (`tickSpells`) so stasis stays
-    // consistent with shield + lightning. The mission only reads the
-    // flag and applies the gameplay effect.
-    const shardDt = stasisActive ? dt * STASIS_SCALE : dt;
+    // Stasis state lives on `state` (drained + aged in tickSpells),
+    // and `hazardDt` scales motion by STASIS_SCALE while it's active.
+    const shardDt = hazardDt(state, dt);
     const screenH = state.screenH || 9999;
 
     for (let i = scene.shards.length - 1; i >= 0; i--) {
@@ -202,10 +191,6 @@ export const SHARDFALL_MISSION = {
   render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
-    if (scene.stasisActive) {
-      const torsoY = state.feetY - STANDING_HEIGHT / 2;
-      drawStasisVignette(ctx, W, H, scene.stasisAge || 0, state.gx, torsoY);
-    }
     drawShards(ctx, scene);
     drawShardfallBanner(ctx, scene, state.screenW || W, state);
     if (state.gameOver) renderGameOver(ctx, W, H);

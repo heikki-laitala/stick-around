@@ -2,7 +2,7 @@ import { effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
-import { isShielded } from '../spells.js';
+import { hazardDt, isShielded } from '../spells.js';
 import {
   burstParticles,
   findPlatformByHash,
@@ -488,9 +488,9 @@ function advanceIcicles(state, scene, dt) {
       continue;
     }
 
-    // 'falling'
+    // 'falling' — stasis slows the descent so the player can sidestep.
     const yBefore = ic.y;
-    ic.y += ic.vy * dt;
+    ic.y += ic.vy * hazardDt(state, dt);
 
     // Hit the man — instant fail unless shielded (parity with meteor shower).
     if (hitsMan(state, ic)) {

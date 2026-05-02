@@ -1,6 +1,6 @@
 import { STANDING_HEIGHT, SCALE } from '../poses.js';
 import { resetPlayer } from '../physics.js';
-import { isShielded, lightningStrikesPoint } from '../spells.js';
+import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
 import {
   burstParticles,
   findPlatformByHash,
@@ -373,11 +373,15 @@ function tickSpellFiring(state, scene, dt) {
 }
 
 function tickTwinSpell(state, scene, twin, dt) {
-  scene.spellT = (scene.spellT || 0) + dt;
+  // Stasis stretches every phase of the twin's spell — telegraph
+  // stays up longer, charge takes longer, in-flight bolt lingers —
+  // so the player can spend the bubble to dodge a danger lane.
+  const hDt = hazardDt(state, dt);
+  scene.spellT = (scene.spellT || 0) + hDt;
   switch (scene.spellState) {
     case 'idle':   tickSpellIdle(state, scene, twin); return;
-    case 'aiming': tickSpellAiming(state, scene, twin, dt); return;
-    case 'firing': tickSpellFiring(state, scene, dt); return;
+    case 'aiming': tickSpellAiming(state, scene, twin, hDt); return;
+    case 'firing': tickSpellFiring(state, scene, hDt); return;
     default:                                           // unknown state → reset
       resetSpellToIdle(scene);
   }

@@ -3,7 +3,7 @@ import { IS_LINUX } from '../platform-info.js';
 import { STANDING_HEIGHT } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
-import { isShielded, lightningStrikesPoint } from '../spells.js';
+import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
 import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
 
 /**
@@ -83,12 +83,15 @@ export const METEOR_SHOWER_MISSION = {
     // their spawn y for one frame, so the trail starts at the top edge.
     const screenW = state.screenW || 9999;
     const screenH = state.screenH || 9999;
+    // Stasis slows meteor motion (not the spawn cadence or the
+    // mission timer) so the player can dodge through the rain.
+    const hDt = hazardDt(state, dt);
     for (let i = scene.meteors.length - 1; i >= 0; i--) {
       const m = scene.meteors[i];
       const xBefore = m.x;
       const yBefore = m.y;
-      m.x += (m.vx || 0) * dt;
-      m.y += m.vy * dt;
+      m.x += (m.vx || 0) * hDt;
+      m.y += m.vy * hDt;
 
       // Struck by a live lightning bolt? Vaporise cleanly — no platform
       // damage, no man damage, just sparks.

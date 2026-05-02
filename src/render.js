@@ -7,6 +7,7 @@ import {
 } from './spells.js';
 import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
+import { drawStasisVignette } from './missions/shardfall/render.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
 
@@ -484,6 +485,14 @@ export function render(ctx, state, screenW, screenH) {
     drawLightningAim(ctx, tip.x, tip.y, state.lightningAim.angle);
   }
   if (state.lightningBolt) drawLightningBolt(ctx, state.lightningBolt);
+
+  // Stasis vignette + ripple radiate from the player's torso whenever
+  // the spell is engaged — drawn here (not from the active mission)
+  // so the visual works regardless of which mission the player is in.
+  if (state.stasisActive) {
+    const torsoY = state.feetY - STANDING_HEIGHT / 2;
+    drawStasisVignette(ctx, screenW, screenH, state.stasisAge || 0, state.gx, torsoY);
+  }
 
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 

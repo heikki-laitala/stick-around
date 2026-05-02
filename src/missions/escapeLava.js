@@ -1,6 +1,6 @@
 import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
 import { STANDING_HEIGHT } from '../poses.js';
-import { isShielded } from '../spells.js';
+import { hazardDt, isShielded } from '../spells.js';
 import { findPlatformByHash, renderGameOver } from './_shared.js';
 
 /**
@@ -118,7 +118,7 @@ export const ESCAPE_LAVA_MISSION = {
     if (!scene) return;
     if (state.gameOver) return;
 
-    scene.lavaY -= LAVA_RISE_RATE * dt;
+    scene.lavaY -= LAVA_RISE_RATE * hazardDt(state, dt);
     if (scene.lavaY < 0) scene.lavaY = 0;
     scene.invulnTimer = Math.max(0, scene.invulnTimer - dt);
 
