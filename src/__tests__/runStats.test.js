@@ -5,6 +5,10 @@ import {
   markMissionCompleted,
   titleNames,
   missionDurationMs,
+  tickTitleBanner,
+  titleBannerAlpha,
+  latestTitle,
+  TITLE_BANNER_TOTAL,
   _setNowForTests,
   _resetNowForTests,
 } from '../runStats.js';
@@ -41,6 +45,20 @@ describe('awardTitle', () => {
     const s = {};
     awardTitle(s, 't', 'm');
     expect(Array.isArray(s.titles)).toBe(true);
+  });
+
+  it('arms a celebratory banner with the awarded title name and age 0', () => {
+    const s = {};
+    awardTitle(s, 'lava lucky', 'escape-lava');
+    expect(s.titleBanner).toEqual({ name: 'lava lucky', age: 0 });
+  });
+
+  it('replaces an in-flight banner so only the latest title is celebrated', () => {
+    const s = {};
+    awardTitle(s, 'first', 'm1');
+    s.titleBanner.age = 0.5;
+    awardTitle(s, 'second', 'm2');
+    expect(s.titleBanner).toEqual({ name: 'second', age: 0 });
   });
 });
 
@@ -105,6 +123,54 @@ describe('titleNames', () => {
 
   it('returns an empty array when titles are absent', () => {
     expect(titleNames({})).toEqual([]);
+  });
+});
+
+describe('tickTitleBanner / titleBannerAlpha', () => {
+  it('clears the banner once its lifetime is up', () => {
+    const s = {};
+    awardTitle(s, 't', 'm');
+    tickTitleBanner(s, TITLE_BANNER_TOTAL + 0.01);
+    expect(s.titleBanner).toBeNull();
+  });
+
+  it('keeps the banner alive within its lifetime and ages it', () => {
+    const s = {};
+    awardTitle(s, 't', 'm');
+    tickTitleBanner(s, 0.1);
+    expect(s.titleBanner).not.toBeNull();
+    expect(s.titleBanner.age).toBeCloseTo(0.1);
+  });
+
+  it('alpha ramps up during fade-in, holds at 1, then ramps down', () => {
+    const banner = { name: 't', age: 0 };
+    expect(titleBannerAlpha(banner)).toBe(0);
+    banner.age = 1.0; // well into hold window
+    expect(titleBannerAlpha(banner)).toBe(1);
+    banner.age = TITLE_BANNER_TOTAL;
+    expect(titleBannerAlpha(banner)).toBe(0);
+  });
+
+  it('is a no-op (and returns 0 alpha) when no banner is set', () => {
+    expect(titleBannerAlpha(null)).toBe(0);
+    const s = {};
+    tickTitleBanner(s, 0.1); // does not throw
+    expect(s.titleBanner).toBeUndefined();
+  });
+});
+
+describe('latestTitle', () => {
+  it('returns the most-recently awarded title', () => {
+    const s = {};
+    awardTitle(s, 'first', 'm1');
+    tick(100);
+    awardTitle(s, 'second', 'm2');
+    expect(latestTitle(s)).toMatchObject({ name: 'second', missionId: 'm2' });
+  });
+
+  it('returns null when no titles have been earned', () => {
+    expect(latestTitle({})).toBeNull();
+    expect(latestTitle({ titles: [] })).toBeNull();
   });
 });
 

@@ -46,7 +46,7 @@ import { ICE_AGE_MISSION } from './missions/iceAge.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 import { SHARDFALL_MISSION } from './missions/shardfall.js';
 import {
-  awardTitle, markMissionEntered, markMissionCompleted, titleNames,
+  awardTitle, markMissionEntered, markMissionCompleted, latestTitle,
 } from './runStats.js';
 
 export const INITIAL_RANK = 'novice pauper';
@@ -192,8 +192,11 @@ function missionAt(state, idx) {
 
 export function displayClass(state) {
   const rank = state.rank || INITIAL_RANK;
-  const names = titleNames(state);
-  return names.length ? `${rank} / ${names.join(' / ')}` : rank;
+  // Show the most-recently earned title only, not the full chain.
+  // Each fresh award celebrates with a banner (see runStats.js); the
+  // HUD just keeps the player's current "billing" line short.
+  const latest = latestTitle(state);
+  return latest ? `${rank} / ${latest.name}` : rank;
 }
 
 export function getActiveMission(state) {

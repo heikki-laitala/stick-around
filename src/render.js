@@ -9,6 +9,7 @@ import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 import { drawStasisVignette } from './missions/shardfall/render.js';
 import { hudStripHeight } from './constants.js';
+import { titleBannerAlpha } from './runStats.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
 
@@ -83,6 +84,59 @@ function drawMissionToast(ctx, state, screenW) {
     ctx.fillStyle = `rgba(220, 230, 240, ${0.92 * alpha})`;
     ctx.fillText(t.subtitle, cx, top + padY + 26);
   }
+  ctx.restore();
+}
+
+/**
+ * Title-award banner. Fired by `awardTitle` (in runStats.js) whenever
+ * a new title is earned — `runStats.tickTitleBanner` ages it and clears
+ * it once its lifetime is up. Sits below the mission toast so the two
+ * never overlap when a mission completes (which awards a title and
+ * advances to the next mission's banner on the same frame).
+ */
+function drawTitleBanner(ctx, state, screenW) {
+  const b = state.titleBanner;
+  if (!b) return;
+  const alpha = titleBannerAlpha(b);
+  if (alpha <= 0.01) return;
+
+  const cx = screenW / 2;
+  // Mission toast occupies hudStripHeight + 8 down to ~+50; sit below
+  // it so a mission-completion frame can show both without overlap.
+  const top = hudStripHeight(state) + 64;
+  const padX = 16;
+  const padY = 8;
+  const labelFont = "11px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const titleFont = "bold 18px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const label = 'Title earned';
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  ctx.font = titleFont;
+  const titleW = ctx.measureText(b.name).width;
+  ctx.font = labelFont;
+  const labelW = ctx.measureText(label).width;
+  const bgW = Math.max(titleW, labelW) + padX * 2;
+  const bgH = 18 + 22 + padY * 2;
+
+  // Gold trim that matches the HUD palette so the celebration reads as
+  // an RPG award, distinct from the cool-blue mission banner above.
+  ctx.fillStyle = `rgba(40, 30, 12, ${0.85 * alpha})`;
+  ctx.strokeStyle = `rgba(220, 175, 90, ${0.7 * alpha})`;
+  ctx.lineWidth = 1;
+  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
+  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
+
+  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
+  ctx.shadowBlur = 4;
+  ctx.font = labelFont;
+  ctx.fillStyle = `rgba(220, 175, 90, ${0.95 * alpha})`;
+  ctx.fillText(label, cx, top + padY);
+  ctx.font = titleFont;
+  ctx.fillStyle = `rgba(245, 220, 160, ${0.98 * alpha})`;
+  ctx.fillText(b.name, cx, top + padY + 18);
   ctx.restore();
 }
 
@@ -558,6 +612,7 @@ export function render(ctx, state, screenW, screenH) {
   }
 
   drawMissionToast(ctx, state, screenW);
+  drawTitleBanner(ctx, state, screenW);
 
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 

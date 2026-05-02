@@ -500,19 +500,19 @@ describe('displayClass', () => {
     expect(displayClass(s)).toBe('novice pauper');
   });
 
-  it('appends a single title after a slash', () => {
+  it('appends the single earned title after a slash', () => {
     const s = makeState({ titles: [{ name: 'twin dueller', missionId: 'm1', earnedAt: 0 }] });
     expect(displayClass(s)).toBe('novice pauper / twin dueller');
   });
 
-  it('appends multiple titles separated by slashes', () => {
+  it('shows only the most-recently earned title — Progress Game-style, not a chain', () => {
     const s = makeState({
       titles: [
         { name: 'twin dueller', missionId: 'm1', earnedAt: 0 },
         { name: 'dragon slayer', missionId: 'm2', earnedAt: 1 },
       ],
     });
-    expect(displayClass(s)).toBe('novice pauper / twin dueller / dragon slayer');
+    expect(displayClass(s)).toBe('novice pauper / dragon slayer');
   });
 
   it('tolerates missing rank/titles fields', () => {

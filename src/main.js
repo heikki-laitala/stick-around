@@ -15,6 +15,7 @@ import {
   adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,
   spendBallForBattery,
 } from './missions/aloneInDark.js';
+import { tickTitleBanner } from './runStats.js';
 import { IS_LINUX } from './platform-info.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -620,6 +621,10 @@ function loop(now) {
         // replaced wholesale on the next mission entry; clearing it
         // here would race the renderer's fade-out window.
         if (state.missionToast) state.missionToast.age += dt;
+        // Title-award banner — same fade pattern as the mission toast,
+        // but driven from awardTitle so any award site (including
+        // mid-mission ones like escape-lava's "lava lucky") fires it.
+        tickTitleBanner(state, dt);
         // Missions can ask for an automatic restart (e.g. lava swallowed
         // the door). Honor it before advance so onEnter re-fires on this
         // tick.
