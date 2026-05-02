@@ -113,6 +113,29 @@ describe('initialProgression', () => {
     }
   });
 
+  it('puts escape-lava or ice-age right after the fixed warm-up', () => {
+    // Position FIXED_MISSION_COUNT (the third slot, index 2) is
+    // always one of the two environmental-hazard missions, so the
+    // early run has a consistent shape.
+    const lavaIdx = MISSIONS.findIndex((m) => m.id === 'escape-lava');
+    const iceIdx = MISSIONS.findIndex((m) => m.id === 'ice-age');
+    expect(lavaIdx).toBeGreaterThan(-1);
+    expect(iceIdx).toBeGreaterThan(-1);
+    let sawLava = false;
+    let sawIce = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const s = makeState();
+      const slot = s.missionOrder[FIXED_MISSION_COUNT];
+      expect([lavaIdx, iceIdx]).toContain(slot);
+      if (slot === lavaIdx) sawLava = true;
+      if (slot === iceIdx) sawIce = true;
+    }
+    // Both should appear across enough samples — confirms the pick is
+    // randomised, not just always the same one.
+    expect(sawLava).toBe(true);
+    expect(sawIce).toBe(true);
+  });
+
   it('pins the evil-twin mission to the very end of the play order', () => {
     // Run several seeds — the evil-twin id should always be last,
     // never in the shuffled middle.
