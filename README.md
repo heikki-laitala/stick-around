@@ -261,13 +261,16 @@ After the warm-up, in random order:
   - The lag tightens from ~3 s down to ~1.5 s as you collect balls,
     forcing decisive endgame movement.
 - **Shardfall** — magical shards rain from the top; catch six of
-  them by walking under or jumping up to intercept. The mission
-  grants access to a third spell slot, **stasis**: hold `3` (or `R`
-  once selected) to scale shard physics down to 0.25× while it
-  drains mana, long enough to read a trajectory and reposition.
-  Falling shards punch slim holes through any platform top they
-  cross, so the floor degrades as the mission goes on. Completing
-  the mission unlocks the stasis spell.
+  them by walking under or jumping up to intercept. The **stasis**
+  spell (slot `3`, or `R` once selected) scales hazard physics
+  down to 0.25× while it drains mana — long enough to read a
+  trajectory and reposition. Stasis is available from the start
+  and slows hazards across every mission (meteors, icicles, lava,
+  evil-twin movement and bolts), but shardfall is where it
+  really earns its keep. Falling shards punch slim holes through
+  any platform top they cross, so the floor degrades as the
+  mission goes on. Completing the mission grants the chronomancer
+  title.
 
 `Shift + R` restarts just the current mission if you get stuck.
 
