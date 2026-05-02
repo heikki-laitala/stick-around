@@ -177,8 +177,10 @@ it has focus. You toggle between the two:
 | `W`       | Jump                         |
 | `C`       | Toggle prone (lie flat)      |
 
-Arrow keys are reserved for **aiming** — they don't walk the stick
-man. Use `A` / `D` for that.
+Arrow keys don't walk the stick man — use `A` / `D` for that. They're
+split between **aiming** and **spells**: `←` / `→` sweep aim (lightning,
+rope, flashlight), `↑` casts the currently selected spell, `↓` cycles
+to the next spell.
 
 ## Rope
 
@@ -197,15 +199,16 @@ The rope is your main way across gaps and up to higher platforms.
 ## Spells
 
 Each spell has its own slot key. The slot keys also set which spell
-the spare cast key (`R`) fires, so a pinch fight can stay on the
-home row.
+the spare cast key (`↑`) fires, so a pinch fight can stay on the
+home row — pick a spell with `↓` and trigger it with `↑`.
 
 - **`1` Shield** — tap to raise the dome, tap again to drop it. Blocks
   damage while up but drains mana continuously.
 - **`2` Lightning** — *hold* `2` to aim (sweep with `←` / `→`), *release*
   `2` to fire. Costs 2 mana per bolt.
-- **`R`** — cast the spell currently shown in the HUD. Same effect as
-  pressing the slot key for that spell, just under your index finger.
+- **`↑`** — cast the spell currently shown in the HUD. Same effect as
+  pressing the slot key for that spell, reachable from the arrow cluster.
+- **`↓`** — cycle to the next spell without casting.
 
 Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
@@ -252,7 +255,7 @@ After the warm-up, in random order:
     dashed red aim line draws from its head with imperfect tracking,
     so a sharp sidestep escapes the lane. Direct bolt hit ends the
     run unless the shield is up.
-  - Your own lightning (cast from `1`/`2` or `R`) stuns the twin for
+  - Your own lightning (cast from `1`/`2` or `↑`) stuns the twin for
     ~2 s and interrupts any in-flight charge. The mission primes you
     with 7 mana and seeds walk-over **blue mana orbs** on the
     platforms (touch to refill, +2 mana each) so you can keep zapping.
@@ -262,7 +265,7 @@ After the warm-up, in random order:
     forcing decisive endgame movement.
 - **Shardfall** — magical shards rain from the top; catch six of
   them by walking under or jumping up to intercept. The **stasis**
-  spell (slot `3`, or `R` once selected) scales hazard physics
+  spell (slot `3`, or `↑` once selected) scales hazard physics
   down to 0.25× while it drains mana — long enough to read a
   trajectory and reposition. Stasis is available from the start
   and slows hazards across every mission (meteors, icicles, lava,
