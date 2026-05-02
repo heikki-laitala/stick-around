@@ -96,16 +96,26 @@ const ALL_DONE_MISSION = 'All missions complete!';
  * each run sees the variable missions in a different sequence. Returns a
  * permutation of every index in MISSIONS.
  */
+// Pinned-finale mission id. Pulled out of the random tail and
+// appended at the very end so the play order always builds up to
+// this mission as the climactic finish.
+const FINALE_MISSION_ID = 'evil-twin';
+
 function defaultMissionOrder() {
   const order = [];
   const fixed = Math.min(FIXED_MISSION_COUNT, MISSIONS.length);
   for (let i = 0; i < fixed; i++) order.push(i);
   const tail = [];
   for (let i = fixed; i < MISSIONS.length; i++) tail.push(i);
+  // Pull the finale out of the shuffle pool so it always lands last.
+  const finaleMissionIdx = MISSIONS.findIndex((m) => m.id === FINALE_MISSION_ID);
+  const finaleAt = finaleMissionIdx >= 0 ? tail.indexOf(finaleMissionIdx) : -1;
+  if (finaleAt >= 0) tail.splice(finaleAt, 1);
   for (let i = tail.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [tail[i], tail[j]] = [tail[j], tail[i]];
   }
+  if (finaleAt >= 0) tail.push(finaleMissionIdx);
   return [...order, ...tail];
 }
 
