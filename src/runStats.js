@@ -10,6 +10,10 @@
  *   runStartedAt: number | null      — monotonic ms at first mission enter
  *   missionStats: { [id]: { enteredAt, completedAt: number | null } }
  *   titles:       { name, missionId, earnedAt }[]
+ *   titleBanner:  { name, age } | null — transient award-celebration banner;
+ *                                        the renderer reads it, the game
+ *                                        loop ages it, `tickTitleBanner`
+ *                                        clears it once its lifetime is up.
  *
  * Times come from a monotonic clock so duration math is unaffected by
  * NTP slew or DST. The clock is module-private and overridable via
@@ -31,6 +35,38 @@ export function _resetNowForTests() { _now = defaultNow; }
 export function awardTitle(state, name, missionId) {
   if (!state.titles) state.titles = [];
   state.titles.push({ name, missionId, earnedAt: _now() });
+  // Arm a celebratory banner so the renderer can fade in/out the new
+  // title. Replacing any in-flight banner is intentional — back-to-back
+  // awards always celebrate the latest, not queue up the chain.
+  state.titleBanner = { name, age: 0 };
+}
+
+// Banner timing — keep in sync with `drawTitleBanner` in render.js.
+const TITLE_BANNER_FADE_IN = 0.25;
+const TITLE_BANNER_HOLD = 2.2;
+const TITLE_BANNER_FADE_OUT = 0.6;
+export const TITLE_BANNER_TOTAL = TITLE_BANNER_FADE_IN + TITLE_BANNER_HOLD + TITLE_BANNER_FADE_OUT;
+
+export function tickTitleBanner(state, dt) {
+  const b = state.titleBanner;
+  if (!b) return;
+  b.age += dt;
+  if (b.age >= TITLE_BANNER_TOTAL) state.titleBanner = null;
+}
+
+export function titleBannerAlpha(banner) {
+  if (!banner) return 0;
+  const fadeIn = Math.min(1, banner.age / TITLE_BANNER_FADE_IN);
+  const fadeOut = banner.age > TITLE_BANNER_FADE_IN + TITLE_BANNER_HOLD
+    ? Math.max(0, 1 - (banner.age - TITLE_BANNER_FADE_IN - TITLE_BANNER_HOLD) / TITLE_BANNER_FADE_OUT)
+    : 1;
+  return fadeIn * fadeOut;
+}
+
+export function latestTitle(state) {
+  const ts = state.titles;
+  if (!Array.isArray(ts) || ts.length === 0) return null;
+  return ts[ts.length - 1];
 }
 
 export function markMissionEntered(state, missionId) {
