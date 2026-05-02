@@ -51,8 +51,19 @@ export const MISSIONS = [
     id: 'collect-balls-5',
     text: 'Collect 5 glowing balls',
     subtitle: 'walk into a glowing ball to grab it',
-    questSuffix: (s) => `(${Math.min(5, s.score || 0)}/5)`,
-    check: (s) => (s.score || 0) >= 5,
+    // Stamp the running score on entry so the check requires *5 fresh*
+    // balls from this point on. Without the baseline, Shift+R restart
+    // would keep the score the player had before the restart and the
+    // mission would resume mid-progress — same baseline pattern as
+    // collect-mines-4 below.
+    onEnter(state) {
+      state.scoreAtMissionStart = state.score || 0;
+    },
+    questSuffix(s) {
+      const fresh = (s.score || 0) - (s.scoreAtMissionStart || 0);
+      return `(${Math.min(5, Math.max(0, fresh))}/5)`;
+    },
+    check: (s) => (s.score || 0) - (s.scoreAtMissionStart || 0) >= 5,
     rewardRank: 'apprentice pauper',
   },
   {
@@ -268,6 +279,19 @@ export function restartActiveMission(state) {
   state.currentMissionId = null;
   state.missionScene = null;
   state.waterArea = null;
+  // Clear transient world state so the world genuinely resets:
+  // collectibles + mana mines respawn fresh, holes in platforms heal,
+  // particles fade, in-flight spells are dropped. The mission's
+  // onEnter then reseeds whatever it owns inside the new scene.
+  if (Array.isArray(state.collectibles)) state.collectibles.length = 0;
+  if (Array.isArray(state.manaMines)) state.manaMines.length = 0;
+  if (Array.isArray(state.particles)) state.particles.length = 0;
+  if (Array.isArray(state.holes)) state.holes.length = 0;
+  state.lightningAim = null;
+  state.lightningBolt = null;
+  state.shieldActive = false;
+  state.stasisActive = false;
+  state.stasisAge = 0;
 }
 
 function ensureFields(state) {
