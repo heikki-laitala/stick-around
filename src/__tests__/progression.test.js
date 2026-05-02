@@ -46,6 +46,12 @@ function completeRealMissions(s) {
     advanceMission(s);
     const m = getActiveMission(s);
     if (!m) return;
+    if (m.id === 'collect-balls-5') {
+      // Mission 1 stamps a baseline on entry so its check requires
+      // *fresh* balls past that baseline. Bump the score past it.
+      s.score = (s.scoreAtMissionStart || 0) + 10;
+      continue;
+    }
     if (m.id === 'collect-mines-4') {
       // Mission 2 stamps a baseline on entry so its check requires
       // *fresh* mines past that baseline. Bump the running counter so
@@ -157,7 +163,9 @@ describe('advanceMission', () => {
   });
 
   it('completes the first mission and advances to the second', () => {
-    const s = makeState({ score: 5 });
+    const s = makeState();
+    advanceMission(s);                              // enter mission 1; baseline = 0
+    s.score = 5;                                    // collect 5 balls during mission
     advanceMission(s);
     expect(s.missionIdx).toBe(1);
     expect(s.rank).toBe(MISSIONS[0].rewardRank);
@@ -170,8 +178,10 @@ describe('advanceMission', () => {
     // (which only counts balls), the second mission's check would
     // fire on the same advance call and skip the mission entirely.
     // Mission 2 must require 4 *fresh* mines from its own start.
-    const s = makeState({ score: 5, minesMined: 4 });
-    advanceMission(s);
+    const s = makeState({ minesMined: 4 });
+    advanceMission(s);                              // enter mission 1
+    s.score = 5;                                    // satisfy mission 1
+    advanceMission(s);                              // enter mission 2 with baseline=4
     expect(s.missionIdx).toBe(1);
     expect(getActiveMission(s).id).toBe('collect-mines-4');
     // Mining 3 more during mission 2 still isn't enough (4 fresh needed).
@@ -187,7 +197,9 @@ describe('advanceMission', () => {
   it('exposes the upcoming mission via state.nextMission (null at the end)', () => {
     const s = makeState();
     expect(s.nextMission).toBe(MISSIONS[1].text);
-    const s2 = makeState({ score: 5 });
+    const s2 = makeState();
+    advanceMission(s2);
+    s2.score = 5;
     advanceMission(s2);
     expect(s2.mission).toBe(MISSIONS[1].text);
     // After mission 0 completes, nextMission previews whatever the play
@@ -264,8 +276,10 @@ describe('advanceMission', () => {
   });
 
   it('lazily initializes progression fields if missing (safe for legacy states)', () => {
-    const s = { score: 5, minesMined: 0 };
-    advanceMission(s);
+    const s = { score: 0, minesMined: 0 };
+    advanceMission(s);                              // initialize fields, enter mission 1
+    s.score = 5;
+    advanceMission(s);                              // satisfy mission 1 with fresh score
     expect(s.missionIdx).toBe(1);
     expect(s.unlocks).toBeInstanceOf(Set);
     expect(s.completedMissionIds).toBeInstanceOf(Set);

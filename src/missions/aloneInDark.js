@@ -29,17 +29,11 @@ export const ITEM_Y_OFFSET = 10;           // item sits this far above its platf
 export const LIGHTNING_CORRIDOR_W = 36;    // destination-out strip width along bolt
 export const AIM_SPEED = 1.8;              // radians/sec while aiming the flashlight
 
-// Active-mission darkness fill. Windows WebView2 lets noticeably more
-// light through a partly-opaque canvas layer than macOS's NSPanel does,
-// so terminal text remains readable behind a 0.94 alpha that reads as
-// fully black on macOS. Detect once and bake into a constant — webview
-// platform doesn't change at runtime. Read userAgent via `window` (which
-// is in the eslint globals) rather than the bare `navigator` identifier.
-const IS_WINDOWS = typeof window !== 'undefined'
-  && /Windows/i.test(window.navigator?.userAgent || '');
-const DARKNESS_ACTIVE_FILL = IS_WINDOWS
-  ? 'rgba(0, 0, 0, 1)'
-  : 'rgba(0, 0, 0, 0.94)';
+// Active-mission darkness fill. The mission's whole premise is that
+// the world goes pitch-black, so go fully opaque on every platform —
+// any sub-1.0 alpha lets terminal text bleed through on bright
+// terminals and breaks the immersion.
+const DARKNESS_ACTIVE_FILL = 'rgba(0, 0, 0, 1)';
 
 export const SHADOW_MAX = 6;
 export const SHADOW_SPAWN_INTERVAL = 1.2;  // seconds between spawn attempts
@@ -70,10 +64,22 @@ function seedItems(state) {
   const plats = eligiblePlatforms(state);
   const items = [];
   if (plats.length === 0) return items;
+  // Shuffle a copy of the eligible platforms so each fresh entry
+  // (initial start + every Shift+R restart) drops the items in
+  // different spots. Per-platform offset is random too.
+  const pool = plats.slice();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
   for (let i = 0; i < ITEM_KINDS.length; i++) {
-    const idx = Math.floor(((i + 0.5) * plats.length) / ITEM_KINDS.length);
-    const plat = plats[Math.min(idx, plats.length - 1)];
-    const offsetX = Math.max(8, Math.min(plat.w - 8, plat.w / 2));
+    // Wrap if there are fewer eligible platforms than items so we
+    // still always seed every kind (better duplicates than missing).
+    const plat = pool[i % pool.length];
+    const minOffset = Math.min(8, plat.w * 0.2);
+    const maxOffset = Math.max(plat.w - 8, plat.w * 0.8);
+    const span = Math.max(0, maxOffset - minOffset);
+    const offsetX = minOffset + Math.random() * span;
     items.push({
       kind: ITEM_KINDS[i],
       anchorHash: plat.hash,
@@ -358,11 +364,10 @@ function drawDarkness(ctx, state, scene, W, H, paused) {
   const off = getOffscreen(W, H);
   const dctx = off.getContext('2d');
   dctx.clearRect(0, 0, W, H);
-  // Windows WebView2 composites transparency differently than macOS's
-  // NSPanel: at 0.94 alpha enough light leaks through that terminal
-  // contents remain readable behind the overlay. Bump to fully opaque on
-  // Windows only — the macOS aesthetic at 0.94 (a faint sense of the
-  // world being still there, just barely) is preserved.
+  // Active fill is fully opaque so terminal contents can't bleed
+  // through. Paused state intentionally drops to 0.45 alpha — when
+  // the player tabs away, the world becomes visible again so they
+  // know the game has paused.
   dctx.fillStyle = paused
     ? 'rgba(0, 0, 0, 0.45)'
     : DARKNESS_ACTIVE_FILL;
