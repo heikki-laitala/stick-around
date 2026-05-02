@@ -6,6 +6,7 @@ import {
   debugSkipMission,
   displayClass,
   initialProgression,
+  isRunComplete,
   hasUnlock,
   hasCompleted,
   tickActiveMission,
@@ -233,6 +234,18 @@ describe('advanceMission', () => {
     const s3 = makeState();
     completeRealMissions(s3);
     expect(s3.nextMission).toBeNull();
+  });
+
+  it('flags isRunComplete and stamps runEndedAt once the last mission lands', () => {
+    const s = makeState();
+    expect(isRunComplete(s)).toBe(false);
+    expect(s.runEndedAt).toBeNull();
+    // Walk every mission whose check we know how to satisfy. completeRealMissions
+    // covers the full ladder, so this exits with missionIdx past the end.
+    completeRealMissions(s);
+    expect(isRunComplete(s)).toBe(true);
+    expect(typeof s.runEndedAt).toBe('number');
+    expect(s.runEndedAt).toBeGreaterThanOrEqual(s.runStartedAt);
   });
 
   it('stamps runStartedAt and per-mission enteredAt/completedAt as the ladder advances', () => {
