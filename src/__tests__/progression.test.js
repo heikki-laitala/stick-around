@@ -104,6 +104,8 @@ describe('initialProgression', () => {
     expect(s.mission).toBe(MISSIONS[0].text);
     expect(s.unlocks.size).toBe(0);
     expect(s.completedMissionIds.size).toBe(0);
+    expect(s.runStartedAt).toBeNull();
+    expect(s.missionStats).toEqual({});
   });
 
   it('pins the fixed-prefix missions to the start of the play order', () => {
@@ -233,7 +235,22 @@ describe('advanceMission', () => {
     expect(s3.nextMission).toBeNull();
   });
 
-  it('records title rewards in state.titles', () => {
+  it('stamps runStartedAt and per-mission enteredAt/completedAt as the ladder advances', () => {
+    const s = makeState();
+    completeRealMissions(s);
+    expect(typeof s.runStartedAt).toBe('number');
+    // Every completed warm-up mission should have both entered + completed timestamps.
+    for (const id of ['collect-balls-5', 'collect-mines-4']) {
+      const stat = s.missionStats[id];
+      expect(stat).toBeDefined();
+      expect(typeof stat.enteredAt).toBe('number');
+      expect(typeof stat.completedAt).toBe('number');
+      expect(stat.completedAt).toBeGreaterThanOrEqual(stat.enteredAt);
+      expect(stat.enteredAt).toBeGreaterThanOrEqual(s.runStartedAt);
+    }
+  });
+
+  it('records title rewards in state.titles with name + missionId + earnedAt', () => {
     // Synthesize a one-off mission to exercise the title path without
     // coupling to a specific in-ladder entry.
     const titleMission = { id: 'test-title', text: 't', check: () => true, rewardTitle: 'legend' };
@@ -242,7 +259,10 @@ describe('advanceMission', () => {
     pinLatestMissionLast(s);
     try {
       completeRealMissions(s);
-      expect(s.titles).toContain('legend');
+      const legend = s.titles.find((t) => t.name === 'legend');
+      expect(legend).toBeDefined();
+      expect(legend.missionId).toBe('test-title');
+      expect(typeof legend.earnedAt).toBe('number');
       expect(hasCompleted(s, 'test-title')).toBe(true);
     } finally {
       MISSIONS.pop();
@@ -481,12 +501,17 @@ describe('displayClass', () => {
   });
 
   it('appends a single title after a slash', () => {
-    const s = makeState({ titles: ['twin dueller'] });
+    const s = makeState({ titles: [{ name: 'twin dueller', missionId: 'm1', earnedAt: 0 }] });
     expect(displayClass(s)).toBe('novice pauper / twin dueller');
   });
 
   it('appends multiple titles separated by slashes', () => {
-    const s = makeState({ titles: ['twin dueller', 'dragon slayer'] });
+    const s = makeState({
+      titles: [
+        { name: 'twin dueller', missionId: 'm1', earnedAt: 0 },
+        { name: 'dragon slayer', missionId: 'm2', earnedAt: 1 },
+      ],
+    });
     expect(displayClass(s)).toBe('novice pauper / twin dueller / dragon slayer');
   });
 

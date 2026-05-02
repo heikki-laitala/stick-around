@@ -278,7 +278,7 @@ describe('ESCAPE_LAVA_MISSION.update — door physics', () => {
     s.missionScene.doorVy = 0;
     for (let i = 0; i < 60; i++) ESCAPE_LAVA_MISSION.update(s, 0.05);
     expect(s.missionScene.reachedDoor).toBe(true);
-    expect(s.titles).toContain('lava lucky');
+    expect(s.titles.map((t) => t.name)).toContain('lava lucky');
   });
 });
 
