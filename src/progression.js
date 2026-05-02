@@ -111,6 +111,15 @@ const ALL_DONE_MISSION = 'All missions complete!';
 // appended at the very end so the play order always builds up to
 // this mission as the climactic finish.
 const FINALE_MISSION_ID = 'evil-twin';
+// Eligible "third mission" candidates — one of these always plays
+// right after the fixed warm-up so the early run has a coherent
+// shape: warm-ups → environmental hazard mission → variable tail.
+const EARLY_PICK_IDS = ['escape-lava', 'ice-age'];
+
+function removeFromArray(arr, value) {
+  const at = arr.indexOf(value);
+  if (at >= 0) arr.splice(at, 1);
+}
 
 function defaultMissionOrder() {
   const order = [];
@@ -118,16 +127,33 @@ function defaultMissionOrder() {
   for (let i = 0; i < fixed; i++) order.push(i);
   const tail = [];
   for (let i = fixed; i < MISSIONS.length; i++) tail.push(i);
-  // Pull the finale out of the shuffle pool so it always lands last.
+
+  // Pin the finale at the end of the play order.
   const finaleMissionIdx = MISSIONS.findIndex((m) => m.id === FINALE_MISSION_ID);
-  const finaleAt = finaleMissionIdx >= 0 ? tail.indexOf(finaleMissionIdx) : -1;
-  if (finaleAt >= 0) tail.splice(finaleAt, 1);
+  if (finaleMissionIdx >= 0) removeFromArray(tail, finaleMissionIdx);
+
+  // Pick one of the early-candidate missions to lead the variable tail.
+  // The other (if any) folds back into the random middle.
+  const earlyCandidates = EARLY_PICK_IDS
+    .map((id) => MISSIONS.findIndex((m) => m.id === id))
+    .filter((idx) => idx >= 0 && tail.includes(idx));
+  let earlyPicked = -1;
+  if (earlyCandidates.length > 0) {
+    earlyPicked = earlyCandidates[Math.floor(Math.random() * earlyCandidates.length)];
+    removeFromArray(tail, earlyPicked);
+  }
+
+  // Shuffle the remaining middle.
   for (let i = tail.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [tail[i], tail[j]] = [tail[j], tail[i]];
   }
-  if (finaleAt >= 0) tail.push(finaleMissionIdx);
-  return [...order, ...tail];
+
+  const result = [...order];
+  if (earlyPicked >= 0) result.push(earlyPicked);
+  result.push(...tail);
+  if (finaleMissionIdx >= 0) result.push(finaleMissionIdx);
+  return result;
 }
 
 /**
