@@ -67,6 +67,17 @@ describe('SHARDFALL_MISSION onEnter', () => {
     expect(s.spellIdx).toBe(1);
   });
 
+  it('onExit restores the spellIdx the player had before the mission', () => {
+    // The mission auto-switches to stasis on entry as a convenience,
+    // but the next mission shouldn't inherit that selection — R must
+    // cast whatever the player had selected before shardfall.
+    const s = makeState({ spells: ['shield', 'lightning', 'stasis'], spellIdx: 1 });
+    SHARDFALL_MISSION.onEnter(s);
+    expect(s.spellIdx).toBe(2);                     // mission auto-selected stasis
+    SHARDFALL_MISSION.onExit(s);
+    expect(s.spellIdx).toBe(1);                     // back to lightning
+  });
+
   it('starts the timer at SHARDFALL_DURATION', () => {
     const s = makeState();
     SHARDFALL_MISSION.onEnter(s);

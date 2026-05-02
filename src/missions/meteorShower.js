@@ -38,6 +38,7 @@ function spawnY(state) {
 export const METEOR_SHOWER_MISSION = {
   id: 'dodge-meteors',
   text: 'Survive the meteor shower',
+  subtitle: 'dodge the falling meteors — lightning vaporises them mid-air if you have mana',
   rewardTitle: 'meteor dodger',
 
   onEnter(state) {

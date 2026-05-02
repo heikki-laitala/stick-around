@@ -254,6 +254,7 @@ function updateShadows(state, scene, dt) {
 export const ALONE_IN_DARK_MISSION = {
   id: 'alone-in-dark',
   text: 'Find the lost items in the dark',
+  subtitle: 'sweep the flashlight with the arrow keys; press G to burn a ball into battery charge',
   rewardTitle: 'night-walker',
 
   onEnter(state) {

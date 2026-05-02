@@ -4,10 +4,7 @@ import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt } from '../spells.js';
 import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
-import {
-  drawShards,
-  drawShardfallBanner,
-} from './shardfall/render.js';
+import { drawShards } from './shardfall/render.js';
 
 /**
  * "Shardfall" mission.
@@ -88,6 +85,7 @@ function burstPlatforms(state, xBefore, yBefore, xAfter, yAfter) {
 export const SHARDFALL_MISSION = {
   id: 'shardfall',
   text: 'Catch the falling shards',
+  subtitle: 'walk under or jump up to grab one — hold 3 or R to cast stasis',
   rewardTitle: 'chronomancer',
   unlocks: ['stasis'],
 
@@ -105,7 +103,11 @@ export const SHARDFALL_MISSION = {
     }
     // Auto-select the stasis slot so a bare R press activates the
     // spell — the player shouldn't have to remember to switch slots
-    // first when the whole mission is about that spell.
+    // first when the whole mission is about that spell. Save the
+    // previous selection so onExit can restore it; otherwise the
+    // selection would survive into the next mission and R would
+    // cast stasis there instead of the player's prior preference.
+    scene.prevSpellIdx = state.spellIdx;
     const stasisIdx = state.spells ? state.spells.indexOf('stasis') : -1;
     if (stasisIdx >= 0) state.spellIdx = stasisIdx;
     scene.timeLeft = SHARDFALL_DURATION;
@@ -118,7 +120,6 @@ export const SHARDFALL_MISSION = {
     // Goal is below the spawn count, so a few misses are forgivable.
     scene.spawnInterval = SHARDFALL_DURATION / SHARDFALL_TOTAL_SHARDS;
     scene.spawnsLeft = SHARDFALL_TOTAL_SHARDS;
-    scene.bannerAge = 0;
     state.gameOver = false;
     resetPlayer(state);
   },
@@ -129,12 +130,20 @@ export const SHARDFALL_MISSION = {
     return (scene.caughtCount || 0) >= SHARDFALL_GOAL;
   },
 
+  onExit(state) {
+    // Restore whichever spell the player had selected before the
+    // mission auto-switched them to stasis, so the next mission's
+    // R press resumes the player's prior preference.
+    const scene = state.missionScene;
+    if (scene && typeof scene.prevSpellIdx === 'number') {
+      state.spellIdx = scene.prevSpellIdx;
+    }
+  },
+
   update(state, dt) {
     const scene = state.missionScene;
     if (!scene) return;
     if (state.gameOver) return;
-
-    if (typeof scene.bannerAge === 'number') scene.bannerAge += dt;
 
     const goalMet = (scene.caughtCount || 0) >= SHARDFALL_GOAL;
     // Stasis state lives on `state` (drained + aged in tickSpells),
@@ -192,7 +201,6 @@ export const SHARDFALL_MISSION = {
     const scene = state.missionScene;
     if (!scene) return;
     drawShards(ctx, scene);
-    drawShardfallBanner(ctx, scene, state.screenW || W, state);
     if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };

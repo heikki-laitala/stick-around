@@ -8,6 +8,7 @@ import {
 import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 import { drawStasisVignette } from './missions/shardfall/render.js';
+import { hudStripHeight } from './constants.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
 
@@ -20,6 +21,69 @@ function drawLimb(ctx, ax, ay, bx, by) {
   ctx.moveTo(ax, ay);
   ctx.lineTo(bx, by);
   ctx.stroke();
+}
+
+const MISSION_TOAST_FADE_IN = 0.4;
+const MISSION_TOAST_HOLD = 3.6;
+const MISSION_TOAST_FADE_OUT = 1.0;
+const MISSION_TOAST_TOTAL = MISSION_TOAST_FADE_IN + MISSION_TOAST_HOLD + MISSION_TOAST_FADE_OUT;
+
+/**
+ * Mission-entry banner. Each time `ensureEntered` activates a new
+ * mission, progression sets `state.missionToast = { age, text,
+ * subtitle? }`. The renderer fades that in below the HUD strip,
+ * holds it long enough to read, then fades it out. Per-mission
+ * `subtitle` lets a mission tack a one-line hint underneath without
+ * needing a bespoke render function.
+ */
+function drawMissionToast(ctx, state, screenW) {
+  const t = state.missionToast;
+  if (!t || typeof t.age !== 'number' || t.age >= MISSION_TOAST_TOTAL) return;
+  const fadeIn = Math.min(1, t.age / MISSION_TOAST_FADE_IN);
+  const fadeOut = t.age > MISSION_TOAST_FADE_IN + MISSION_TOAST_HOLD
+    ? Math.max(0, 1 - (t.age - MISSION_TOAST_FADE_IN - MISSION_TOAST_HOLD) / MISSION_TOAST_FADE_OUT)
+    : 1;
+  const alpha = fadeIn * fadeOut;
+  if (alpha <= 0.01) return;
+
+  const cx = screenW / 2;
+  const top = hudStripHeight(state) + 8;
+  const padX = 18;
+  const padY = 10;
+  const titleFont = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const subFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  ctx.font = titleFont;
+  const titleW = ctx.measureText(t.text || '').width;
+  let subW = 0;
+  if (t.subtitle) {
+    ctx.font = subFont;
+    subW = ctx.measureText(t.subtitle).width;
+  }
+  const bgW = Math.max(titleW, subW) + padX * 2;
+  const bgH = (t.subtitle ? 22 + 18 : 22) + padY * 2;
+
+  ctx.fillStyle = `rgba(15, 25, 50, ${0.78 * alpha})`;
+  ctx.strokeStyle = `rgba(220, 230, 240, ${0.55 * alpha})`;
+  ctx.lineWidth = 1;
+  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
+  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
+
+  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
+  ctx.shadowBlur = 4;
+  ctx.font = titleFont;
+  ctx.fillStyle = `rgba(240, 230, 180, ${0.98 * alpha})`;
+  ctx.fillText(t.text || '', cx, top + padY);
+  if (t.subtitle) {
+    ctx.font = subFont;
+    ctx.fillStyle = `rgba(220, 230, 240, ${0.92 * alpha})`;
+    ctx.fillText(t.subtitle, cx, top + padY + 26);
+  }
+  ctx.restore();
 }
 
 /**
@@ -493,6 +557,8 @@ export function render(ctx, state, screenW, screenH) {
     const torsoY = state.feetY - STANDING_HEIGHT / 2;
     drawStasisVignette(ctx, screenW, screenH, state.stasisAge || 0, state.gx, torsoY);
   }
+
+  drawMissionToast(ctx, state, screenW);
 
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 

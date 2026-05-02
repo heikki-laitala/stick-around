@@ -50,12 +50,14 @@ export const MISSIONS = [
   {
     id: 'collect-balls-5',
     text: 'Collect 5 glowing balls',
+    subtitle: 'walk into a glowing ball to grab it',
     check: (s) => (s.score || 0) >= 5,
     rewardRank: 'apprentice pauper',
   },
   {
     id: 'collect-mines-4',
     text: 'Collect 4 mana mines',
+    subtitle: 'press F next to a mana crystal to mine it',
     // Stamp the running mine count when this mission opens so the
     // check requires *4 fresh* mines from this point on. Without
     // the baseline, mining mana incidentally during mission 1 (which
@@ -171,7 +173,7 @@ export function advanceMission(state) {
     state.waterArea = null;
 
     state.missionIdx += 1;
-    ensureEntered(state);
+    ensureEntered(state);                        // fires the next mission's entry banner
   }
 
   state.mission = missionAt(state, state.missionIdx)?.text ?? ALL_DONE_MISSION;
@@ -278,4 +280,13 @@ function ensureEntered(state) {
   state.missionScene = {};
   state.currentMissionId = m.id;
   m.onEnter?.(state);
+  // Generic mission-entry banner — fades in/holds/out so the player
+  // always gets clear feedback when the active quest changes. Per-
+  // mission `subtitle` lets a mission tack a hint underneath (e.g.
+  // shardfall's binding reminder); when omitted, only the title shows.
+  state.missionToast = {
+    age: 0,
+    text: m.text,
+    subtitle: m.subtitle || null,
+  };
 }
