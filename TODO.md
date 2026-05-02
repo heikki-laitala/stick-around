@@ -36,8 +36,8 @@ if let Ok(guard) = bounds.lock() { /* use guard */ }
 Recent HUD + shield work left literals scattered in `render.js`:
 
 - HUD row centers `15` / `hudH - 15`, separator tick half-height `9`,
-  mission clip height `24`, class/spell/inventory icon X positions
-  (`14`, `84`, `154`, `274`, `384`).
+  mission clip height `24`, class/spell icon X positions
+  (`14`, `84`, `154`, `264`).
 - Shield aura padding `+22` px, `SHIELD_FADE_IN_DURATION = 0.2`,
   `CAST_FLASH_DURATION = 0.35`.
 

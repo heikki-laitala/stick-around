@@ -70,8 +70,6 @@ const state = {
 
   // HUD
   mana: 0,
-  inventory: ['bottle', 'key', 'map'],
-  inventoryIdx: 0,
   ...initialSpells(),
   ...initialProgression(),
   mouseX: -1,
@@ -483,14 +481,6 @@ document.addEventListener('keydown', e => {
     if (isAloneInDarkActive(state)) spendBallForBattery(state);
     return;
   }
-  if (e.code === 'Tab') {
-    if (state.inventory.length > 0) {
-      state.inventoryIdx = (state.inventoryIdx + 1) % state.inventory.length;
-    }
-    e.preventDefault();
-    return;
-  }
-
   // Spell slots: tap 1 to toggle the shield, hold 2 to aim lightning
   // (released on keyup below). Direct slots replace the old cycle+cast
   // pair so each spell has a dedicated finger.
