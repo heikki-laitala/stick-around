@@ -5,6 +5,7 @@ import {
   SHARDFALL_PRIMER_MANA,
   SHARDFALL_GOAL,
   STASIS_SCALE,
+  GOLD_SHARD_VALUE,
 } from '../missions/shardfall.js';
 
 function makeState(overrides = {}) {
@@ -109,10 +110,20 @@ describe('SHARDFALL_MISSION shard physics', () => {
   it('shards that intersect the player body are counted caught + removed', () => {
     const s = makeState({ gx: 400, feetY: 400 });
     SHARDFALL_MISSION.onEnter(s);
-    s.missionScene.shards.push({ x: 400, y: 388, vy: 0, caught: false });
+    s.missionScene.shards.push({ x: 400, y: 388, vy: 0, caught: false, kind: 'common' });
     s.missionScene.spawnsLeft = 0;
     SHARDFALL_MISSION.update(s, 0.016);
     expect(s.missionScene.caughtCount).toBe(1);
+    expect(s.missionScene.shards.length).toBe(0);
+  });
+
+  it('gold shards are worth GOLD_SHARD_VALUE on catch', () => {
+    const s = makeState({ gx: 400, feetY: 400 });
+    SHARDFALL_MISSION.onEnter(s);
+    s.missionScene.shards.push({ x: 400, y: 388, vy: 0, caught: false, kind: 'gold' });
+    s.missionScene.spawnsLeft = 0;
+    SHARDFALL_MISSION.update(s, 0.016);
+    expect(s.missionScene.caughtCount).toBe(GOLD_SHARD_VALUE);
     expect(s.missionScene.shards.length).toBe(0);
   });
 
