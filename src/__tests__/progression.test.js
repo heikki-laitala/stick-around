@@ -107,6 +107,18 @@ describe('initialProgression', () => {
     }
   });
 
+  it('pins the evil-twin mission to the very end of the play order', () => {
+    // Run several seeds — the evil-twin id should always be last,
+    // never in the shuffled middle.
+    const evilTwinIdx = MISSIONS.findIndex((m) => m.id === 'evil-twin');
+    expect(evilTwinIdx).toBeGreaterThan(-1);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const s = makeState();
+      const last = s.missionOrder[s.missionOrder.length - 1];
+      expect(last).toBe(evilTwinIdx);
+    }
+  });
+
   it('produces a permutation of every mission index — no dupes, no gaps', () => {
     const s = makeState();
     expect(s.missionOrder.length).toBe(MISSIONS.length);
