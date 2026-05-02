@@ -1,9 +1,9 @@
 /**
  * HUD rendering — the opaque strip across the top of the overlay that
- * shows the player's counters (balls/mana), inventory, selected spell,
- * class, and the current/next quest. Styled like a dark-wood/parchment
- * RPG panel with gold trim, a serif typeface, and canvas-drawn fantasy
- * icons rather than Unicode dingbats.
+ * shows the player's counters (balls/mana), selected spell, class, and
+ * the current/next quest. Styled like a dark-wood/parchment RPG panel
+ * with gold trim, a serif typeface, and canvas-drawn fantasy icons
+ * rather than Unicode dingbats.
  *
  * When single-row content won't fit the available width, the HUD grows
  * to `HUD_HEIGHT_TALL` and splits into two rows (icons on top, quest on
@@ -25,8 +25,8 @@ const HUD_GOLD = 'rgba(190, 155, 85, 0.9)';
 // Single-row layout x-coordinates — kept in sync between the measurement
 // helper and the renderer below so the "does it fit?" check matches what
 // will actually be drawn.
-const CLASS_LABEL_X = 398;
-const SINGLE_ROW_MISSION_X = 580;
+const CLASS_LABEL_X = 278;
+const SINGLE_ROW_MISSION_X = 460;
 const MISSION_RIGHT_PAD = 12;
 const MIN_MISSION_WIDTH = 40;
 
@@ -109,19 +109,7 @@ export function renderHUD(ctx, state, screenW) {
   ctx.fillText(`${Math.floor(state.mana || 0)}`, 98, row1TextY);
   drawSeparator(ctx, 140, row1Y);
 
-  // Inventory — leather pouch
-  // Inventory items are lowercase words (e.g. "bottle") whose visual bounds
-  // differ from cap-height text — measure this string specifically so it
-  // sits on the same visual midline as its pouch icon.
-  drawPouchIcon(ctx, 154, row1Y, ICON, 'rgb(150, 100, 55)');
-  const activeItem = (state.inventory && state.inventory[state.inventoryIdx]) || '—';
-  ctx.fillStyle = HUD_PARCHMENT;
-  const itemM = ctx.measureText(activeItem);
-  const itemY = row1Y + (itemM.actualBoundingBoxAscent - itemM.actualBoundingBoxDescent) / 2;
-  ctx.fillText(activeItem, 168, itemY);
-  drawSeparator(ctx, 260, row1Y);
-
-  // Spells — sparkle/star icon; selected spell name shown like inventory.
+  // Spells — sparkle/star icon; selected spell name shown next to it.
   // Greyed when the player doesn't have enough mana to cast; pulses blue
   // while a shield is active.
   const spellName = selectedSpell(state) || '—';
@@ -130,19 +118,19 @@ export function renderHUD(ctx, state, screenW) {
   const sparkleColor = shielded
     ? `rgba(120, 210, 255, ${0.85 + 0.15 * Math.sin(performance.now() / 160)})`
     : castable ? 'rgb(200, 180, 255)' : 'rgba(160, 155, 180, 0.5)';
-  drawSparkleIcon(ctx, 274, row1Y, ICON, sparkleColor);
+  drawSparkleIcon(ctx, 154, row1Y, ICON, sparkleColor);
   ctx.fillStyle = shielded
     ? 'rgba(180, 225, 255, 0.98)'
     : castable ? HUD_PARCHMENT : 'rgba(180, 170, 160, 0.55)';
   const spellM = ctx.measureText(spellName);
   const spellY = row1Y + (spellM.actualBoundingBoxAscent - spellM.actualBoundingBoxDescent) / 2;
-  ctx.fillText(spellName, 288, spellY);
-  drawSeparator(ctx, 370, row1Y);
+  ctx.fillText(spellName, 168, spellY);
+  drawSeparator(ctx, 250, row1Y);
 
   // Class — small crown
-  drawCrownIcon(ctx, 384, row1Y, ICON, 'rgb(230, 190, 100)');
+  drawCrownIcon(ctx, 264, row1Y, ICON, 'rgb(230, 190, 100)');
   ctx.fillStyle = 'rgba(240, 210, 165, 0.95)';
-  ctx.fillText(displayClass(state), 398, row1TextY);
+  ctx.fillText(displayClass(state), 278, row1TextY);
 
   // Quest + Next (flexible — clipped to space before close button on a
   // single row, or stretched across the full bottom row on a tall HUD).
@@ -232,29 +220,6 @@ function drawPotionIcon(ctx, cx, cy, s, color) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
   ctx.beginPath();
   ctx.ellipse(cx - s * 0.3, cy + s * 0.25, s * 0.15, s * 0.35, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawPouchIcon(ctx, cx, cy, s, color) {
-  ctx.save();
-  ctx.translate(0, -s * 0.275); // visual bounds [cy-0.45s, cy+s] → shift up to center
-  // Sack body
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(cx - s * 0.75, cy - s * 0.2);
-  ctx.bezierCurveTo(cx - s * 1.0, cy + s * 1.0, cx + s * 1.0, cy + s * 1.0, cx + s * 0.75, cy - s * 0.2);
-  ctx.lineTo(cx + s * 0.45, cy - s * 0.45);
-  ctx.lineTo(cx - s * 0.45, cy - s * 0.45);
-  ctx.closePath();
-  ctx.fill();
-  // Drawstring band
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-  ctx.fillRect(cx - s * 0.55, cy - s * 0.45, s * 1.1, s * 0.2);
-  // Coin highlight
-  ctx.fillStyle = 'rgba(240, 200, 90, 0.9)';
-  ctx.beginPath();
-  ctx.arc(cx + s * 0.1, cy + s * 0.3, s * 0.18, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }

@@ -217,7 +217,6 @@ Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 | Key           | Action                                                      |
 | ------------- | ----------------------------------------------------------- |
 | `F`           | Swing axe — breaks crystals and thin ceilings               |
-| `Tab`         | Cycle inventory slot                                        |
 | `G`           | Recharge flashlight (alone-in-dark mission, costs one ball) |
 | `Shift + R`   | Restart the current mission                                 |
 
