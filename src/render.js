@@ -1,6 +1,6 @@
 import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, torsoY } from './poses.js';
 import { AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
-import { renderActiveMission } from './progression.js';
+import { renderActiveMission, isRunComplete, MISSIONS } from './progression.js';
 import {
   isShielded, shieldFadeAlpha, isLightningAiming, isLightningActive,
   LIGHTNING_BEAM_WIDTH, LIGHTNING_RANGE,
@@ -9,7 +9,7 @@ import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 import { drawStasisVignette } from './missions/shardfall/render.js';
 import { hudStripHeight } from './constants.js';
-import { titleBannerAlpha } from './runStats.js';
+import { titleBannerAlpha, formatMs, totalRunMs, missionDurationMs } from './runStats.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
 
@@ -137,6 +137,150 @@ function drawTitleBanner(ctx, state, screenW) {
   ctx.font = titleFont;
   ctx.fillStyle = `rgba(245, 220, 160, ${0.98 * alpha})`;
   ctx.fillText(b.name, cx, top + padY + 18);
+  ctx.restore();
+}
+
+/**
+ * End-of-run summary panel. Persistent until the player quits — there
+ * is no dismiss; the stick man keeps walking around behind it. Shows
+ * the total run time, per-mission durations, and a title timeline so
+ * the comedic accumulation of "lava lucky / chronomancer / twin slipper"
+ * is visible all at once at the end of a run.
+ *
+ * Mission rows iterate `state.missionOrder` so they appear in play
+ * order, including any title-bearing missions the player skipped via
+ * Shift+N (those rows get a "—" duration placeholder).
+ */
+function drawEndScreen(ctx, state, screenW) {
+  const titleFont = "bold 28px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const headFont = "bold 14px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const rowFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+  const hintFont = "11px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+
+  // Resolve mission rows in play order so the panel reads top-to-bottom
+  // the way the player experienced it.
+  const order = Array.isArray(state.missionOrder) ? state.missionOrder : [];
+  const missionRows = order.map((idx) => {
+    const m = MISSIONS[idx];
+    if (!m) return null;
+    return { id: m.id, text: m.text, dur: missionDurationMs(state, m.id) };
+  }).filter((r) => r !== null);
+
+  const titles = Array.isArray(state.titles) ? state.titles : [];
+  const startedAt = state.runStartedAt || 0;
+
+  // Panel sized to fit the longest column; centered horizontally and
+  // anchored just below the HUD strip so it never overlaps the strip.
+  const padX = 28;
+  const padY = 22;
+  const colGap = 28;
+  const rowH = 20;
+
+  ctx.save();
+  ctx.font = headFont;
+  const labelW = Math.max(
+    ctx.measureText('Mission').width,
+    ctx.measureText('Title').width,
+  );
+  ctx.font = rowFont;
+  const longestMission = missionRows.reduce(
+    (w, r) => Math.max(w, ctx.measureText(r.text).width),
+    labelW,
+  );
+  const longestTitle = titles.reduce(
+    (w, t) => Math.max(w, ctx.measureText(t.name).width),
+    labelW,
+  );
+  const timeColW = ctx.measureText('00:00').width + 6;
+
+  const missionsBlockW = longestMission + colGap + timeColW;
+  const titlesBlockW = longestTitle + colGap + timeColW;
+  const contentW = Math.max(missionsBlockW, titlesBlockW, 260);
+
+  const rows = Math.max(missionRows.length, titles.length, 1);
+  const headerH = 52; // title + spacing
+  const tableH = 24 + rows * rowH; // section heading + rows
+  const totalsH = 28;
+  const hintH = 22;
+  const bgW = contentW + padX * 2;
+  const bgH = headerH + tableH * 2 + totalsH + hintH + padY;
+
+  const top = hudStripHeight(state) + 12;
+  const left = Math.round((screenW - bgW) / 2);
+
+  // Parchment-on-wood panel matching the HUD palette.
+  ctx.fillStyle = 'rgba(26, 22, 16, 0.92)';
+  ctx.strokeStyle = 'rgba(220, 175, 90, 0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(left, top, bgW, bgH);
+  ctx.strokeRect(left, top, bgW, bgH);
+
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'center';
+  ctx.font = titleFont;
+  ctx.fillStyle = 'rgba(245, 220, 160, 0.98)';
+  ctx.fillText('Run complete', left + bgW / 2, top + 14);
+
+  // Total time, centered under the title.
+  ctx.font = headFont;
+  ctx.fillStyle = 'rgba(220, 175, 90, 0.95)';
+  const totalLabel = `Total time: ${formatMs(totalRunMs(state))}`;
+  ctx.fillText(totalLabel, left + bgW / 2, top + 48);
+
+  // Two stacked sections: missions, then titles. Both share x columns
+  // — left flush, right flush — for visual rhythm.
+  const sectionLeftX = left + padX;
+  const sectionRightX = left + bgW - padX;
+  let y = top + headerH + 12;
+
+  ctx.textAlign = 'left';
+  ctx.font = headFont;
+  ctx.fillStyle = 'rgba(220, 175, 90, 0.85)';
+  ctx.fillText('Missions', sectionLeftX, y);
+  y += 22;
+
+  ctx.font = rowFont;
+  ctx.fillStyle = 'rgba(230, 215, 170, 0.95)';
+  for (const r of missionRows) {
+    ctx.textAlign = 'left';
+    ctx.fillText(r.text, sectionLeftX, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatMs(r.dur), sectionRightX, y);
+    y += rowH;
+  }
+
+  y += 8;
+  ctx.textAlign = 'left';
+  ctx.font = headFont;
+  ctx.fillStyle = 'rgba(220, 175, 90, 0.85)';
+  ctx.fillText('Titles earned', sectionLeftX, y);
+  y += 22;
+
+  ctx.font = rowFont;
+  ctx.fillStyle = 'rgba(230, 215, 170, 0.95)';
+  if (titles.length === 0) {
+    ctx.fillStyle = 'rgba(180, 170, 160, 0.6)';
+    ctx.fillText('— no titles earned this run —', sectionLeftX, y);
+    y += rowH;
+  } else {
+    for (const t of titles) {
+      const at = startedAt > 0 && typeof t.earnedAt === 'number'
+        ? formatMs(t.earnedAt - startedAt)
+        : '—';
+      ctx.textAlign = 'left';
+      ctx.fillText(t.name, sectionLeftX, y);
+      ctx.textAlign = 'right';
+      ctx.fillText(at, sectionRightX, y);
+      y += rowH;
+    }
+  }
+
+  // Persistent — there is no dismiss key. Tell the player how to leave.
+  ctx.textAlign = 'center';
+  ctx.font = hintFont;
+  ctx.fillStyle = 'rgba(220, 175, 90, 0.6)';
+  ctx.fillText('Shift + Q to quit', left + bgW / 2, top + bgH - 16);
+
   ctx.restore();
 }
 
@@ -613,6 +757,10 @@ export function render(ctx, state, screenW, screenH) {
 
   drawMissionToast(ctx, state, screenW);
   drawTitleBanner(ctx, state, screenW);
+  // End-screen sits on top of everything (after gameplay, before HUD)
+  // so it persists as the visible focus once the ladder is exhausted.
+  // The man keeps walking around behind it — quit with Shift+Q.
+  if (isRunComplete(state)) drawEndScreen(ctx, state, screenW);
 
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 

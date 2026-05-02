@@ -8,6 +8,9 @@ import {
   tickTitleBanner,
   titleBannerAlpha,
   latestTitle,
+  formatMs,
+  totalRunMs,
+  markRunEnded,
   TITLE_BANNER_TOTAL,
   _setNowForTests,
   _resetNowForTests,
@@ -171,6 +174,58 @@ describe('latestTitle', () => {
   it('returns null when no titles have been earned', () => {
     expect(latestTitle({})).toBeNull();
     expect(latestTitle({ titles: [] })).toBeNull();
+  });
+});
+
+describe('formatMs', () => {
+  it('formats sub-minute durations as 0:SS', () => {
+    expect(formatMs(0)).toBe('0:00');
+    expect(formatMs(7_000)).toBe('0:07');
+    expect(formatMs(59_999)).toBe('0:59');
+  });
+
+  it('formats minute-plus durations as M:SS', () => {
+    expect(formatMs(60_000)).toBe('1:00');
+    expect(formatMs(125_000)).toBe('2:05');
+    expect(formatMs(3_600_000)).toBe('60:00');
+  });
+
+  it('renders null / undefined / negative as a placeholder dash', () => {
+    expect(formatMs(null)).toBe('—');
+    expect(formatMs(undefined)).toBe('—');
+    expect(formatMs(-1)).toBe('—');
+  });
+});
+
+describe('totalRunMs / markRunEnded', () => {
+  it('returns 0 when the run has not started', () => {
+    expect(totalRunMs({})).toBe(0);
+  });
+
+  it('returns now - runStartedAt while the run is in progress', () => {
+    const s = {};
+    markMissionEntered(s, 'm1');
+    tick(2500);
+    expect(totalRunMs(s)).toBe(2500);
+  });
+
+  it('freezes at runEndedAt - runStartedAt once markRunEnded is called', () => {
+    const s = {};
+    markMissionEntered(s, 'm1');
+    tick(1500);
+    markRunEnded(s);
+    tick(10_000); // post-end idle should not extend the displayed total
+    expect(totalRunMs(s)).toBe(1500);
+  });
+
+  it('markRunEnded does not overwrite an earlier end timestamp', () => {
+    const s = {};
+    markMissionEntered(s, 'm1');
+    tick(1000);
+    markRunEnded(s);
+    tick(500);
+    markRunEnded(s);
+    expect(s.runEndedAt).toBe(2000);
   });
 });
 

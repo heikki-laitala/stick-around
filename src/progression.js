@@ -46,7 +46,7 @@ import { ICE_AGE_MISSION } from './missions/iceAge.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 import { SHARDFALL_MISSION } from './missions/shardfall.js';
 import {
-  awardTitle, markMissionEntered, markMissionCompleted, latestTitle,
+  awardTitle, markMissionEntered, markMissionCompleted, markRunEnded, latestTitle,
 } from './runStats.js';
 
 export const INITIAL_RANK = 'novice pauper';
@@ -179,8 +179,20 @@ export function initialProgression() {
     currentMissionId: null,   // set once onEnter has fired for the active mission
     missionScene: null,       // per-mission scratchpad — cleared on transitions
     runStartedAt: null,       // monotonic ms at the first mission entry
+    runEndedAt: null,         // set once the last mission lands — freezes end-screen total
     missionStats: {},         // { [id]: { enteredAt, completedAt } } — end-screen timeline
   };
+}
+
+/**
+ * True once the player has finished every mission in the current
+ * `missionOrder`. Drives the persistent end screen — `getActiveMission`
+ * already returns null in this state, but the renderer wants a clear,
+ * named predicate to gate on.
+ */
+export function isRunComplete(state) {
+  if (!Array.isArray(state.missionOrder)) return false;
+  return (state.missionIdx ?? 0) >= state.missionOrder.length;
 }
 
 function missionAt(state, idx) {
@@ -241,6 +253,11 @@ export function advanceMission(state) {
 
   state.mission = missionAt(state, state.missionIdx)?.text ?? ALL_DONE_MISSION;
   state.nextMission = missionAt(state, state.missionIdx + 1)?.text ?? null;
+
+  // Once the ladder is exhausted, freeze the run-total clock so the
+  // end screen shows a static "you finished in X" number rather than
+  // a creeping one. Idempotent — markRunEnded ignores re-calls.
+  if (isRunComplete(state) && state.runStartedAt != null) markRunEnded(state);
 }
 
 /**
@@ -269,6 +286,7 @@ export function debugSkipMission(state) {
     state.score = 0;
     state.minesMined = 0;
     state.runStartedAt = null;
+    state.runEndedAt = null;
     state.missionStats = {};
     advanceMission(state);
     return;

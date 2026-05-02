@@ -8,6 +8,8 @@
  *
  * State shape:
  *   runStartedAt: number | null      — monotonic ms at first mission enter
+ *   runEndedAt:   number | null      — set once when the last mission lands;
+ *                                      freezes the end-screen total time
  *   missionStats: { [id]: { enteredAt, completedAt: number | null } }
  *   titles:       { name, missionId, earnedAt }[]
  *   titleBanner:  { name, age } | null — transient award-celebration banner;
@@ -91,4 +93,33 @@ export function missionDurationMs(state, missionId) {
   const stat = state.missionStats?.[missionId];
   if (!stat || stat.enteredAt == null || stat.completedAt == null) return null;
   return stat.completedAt - stat.enteredAt;
+}
+
+export function markRunEnded(state) {
+  if (state.runEndedAt == null) state.runEndedAt = _now();
+}
+
+/**
+ * Whole-run elapsed time. Returns 0 before the run starts, freezes at
+ * `runEndedAt - runStartedAt` once the last mission lands, otherwise
+ * keeps ticking from `runStartedAt`. The frozen branch is what the
+ * end screen displays so the headline number doesn't keep climbing.
+ */
+export function totalRunMs(state) {
+  if (state.runStartedAt == null) return 0;
+  if (state.runEndedAt != null) return state.runEndedAt - state.runStartedAt;
+  return _now() - state.runStartedAt;
+}
+
+/**
+ * Format a millisecond duration as `M:SS`. Negative or null/undefined
+ * inputs render as a parchment dash so the end screen can show a
+ * placeholder for missions the player skipped or left mid-run.
+ */
+export function formatMs(ms) {
+  if (ms == null || ms < 0) return '—';
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
