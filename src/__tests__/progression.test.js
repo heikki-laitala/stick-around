@@ -71,6 +71,11 @@ function completeRealMissions(s) {
       s.missionScene.ballsCollected = 5;
       continue;
     }
+    if (m.id === 'shardfall' && s.missionScene) {
+      // Skip the catch loop by stamping the caught-shard counter.
+      s.missionScene.caughtCount = 999;
+      continue;
+    }
     return; // landed on something we don't know how to auto-satisfy
   }
 }
