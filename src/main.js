@@ -8,7 +8,7 @@ import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
-  initialSpells, castSpell, castSpellByName, releaseCast, releaseStasis,
+  initialSpells, castSpell, castSpellByName, cycleSpell, releaseCast, releaseStasis,
   adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
@@ -460,11 +460,20 @@ document.addEventListener('keydown', e => {
     resetPlayer(state);
     return;
   }
-  // Bare R casts the spell currently shown in the HUD — same effect as
-  // the slot key for that spell (1 = shield toggle, 2 = lightning hold).
-  // Reachable from the WASD posture without stretching for the number row.
-  if (e.code === 'KeyR') {
+  // ArrowUp casts the spell currently shown in the HUD — same effect as
+  // the slot key for that spell (1 = shield toggle, 2 = lightning hold,
+  // 3 = stasis hold). ArrowDown cycles to the next spell without casting,
+  // so the player can stay on WASD and pick a spell with their other hand.
+  // ArrowLeft/Right keep their existing aim role and are handled per-frame
+  // in the game loop, not here.
+  if (e.code === 'ArrowUp') {
     castSpell(state);
+    e.preventDefault();
+    return;
+  }
+  if (e.code === 'ArrowDown') {
+    cycleSpell(state);
+    e.preventDefault();
     return;
   }
   // Bare G spends one glowing ball to top up the flashlight battery during
@@ -532,9 +541,9 @@ document.addEventListener('keydown', e => {
 
 document.addEventListener('keyup', e => {
   keys.delete(e.code);
-  // Both Digit3 (the slot key) and R (the active-spell shortcut) end
-  // stasis — same pattern as lightning's release-on-keyup.
-  if ((e.code === 'Digit3' || e.code === 'KeyR') && state.stasisActive) {
+  // Both Digit3 (the slot key) and ArrowUp (the active-spell shortcut)
+  // end stasis — same pattern as lightning's release-on-keyup.
+  if ((e.code === 'Digit3' || e.code === 'ArrowUp') && state.stasisActive) {
     releaseStasis(state);
   }
   if (e.code === 'KeyE' && state.rope && state.rope.state === 'aiming') {
@@ -542,10 +551,10 @@ document.addEventListener('keyup', e => {
     state.rope.tipX = state.gx;
     state.rope.tipY = state.feetY - 15 * SCALE;
   }
-  // Both Digit2 (the slot key) and R (the active-spell shortcut) release
-  // a lightning charge — whichever the player used to start the aim,
-  // letting go of either key fires from the wand tip.
-  if ((e.code === 'Digit2' || e.code === 'KeyR') && isLightningAiming(state)) {
+  // Both Digit2 (the slot key) and ArrowUp (the active-spell shortcut)
+  // release a lightning charge — whichever the player used to start the
+  // aim, letting go of either key fires from the wand tip.
+  if ((e.code === 'Digit2' || e.code === 'ArrowUp') && isLightningAiming(state)) {
     const hand = jointWorldPos(state, state.faceR ? 'rh' : 'lh');
     const tip = wandTip(hand.x, hand.y, state.lightningAim.angle);
     releaseCast(state, tip.x, tip.y);

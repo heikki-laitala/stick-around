@@ -115,6 +115,20 @@ export function castSpellByName(state, name) {
 }
 
 /**
+ * Advance the selected spell to the next slot, wrapping at the end.
+ * Bound to ArrowDown so the player can flip through spells without
+ * leaving the WASD posture, then fire the new selection with ArrowUp.
+ *
+ * Cycling away from a charging lightning aim cancels the aim — same
+ * rule as `castSpellByName` switching to a different slot.
+ */
+export function cycleSpell(state) {
+  if (!state.spells || state.spells.length === 0) return;
+  state.lightningAim = null;
+  state.spellIdx = ((state.spellIdx || 0) + 1) % state.spells.length;
+}
+
+/**
  * Keydown handler for the cast key. For shield, toggles the dome. For
  * lightning, enters aim mode — the bolt isn't launched until the key
  * is released (see `releaseCast`).

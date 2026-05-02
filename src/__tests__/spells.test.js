@@ -13,6 +13,7 @@ import {
   initialSpells,
   castSpell,
   castSpellByName,
+  cycleSpell,
   releaseCast,
   releaseStasis,
   hazardDt,
@@ -70,6 +71,36 @@ describe('castSpellByName', () => {
     castSpellByName(s, 'shield');
     expect(isLightningAiming(s)).toBe(false);
     expect(isShielded(s)).toBe(true);
+  });
+});
+
+describe('cycleSpell', () => {
+  it('advances spellIdx by one and wraps at the end', () => {
+    const s = make();
+    expect(selectedSpell(s)).toBe('shield');
+    cycleSpell(s);
+    expect(selectedSpell(s)).toBe('lightning');
+    cycleSpell(s);
+    expect(selectedSpell(s)).toBe('stasis');
+    cycleSpell(s);
+    expect(selectedSpell(s)).toBe('shield');
+  });
+
+  it('does not cast the newly selected spell', () => {
+    const s = make({ mana: 10 });
+    cycleSpell(s);
+    expect(selectedSpell(s)).toBe('lightning');
+    expect(isLightningAiming(s)).toBe(false);
+    expect(isShielded(s)).toBe(false);
+  });
+
+  it('cancels an in-progress lightning aim when cycling away', () => {
+    const s = make({ mana: LIGHTNING_MANA_COST, spellIdx: 1 });
+    castSpell(s);
+    expect(isLightningAiming(s)).toBe(true);
+    cycleSpell(s);
+    expect(isLightningAiming(s)).toBe(false);
+    expect(selectedSpell(s)).toBe('stasis');
   });
 });
 
