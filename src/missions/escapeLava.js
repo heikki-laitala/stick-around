@@ -1,5 +1,5 @@
 import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
-import { STANDING_HEIGHT } from '../poses.js';
+import { STANDING_HEIGHT, torsoY } from '../poses.js';
 import { hazardDt, isShielded } from '../spells.js';
 import { findPlatformByHash, renderGameOver } from './_shared.js';
 
@@ -135,9 +135,9 @@ export const ESCAPE_LAVA_MISSION = {
     }
 
     // Win condition: man's torso overlaps the door rect.
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
+    const ty = torsoY(state);
     if (state.gx >= scene.doorX && state.gx <= scene.doorX + scene.doorW &&
-        torsoY >= scene.doorY && torsoY <= scene.doorY + scene.doorH) {
+        ty >= scene.doorY && ty <= scene.doorY + scene.doorH) {
       scene.reachedDoor = true;
       return;
     }

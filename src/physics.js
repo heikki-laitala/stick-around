@@ -1,5 +1,5 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, ICE_FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
-import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
+import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, torsoY } from './poses.js';
 import { findFloor, findCeiling, isInHole } from './platforms.js';
 export { isInHole };
 
@@ -636,7 +636,7 @@ function resolveAxePlatformHit(state) {
   if (!state.grounded) return;
   const dir = state.faceR ? 1 : -1;
   const hx = state.gx + dir * AXE_REACH;
-  const hy = state.feetY - STANDING_HEIGHT / 2;
+  const hy = torsoY(state);
   const lineHeight = state.lineHeight || 16;
 
   let target = null;

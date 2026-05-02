@@ -104,6 +104,32 @@ export function spawnOnPlatform(platforms, opts) {
   return null;
 }
 
+import { isInHole } from '../platforms.js';
+
+/**
+ * Punch holes in every platform top whose y crosses the segment from
+ * `(xBefore, yBefore)` to `(xAfter, yAfter)` — meteors and shards both
+ * use this when they fall through the play area. `holeW` controls how
+ * wide the hole is; `onCross` is an optional callback fired at the
+ * crossing point (use it for a particle burst etc.). A crossing that
+ * lands inside an existing hole is skipped so repeat hits at the same
+ * spot don't pile up redundant entries.
+ */
+export function burstPlatformsBetween(state, xBefore, yBefore, xAfter, yAfter, holeW, onCross) {
+  if (!state.platforms || !state.holes) return;
+  const dy = yAfter - yBefore;
+  for (const p of state.platforms) {
+    if (!p || p.x == null) continue;
+    if (yBefore > p.y || yAfter < p.y) continue;
+    const t = dy !== 0 ? (p.y - yBefore) / dy : 0;
+    const crossX = xBefore + (xAfter - xBefore) * t;
+    if (crossX < p.x || crossX > p.x + p.w) continue;
+    if (isInHole(state.holes, crossX, p.y)) continue;
+    state.holes.push({ x: crossX - holeW / 2, y: p.y, w: holeW, age: 0 });
+    if (onCross) onCross(crossX, p.y);
+  }
+}
+
 /**
  * Spray a quick burst of debris particles at (x, y). Used for hazard
  * impacts (lava splashes, meteor crashes, icicle bursts). Defaults match

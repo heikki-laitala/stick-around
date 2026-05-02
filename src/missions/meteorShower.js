@@ -1,10 +1,9 @@
 import { effectiveHudHeight } from '../constants.js';
 import { IS_LINUX } from '../platform-info.js';
-import { STANDING_HEIGHT } from '../poses.js';
-import { isInHole } from '../platforms.js';
+import { torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
-import { burstParticles, renderGameOver, spawnXRange } from './_shared.js';
+import { burstParticles, burstPlatformsBetween, renderGameOver, spawnXRange } from './_shared.js';
 
 /**
  * "Dodge the meteor shower" mission.
@@ -102,7 +101,8 @@ export const METEOR_SHOWER_MISSION = {
         continue;
       }
 
-      burstPlatformsBetween(state, xBefore, yBefore, m.x, m.y);
+      burstPlatformsBetween(state, xBefore, yBefore, m.x, m.y, METEOR_HOLE_W,
+        (cx, cy) => burstParticles(state, cx, cy));
 
       if (hitsMan(state, m)) {
         burstParticles(state, m.x, m.y);
@@ -189,8 +189,7 @@ function spawnMeteor(state, scene) {
     // Aim the spawn so the meteor arrives at the man's current torso x.
     // For angled shots, offset the spawn x upstream by vx * fall-time so
     // the lateral drift carries it onto the target column.
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
-    const t = (torsoY - y) / METEOR_FALL_SPEED;
+    const t = (torsoY(state) - y) / METEOR_FALL_SPEED;
     x = state.gx - vx * t;
     if (x < x0) x = x0;
     if (x > x1) x = x1;
@@ -201,27 +200,8 @@ function spawnMeteor(state, scene) {
   scene.meteors.push({ x, y, vx, vy: METEOR_FALL_SPEED });
 }
 
-function burstPlatformsBetween(state, xBefore, yBefore, xAfter, yAfter) {
-  if (!state.platforms || !state.holes) return;
-  const dy = yAfter - yBefore;
-  for (const p of state.platforms) {
-    if (!p || p.x == null) continue;
-    if (yBefore > p.y || yAfter < p.y) continue;
-    // Linear interpolation of x at the y = p.y crossing. For straight-down
-    // meteors dy > 0 and the crossing is well-defined; the dy === 0 branch
-    // just falls back to the start x.
-    const t = dy !== 0 ? (p.y - yBefore) / dy : 0;
-    const crossX = xBefore + (xAfter - xBefore) * t;
-    if (crossX < p.x || crossX > p.x + p.w) continue;
-    if (isInHole(state.holes, crossX, p.y)) continue;
-    state.holes.push({ x: crossX - METEOR_HOLE_W / 2, y: p.y, w: METEOR_HOLE_W, age: 0 });
-    burstParticles(state, crossX, p.y);
-  }
-}
-
 function hitsMan(state, m) {
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
-  return Math.hypot(m.x - state.gx, m.y - torsoY) < METEOR_MAN_HIT_R;
+  return Math.hypot(m.x - state.gx, m.y - torsoY(state)) < METEOR_MAN_HIT_R;
 }
 
 /**

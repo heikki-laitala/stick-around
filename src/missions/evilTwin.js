@@ -1,4 +1,4 @@
-import { STANDING_HEIGHT, SCALE } from '../poses.js';
+import { SCALE, torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt, isShielded, lightningStrikesPoint, STASIS_SCALE } from '../spells.js';
 import {
@@ -130,9 +130,7 @@ export function twinSnapshotAt(scene, delaySec) {
 
 function twinHitsPlayer(state, twin) {
   if (!twin) return false;
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
-  const twinTorsoY = twin.feetY - STANDING_HEIGHT / 2;
-  return Math.hypot(twin.gx - state.gx, twinTorsoY - torsoY) < EVIL_TWIN_HIT_RADIUS;
+  return Math.hypot(twin.gx - state.gx, torsoY(twin) - torsoY(state)) < EVIL_TWIN_HIT_RADIUS;
 }
 
 // Same casting origin convention as the player's wand — fire from the
@@ -193,9 +191,8 @@ function tickManaOrbs(state, scene, dt) {
       continue;
     }
     // Walk-over pickup — torso overlap with the orb's centre.
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
     const orbY = orb.y - 6;                          // matches render offset
-    if (Math.hypot(orb.x - state.gx, orbY - torsoY) < EVIL_TWIN_MANA_ORB_PICKUP_R) {
+    if (Math.hypot(orb.x - state.gx, orbY - torsoY(state)) < EVIL_TWIN_MANA_ORB_PICKUP_R) {
       state.mana = (state.mana || 0) + EVIL_TWIN_MANA_PER_ORB;
       burstParticles(state, orb.x, orbY, {
         count: 8,
@@ -305,8 +302,7 @@ function tickSpellIdle(state, scene, twin) {
     scene.spellT = scene.spellNextAt - 0.2;
     return;
   }
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
-  const angle = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+  const angle = Math.atan2(torsoY(state) - origin.y, state.gx - origin.x);
   scene.twinAim = { angle, originX: origin.x, originY: origin.y };
   scene.spellState = 'aiming';
   scene.spellT = 0;
@@ -320,8 +316,7 @@ function tickSpellAiming(state, scene, twin, dt) {
   if (origin && scene.twinAim) {
     scene.twinAim.originX = origin.x;
     scene.twinAim.originY = origin.y;
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
-    const desired = Math.atan2(torsoY - origin.y, state.gx - origin.x);
+    const desired = Math.atan2(torsoY(state) - origin.y, state.gx - origin.x);
     let diff = desired - scene.twinAim.angle;
     // Wrap to (-π, π] so we slew the short way around.
     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -359,8 +354,7 @@ function tickSpellFiring(state, scene, dt) {
   }
   bolt.life -= dt;
   if (!bolt.struck && !state.gameOver) {
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
-    if (twinBoltStrikesPoint(bolt, state.gx, torsoY)) {
+    if (twinBoltStrikesPoint(bolt, state.gx, torsoY(state))) {
       bolt.struck = true;
       if (!isShielded(state)) {
         state.gameOver = true;
@@ -477,7 +471,7 @@ export const EVIL_TWIN_MISSION = {
     // Player's lightning bolt zaps the twin — stun for a couple of seconds,
     // burst red sparks at the twin's torso so the hit reads visually.
     if (twin && !stunned && state.lightningBolt) {
-      const twinTorsoY = twin.feetY - STANDING_HEIGHT / 2;
+      const twinTorsoY = torsoY(twin);
       if (lightningStrikesPoint(state, twin.gx, twinTorsoY)) {
         scene.stunT = TWIN_STUN_DURATION;
         burstParticles(state, twin.gx, twinTorsoY, {

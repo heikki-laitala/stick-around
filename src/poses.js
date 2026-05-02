@@ -209,6 +209,16 @@ export const CROUCH_HEIGHT = (44 - (-15)) * SCALE; // ~21px
 export const PRONE_HEIGHT = (44 - 30) * SCALE; // ~5px
 
 /**
+ * Vertical centre of an actor's torso, used as the canonical hit
+ * anchor for missile/projectile collision against the player or
+ * twin. Takes any actor with a `feetY` field — matches the
+ * standing-height torso centre.
+ */
+export function torsoY(actor) {
+  return actor.feetY - STANDING_HEIGHT / 2;
+}
+
+/**
  * World-space position of a named joint on the current pose. Mirrors the
  * `j()` helper in render.js so callers (main.js picking the wand origin,
  * etc.) don't each reimplement the transform.

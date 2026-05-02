@@ -1,4 +1,4 @@
-import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT } from './poses.js';
+import { SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, torsoY } from './poses.js';
 import { AXE_SWING_DURATION, AXE_HIT_FRAME, MANA_MINE_HITS } from './constants.js';
 import { renderActiveMission } from './progression.js';
 import {
@@ -554,8 +554,7 @@ export function render(ctx, state, screenW, screenH) {
   // the spell is engaged — drawn here (not from the active mission)
   // so the visual works regardless of which mission the player is in.
   if (state.stasisActive) {
-    const torsoY = state.feetY - STANDING_HEIGHT / 2;
-    drawStasisVignette(ctx, screenW, screenH, state.stasisAge || 0, state.gx, torsoY);
+    drawStasisVignette(ctx, screenW, screenH, state.stasisAge || 0, state.gx, torsoY(state));
   }
 
   drawMissionToast(ctx, state, screenW);

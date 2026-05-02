@@ -1,5 +1,5 @@
 import { effectiveHudHeight } from '../constants.js';
-import { STANDING_HEIGHT } from '../poses.js';
+import { torsoY } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt, isShielded } from '../spells.js';
@@ -235,10 +235,9 @@ function syncSnowChunks(state, chunks) {
 
 function manInBuildZone(state, zone) {
   if (!zone) return false;
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
   return state.gx >= zone.x
     && state.gx <= zone.x + zone.w
-    && torsoY <= zone.y + zone.h
+    && torsoY(state) <= zone.y + zone.h
     && state.feetY >= zone.y;
 }
 
@@ -526,8 +525,7 @@ function advanceIcicles(state, scene, dt) {
 }
 
 function hitsMan(state, ic) {
-  const torsoY = state.feetY - STANDING_HEIGHT / 2;
-  return Math.hypot(ic.x - state.gx, ic.y - torsoY) < ICICLE_PLAYER_HIT_R;
+  return Math.hypot(ic.x - state.gx, ic.y - torsoY(state)) < ICICLE_PLAYER_HIT_R;
 }
 
 function burstPlatformsBetween(state, x, yBefore, yAfter, buildZone) {
