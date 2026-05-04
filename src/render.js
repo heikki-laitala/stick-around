@@ -198,7 +198,7 @@ function drawTitleBanner(ctx, state, screenW) {
  * order, including any title-bearing missions the player skipped via
  * Shift+N (those rows get a "—" duration placeholder).
  */
-export function drawEndScreen(ctx, state, screenW) {
+export function drawEndScreen(ctx, state, screenW, screenH) {
   const titleFont = "bold 28px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
   const headFont = "bold 14px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
   const rowFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
@@ -222,6 +222,9 @@ export function drawEndScreen(ctx, state, screenW) {
   const padY = 22;
   const colGap = 28;
   const rowH = 20;
+  // Edge margin between the panel and the screen border. Keeps the
+  // gold trim from kissing the terminal edge on small terminals.
+  const SCREEN_MARGIN = 16;
 
   ctx.save();
   ctx.font = headFont;
@@ -249,10 +252,21 @@ export function drawEndScreen(ctx, state, screenW) {
   const tableH = 24 + rows * rowH; // section heading + rows
   const totalsH = 28;
   const hintH = 22;
-  const bgW = contentW + padX * 2;
-  const bgH = headerH + tableH * 2 + totalsH + hintH + padY;
 
+  // Responsive sizing: aim for at least 55% of the available width
+  // so the panel doesn't look lost on a wide terminal, but never
+  // exceed it on a narrow one. Same idea on the vertical axis: clamp
+  // the natural content height to whatever room the terminal gives us
+  // below the HUD.
   const top = hudStripHeight(state) + 12;
+  const availW = Math.max(120, screenW - SCREEN_MARGIN * 2);
+  const availH = Math.max(120, (screenH || 0) - top - SCREEN_MARGIN);
+  const naturalW = contentW + padX * 2;
+  const naturalH = headerH + tableH * 2 + totalsH + hintH + padY;
+  const targetW = Math.max(naturalW, Math.round(availW * 0.55));
+  const bgW = Math.min(targetW, availW);
+  const bgH = Math.min(naturalH, availH);
+
   const left = Math.round((screenW - bgW) / 2);
 
   // Parchment-on-wood panel matching the HUD palette.
@@ -814,7 +828,7 @@ export function render(ctx, state, screenW, screenH) {
   // End-screen sits on top of everything (after gameplay, before HUD)
   // so it persists as the visible focus once the ladder is exhausted.
   // The man keeps walking around behind it — quit with Shift+Q.
-  if (isRunComplete(state)) drawEndScreen(ctx, state, screenW);
+  if (isRunComplete(state)) drawEndScreen(ctx, state, screenW, screenH);
 
   if (state.DEBUG_PLATFORMS) renderPlatformOverlay(ctx, state, screenH);
 
