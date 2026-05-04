@@ -89,6 +89,16 @@ describe('tickDrill — trigger at threshold', () => {
     expect(s.drillCharge).toBe(0);
   });
 
+  it('opens a brief dropThrough window so sideways motion cannot snap the man back onto the platform', () => {
+    // Without this, a player drilling while holding D could drift past
+    // the 32px hole edge within a couple of frames and re-land on the
+    // same platform, since physics.js still allows a snap when
+    // prevFeetY <= floor.y + 4 and dropThrough <= 0.
+    const s = makeState({ drillCharge: DRILL_HOLD_TIME, dropThrough: 0 });
+    tickDrill(s, 0.01, keysOf('KeyS'));
+    expect(s.dropThrough).toBeGreaterThan(0);
+  });
+
   it('spawns a dust burst at the platform the man was standing on', () => {
     const s = makeState({ drillCharge: DRILL_HOLD_TIME });
     tickDrill(s, 0.01, keysOf('KeyS'));
