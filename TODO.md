@@ -4,23 +4,9 @@ Findings consolidated from the April 2026 review and the May 2026
 follow-up audit. Ordered by impact; "do first" items are most likely
 to pay back quickly.
 
-## Do first
-
-### 1. Replace `.lock().unwrap()` in `src-tauri/src/lib.rs`
-Four call sites (lines 88, 111, 296, 314) call `.lock().unwrap()` on the
-shared bounds Mutex. A panic anywhere under the lock poisons it and
-kills the whole overlay on the next tick. Cheap fix:
-
-```rust
-if let Ok(guard) = bounds.lock() { /* use guard */ }
-// else: skip this tick, try again next poll.
-```
-
-**Impact:** safety. Low probability but fatal when it happens.
-
 ## Nice to have
 
-### 2. Per-column icon X positions in the single-row HUD
+### 1. Per-column icon X positions in the single-row HUD
 Per-column icon X positions in `renderHud.js` (`14`, `84`, `154`,
 `264`) are still literals — fine today, but if a sixth column ever
 lands they should become a single layout array so the gaps are
@@ -28,7 +14,7 @@ maintained automatically.
 
 **Impact:** low. Defer until the next column actually lands.
 
-### 3. Collectibles and mana mines share update patterns
+### 2. Collectibles and mana mines share update patterns
 Both manage age, lifetime, removal, and call into `stepItemPhysics`.
 If a third item type appears, the duplication will bite. Not urgent —
 defer until the third type actually arrives (Rule of Three).
@@ -98,10 +84,20 @@ analysis:
   `renderHud.js`; `SHIELD_AURA_RADIUS_PADDING` in `render.js`. The
   remaining literals are per-column X positions, still left as
   literals until a layout change actually requires them to move.
+- **Replaced `.lock().unwrap()` in `src-tauri/src/lib.rs`** at all
+  five call sites (focus / blur / set_hud_tall reads; bounds-poll
+  write; text-bounds read in the content-poll loop). Each now uses
+  a `match … { Ok(g) => *g, Err(_) => return | continue }` guard so
+  a panic-poisoned Mutex is survivable: focus / hud-tall handlers
+  silently skip the layout pass, and the poll threads drop the
+  iteration and retry on the next tick instead of dragging the
+  entire overlay down with them.
 
 ## Overall health
 
 Shipping-quality for its scope. Render pipeline is consolidated, pose
-animation has no obvious duplication left, and the mission lifecycle
-is well-tested. Remaining items are maintainability polish and one
-real safety fix (`.lock().unwrap()`); none block a release.
+animation has no obvious duplication left, the mission lifecycle is
+well-tested, and the Rust side no longer has poisoned-Mutex panics on
+its hot paths. The only items left are deferred ones (per-column HUD
+X positions, collectibles/mines unification) — both of which are best
+left until a future change actually demands them.
