@@ -62,7 +62,7 @@ function intersectsPlayer(state, shard) {
 export const SHARDFALL_MISSION = {
   id: 'shardfall',
   text: 'Catch the falling shards',
-  subtitle: 'walk under or jump up to grab one — hold 3 or R to cast stasis',
+  subtitle: 'walk under or jump up to grab one — hold 3 or ↑ to cast stasis',
   rewardTitle: 'chronomancer',
   unlocks: ['stasis'],
 
@@ -78,10 +78,10 @@ export const SHARDFALL_MISSION = {
     if ((state.mana || 0) < SHARDFALL_PRIMER_MANA) {
       state.mana = SHARDFALL_PRIMER_MANA;
     }
-    // Auto-select the stasis slot so a bare R press activates the
-    // spell — the player shouldn't have to remember to switch slots
-    // first when the whole mission is about that spell. Save the
-    // previous selection on `state` (not `scene`) so a Shift+R
+    // Auto-select the stasis slot so a bare ArrowUp press activates
+    // the spell — the player shouldn't have to remember to switch
+    // slots first when the whole mission is about that spell. Save
+    // the previous selection on `state` (not `scene`) so a Shift+R
     // restart — which rebuilds the scene — doesn't clobber it with
     // the now-stasis slot we set on the prior entry.
     const stasisIdx = state.spells ? state.spells.indexOf('stasis') : -1;
@@ -112,8 +112,8 @@ export const SHARDFALL_MISSION = {
   onExit(state) {
     // Restore whichever spell the player had selected before the
     // mission auto-switched them to stasis, so the next mission's
-    // R press resumes the player's prior preference. Cleared so
-    // future shardfall entries snapshot the selection afresh.
+    // ArrowUp press resumes the player's prior preference. Cleared
+    // so future shardfall entries snapshot the selection afresh.
     if (typeof state.shardfallPrevSpellIdx === 'number') {
       state.spellIdx = state.shardfallPrevSpellIdx;
       state.shardfallPrevSpellIdx = null;
