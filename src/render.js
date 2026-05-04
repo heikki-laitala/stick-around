@@ -10,6 +10,7 @@ import { drawShieldAura } from './renderShield.js';
 import { drawStasisVignette } from './missions/shardfall/render.js';
 import { hudStripHeight } from './constants.js';
 import { titleBannerAlpha, formatMs, totalRunMs, missionDurationMs } from './runStats.js';
+import { DRILL_HOLD_TIME, DRILL_HOLE_W } from './drill.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
 
@@ -642,15 +643,22 @@ export function render(ctx, state, screenW, screenH) {
   // or shield up) the stick man dons a pointy wizard hat. For lightning
   // he also holds a wand, which doubles as the bolt origin so the cast
   // visually erupts from the tip instead of his head.
-  const wandEngaged = isLightningAiming(state) || isLightningActive(state);
+  const drilling = (state.drillCharge || 0) > 0;
+  const wandEngaged = isLightningAiming(state) || isLightningActive(state) || drilling;
   const hatEngaged = wandEngaged || isShielded(state);
   if (hatEngaged) drawWizardHat(ctx, head.x, head.y, hr, fl);
   if (wandEngaged) {
     const hand = state.faceR ? rh : lh;
-    const aimAngle = state.lightningAim
+    // Drilling overrides the lightning aim — the wand points straight
+    // down at the platform under the feet so the magical floor effect
+    // reads as channelled spellwork from the wand to the ground.
+    const aimAngle = drilling
+      ? Math.PI / 2
+      : state.lightningAim
       ? state.lightningAim.angle
       : (state.lightningBolt ? state.lightningBolt.angle : -Math.PI / 2);
     drawWand(ctx, hand.x, hand.y, aimAngle);
+    if (drilling) drawDrillFloorEffect(ctx, state, hand.x, hand.y);
   }
 
   // Shield aura — layered magical dome with bubble gradient, two
@@ -889,6 +897,89 @@ function drawWand(ctx, handX, handY, angle) {
   ctx.beginPath();
   ctx.arc(tip.x, tip.y, WAND_TIP_RADIUS, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Magical floor effect that grows as the player long-presses S to
+ * drill through the platform underfoot. Renders a pulsing magic
+ * circle on the platform top + a connecting beam from the wand tip,
+ * so the action reads as the wizard channelling a hole into being.
+ *
+ * Looks for the platform via `state.standingHash`; bails on lava /
+ * prompt floors (hash === 0) since those aren't drillable anyway.
+ */
+function drawDrillFloorEffect(ctx, state, wandHandX, wandHandY) {
+  const hash = state.standingHash;
+  if (!hash) return;
+  const plat = state.platforms?.find((p) => p.hash === hash);
+  if (!plat) return;
+  const cx = state.gx;
+  const cy = plat.y;
+  const progress = Math.min(1, (state.drillCharge || 0) / DRILL_HOLD_TIME);
+  // Pulse based on real time so the effect breathes even at a fixed
+  // charge value (e.g. when the player is holding without dt updates,
+  // which can't happen in the real game but keeps the visual lively).
+  const t = performance.now() / 1000;
+  const pulse = 1 + 0.18 * Math.sin(t * 6);
+  // Main radius scales from a small ember to roughly the hole width.
+  const r = (5 + 11 * progress) * pulse;
+  const violet = (a) => `rgba(180, 130, 255, ${a})`;
+  const sky = (a) => `rgba(220, 240, 255, ${a})`;
+
+  ctx.save();
+  // Vertical beam from wand tip to the magic circle.
+  const tip = wandTip(wandHandX, wandHandY, Math.PI / 2);
+  ctx.strokeStyle = violet(0.45 + 0.4 * progress);
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = violet(0.6);
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(tip.x, tip.y);
+  ctx.lineTo(cx, cy);
+  ctx.stroke();
+
+  // Pulsing outer ring.
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = violet(0.55);
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Bright inner core.
+  ctx.fillStyle = sky(0.65 + 0.3 * progress);
+  ctx.shadowColor = sky(0.85);
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(1.5, r * 0.35), 0, Math.PI * 2);
+  ctx.fill();
+
+  // Three orbiting tick marks around the ring — gives the effect
+  // motion that's tied to time, not just to charge growth.
+  ctx.strokeStyle = violet(0.85);
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 6;
+  for (let i = 0; i < 3; i++) {
+    const a = t * 2.4 + (i * Math.PI * 2) / 3;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    ctx.beginPath();
+    ctx.moveTo(x - 2, y);
+    ctx.lineTo(x + 2, y);
+    ctx.stroke();
+  }
+
+  // Footprint of the upcoming hole — a faint dashed rectangle on the
+  // platform top so the player can see exactly where it will open.
+  if (progress > 0.4) {
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = violet(0.35 * (progress - 0.4) / 0.6);
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 0;
+    ctx.strokeRect(cx - DRILL_HOLE_W / 2, cy - 1, DRILL_HOLE_W, 2);
+    ctx.setLineDash([]);
+  }
+
   ctx.restore();
 }
 
