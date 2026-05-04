@@ -137,7 +137,10 @@ fn activate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState) {
     // full vs strip-only geometry. Also raise through the GNOME Shell
     // helper so the overlay actually comes to the top — Tauri's
     // set_focus alone doesn't reliably raise under Wayland.
-    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    let (x, y, w, h) = match state.bounds.lock() {
+        Ok(g) => *g,
+        Err(_) => return, // poisoned lock — skip this tick; the next focus event tries again
+    };
     let tall_known = state.hud_tall_known.load(Ordering::Relaxed);
     let tall = state.hud_tall.load(Ordering::Relaxed);
     apply_bounds(window, x, y, w, h, tall_known, tall, true);
@@ -158,7 +161,10 @@ fn deactivate_overlay_impl(window: &tauri::WebviewWindow, state: &TerminalState)
     }
     // Linux: shrink the overlay so the terminal underneath is reachable.
     // No-op on macOS/Windows where ignore_cursor_events handles passthrough.
-    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    let (x, y, w, h) = match state.bounds.lock() {
+        Ok(g) => *g,
+        Err(_) => return, // poisoned lock — skip; next deactivation tries again
+    };
     let tall_known = state.hud_tall_known.load(Ordering::Relaxed);
     let tall = state.hud_tall.load(Ordering::Relaxed);
     apply_bounds(window, x, y, w, h, tall_known, tall, false);
@@ -184,7 +190,10 @@ fn set_hud_tall(
     if prev_known && prev_tall == tall {
         return;
     }
-    let (x, y, w, h) = *state.bounds.lock().unwrap();
+    let (x, y, w, h) = match state.bounds.lock() {
+        Ok(g) => *g,
+        Err(_) => return, // poisoned lock — frontend will resend on the next layout pass
+    };
     let active = state.overlay_active.load(Ordering::Relaxed);
     apply_bounds(&window, x, y, w, h, true, tall, active);
 }
@@ -528,7 +537,14 @@ pub fn run() {
                             let active = poll_overlay_active.load(Ordering::Relaxed);
                             apply_bounds(&win_track, b.0, b.1, b.2, b.3, tall_known, tall, active);
                             last_bounds = b;
-                            *poll_bounds.lock().unwrap() = b;
+                            // If the bounds Mutex is poisoned, drop the cache update —
+                            // `last_bounds` keeps tracking locally so the next poll
+                            // still picks the right window; only the shared
+                            // read-side (text-content thread, focus handlers) goes
+                            // stale until something else writes a fresh value.
+                            if let Ok(mut g) = poll_bounds.lock() {
+                                *g = b;
+                            }
                         }
                     }
 
@@ -546,7 +562,16 @@ pub fn run() {
             std::thread::spawn(move || {
                 let mut last_content: Option<platform::TerminalContent> = None;
                 loop {
-                    let (tx, ty, _, _) = *text_bounds.lock().unwrap();
+                    // If the Mutex is poisoned, skip this iteration — the
+                    // bounds-poll thread keeps trying to write a fresh value,
+                    // but until then we have no anchor for the text query.
+                    let (tx, ty) = match text_bounds.lock() {
+                        Ok(g) => (g.0, g.1),
+                        Err(_) => {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            continue;
+                        }
+                    };
                     if let Some(content) = platform::get_terminal_content(
                         pid,
                         Some((tx, ty)),
