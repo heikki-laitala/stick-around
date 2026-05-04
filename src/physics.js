@@ -372,6 +372,28 @@ export function updatePosture(state) {
 }
 
 /**
+ * Advance a cycle-pose animation by one frame and return the
+ * interpolated target pose. Shared by walk / crouch-walk / prone-crawl
+ * / swim-stroke — they all repeat the same five-line dance of bumping
+ * `state.walkPh`, wrapping it, indexing into a frames array, and
+ * lerping between adjacent frames.
+ *
+ * `speed` is the walkPh-per-second-per-px-of-velocity factor;
+ * different cycles use different values (slower for prone crawl,
+ * faster for water stroke) so the animation cadence matches the
+ * locomotion's character.
+ */
+function advanceWalkAnimation(state, dt, frames, speed) {
+  state.walkPh += Math.abs(state.gvx) * dt * speed;
+  if (state.walkPh >= 1) state.walkPh -= 1;
+  const n = frames.length;
+  const raw = state.walkPh * n;
+  const i = Math.floor(raw) % n;
+  const f = raw - Math.floor(raw);
+  return lerpPose(frames[i], frames[(i + 1) % n], f);
+}
+
+/**
  * Update current pose based on state (grounded, velocity, rope, posture, etc.).
  * Mutates state.curPose, state.walkPh, state.landT.
  */
@@ -389,41 +411,19 @@ export function updatePose(state, dt) {
     // Freestyle stroke cycle when moving, glide pose when still. Stroke
     // cadence scales with horizontal speed so a wader who barely nudges
     // left/right doesn't look like they're sprinting in place.
-    if (Math.abs(state.gvx) > 5) {
-      state.walkPh += Math.abs(state.gvx) * dt * 0.012;
-      if (state.walkPh >= 1) state.walkPh -= 1;
-      const n = SWIM_STROKE.length, raw = state.walkPh * n;
-      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
-      target = lerpPose(SWIM_STROKE[i], SWIM_STROKE[(i + 1) % n], f);
-    } else {
-      target = SWIM;
-    }
+    target = Math.abs(state.gvx) > 5
+      ? advanceWalkAnimation(state, dt, SWIM_STROKE, 0.012)
+      : SWIM;
   } else if (state.posture === 'prone') {
-    if (Math.abs(state.gvx) > 5) {
-      state.walkPh += Math.abs(state.gvx) * dt * 0.006;
-      if (state.walkPh >= 1) state.walkPh -= 1;
-      const n = PRONE_CRAWL.length, raw = state.walkPh * n;
-      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
-      target = lerpPose(PRONE_CRAWL[i], PRONE_CRAWL[(i + 1) % n], f);
-    } else {
-      target = PRONE;
-    }
+    target = Math.abs(state.gvx) > 5
+      ? advanceWalkAnimation(state, dt, PRONE_CRAWL, 0.006)
+      : PRONE;
   } else if (state.posture === 'crouching') {
-    if (Math.abs(state.gvx) > 5) {
-      state.walkPh += Math.abs(state.gvx) * dt * 0.008;
-      if (state.walkPh >= 1) state.walkPh -= 1;
-      const n = CROUCH_WALK.length, raw = state.walkPh * n;
-      const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
-      target = lerpPose(CROUCH_WALK[i], CROUCH_WALK[(i + 1) % n], f);
-    } else {
-      target = CROUCH;
-    }
+    target = Math.abs(state.gvx) > 5
+      ? advanceWalkAnimation(state, dt, CROUCH_WALK, 0.008)
+      : CROUCH;
   } else if (Math.abs(state.gvx) > 5) {
-    state.walkPh += Math.abs(state.gvx) * dt * 0.008;
-    if (state.walkPh >= 1) state.walkPh -= 1;
-    const n = WALK.length, raw = state.walkPh * n;
-    const i = Math.floor(raw) % n, f = raw - Math.floor(raw);
-    target = lerpPose(WALK[i], WALK[(i + 1) % n], f);
+    target = advanceWalkAnimation(state, dt, WALK, 0.008);
   } else {
     target = IDLE;
   }
