@@ -202,7 +202,7 @@ describe('drawEndScreen — smoke', () => {
         'shardfall': { enteredAt: 30_000, completedAt: 60_000 },
       },
     };
-    expect(() => drawEndScreen(ctx, state, 1024)).not.toThrow();
+    expect(() => drawEndScreen(ctx, state, 1024, 768)).not.toThrow();
     const fillTexts = ctx.calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
     expect(fillTexts).toContain('Run complete');
   });
@@ -217,7 +217,46 @@ describe('drawEndScreen — smoke', () => {
       runEndedAt: 30_000,
       missionStats: {},
     };
-    expect(() => drawEndScreen(ctx, state, 800)).not.toThrow();
+    expect(() => drawEndScreen(ctx, state, 800, 600)).not.toThrow();
+  });
+
+  it('clamps the panel width to the screen on a narrow terminal', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      hudTall: false,
+      missionOrder: [0, 1, 2],
+      titles: [{ name: 'a very very long title that would overflow', missionId: 'x', earnedAt: 0 }],
+      runStartedAt: 0,
+      runEndedAt: 5_000,
+      missionStats: {},
+    };
+    const SCREEN_W = 360;
+    drawEndScreen(ctx, state, SCREEN_W, 600);
+    // Find the panel's bg fillRect — its width must not exceed the
+    // screen (minus the SCREEN_MARGIN we leave on each side).
+    const fillRect = ctx.calls.find((c) => c.name === 'fillRect');
+    expect(fillRect).toBeDefined();
+    const [, , bgW] = fillRect.args;
+    expect(bgW).toBeLessThanOrEqual(SCREEN_W);
+  });
+
+  it('grows the panel to roughly half the screen on a wide terminal', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      hudTall: false,
+      missionOrder: [0],
+      titles: [],
+      runStartedAt: 0,
+      runEndedAt: 5_000,
+      missionStats: {},
+    };
+    const SCREEN_W = 1800;
+    drawEndScreen(ctx, state, SCREEN_W, 1000);
+    const fillRect = ctx.calls.find((c) => c.name === 'fillRect');
+    const [, , bgW] = fillRect.args;
+    // Panel grows to fill at least roughly half the available width
+    // so it doesn't look lost in the middle of a huge terminal.
+    expect(bgW).toBeGreaterThan(SCREEN_W * 0.4);
   });
 });
 
