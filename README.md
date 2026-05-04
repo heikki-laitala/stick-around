@@ -176,6 +176,7 @@ it has focus. You toggle between the two:
 | `A` / `D` | Walk left / right            |
 | `W`       | Jump                         |
 | `C`       | Toggle prone (lie flat)      |
+| `S` (hold)| Drill through the platform under your feet (works standing or prone) |
 
 Arrow keys don't walk the stick man — use `A` / `D` for that. They're
 split between **aiming** and **spells**: `←` / `→` sweep aim (lightning,

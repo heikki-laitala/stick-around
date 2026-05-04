@@ -16,6 +16,7 @@ import {
   spendBallForBattery,
 } from './missions/aloneInDark.js';
 import { tickTitleBanner } from './runStats.js';
+import { initialDrill, tickDrill } from './drill.js';
 import { IS_LINUX } from './platform-info.js';
 
 // ── Canvas Setup ─────────────────────────────────────────────────────
@@ -73,6 +74,7 @@ const state = {
   mana: 0,
   ...initialSpells(),
   ...initialProgression(),
+  ...initialDrill(),
   mouseX: -1,
   mouseY: -1,
   proneRequested: false, // true when user manually toggles prone with C
@@ -613,6 +615,11 @@ function loop(now) {
           if (keys.has('ArrowRight')) adjustFlashlightAim(state,  FLASH_AIM_SPEED * dt);
         }
         tickSpells(state, dt);
+        // Long-press S on the ground builds a drill charge; at the
+        // threshold a hole is punched through the platform under the
+        // feet so the man can drop. Posture-agnostic — works in both
+        // standing and prone. See `src/drill.js`.
+        tickDrill(state, dt, keys);
         tickActiveMission(state, dt);
         // Age the mission-change toast so the renderer can fade it
         // out — set in progression.js whenever a mission becomes
