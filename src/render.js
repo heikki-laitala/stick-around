@@ -29,6 +29,15 @@ const MISSION_TOAST_FADE_IN = 0.4;
 const MISSION_TOAST_HOLD = 3.6;
 const MISSION_TOAST_FADE_OUT = 1.0;
 const MISSION_TOAST_TOTAL = MISSION_TOAST_FADE_IN + MISSION_TOAST_HOLD + MISSION_TOAST_FADE_OUT;
+// Mission-toast layout constants — kept at module scope so the title
+// banner can stack itself directly below the mission banner without
+// drifting out of sync if either gets retuned.
+const MISSION_TOAST_TOP_OFFSET = 8;       // distance from HUD strip
+const MISSION_TOAST_PAD_Y = 10;
+const MISSION_TOAST_TITLE_H = 22;
+const MISSION_TOAST_SUB_H = 18;
+const MISSION_TOAST_MAX_BG_H =
+  MISSION_TOAST_TITLE_H + MISSION_TOAST_SUB_H + MISSION_TOAST_PAD_Y * 2;
 
 /**
  * Mission-entry banner. Each time `ensureEntered` activates a new
@@ -49,9 +58,9 @@ function drawMissionToast(ctx, state, screenW) {
   if (alpha <= 0.01) return;
 
   const cx = screenW / 2;
-  const top = hudStripHeight(state) + 8;
+  const top = hudStripHeight(state) + MISSION_TOAST_TOP_OFFSET;
   const padX = 18;
-  const padY = 10;
+  const padY = MISSION_TOAST_PAD_Y;
   const titleFont = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
   const subFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
 
@@ -67,7 +76,7 @@ function drawMissionToast(ctx, state, screenW) {
     subW = ctx.measureText(t.subtitle).width;
   }
   const bgW = Math.max(titleW, subW) + padX * 2;
-  const bgH = (t.subtitle ? 22 + 18 : 22) + padY * 2;
+  const bgH = (t.subtitle ? MISSION_TOAST_TITLE_H + MISSION_TOAST_SUB_H : MISSION_TOAST_TITLE_H) + padY * 2;
 
   ctx.fillStyle = `rgba(15, 25, 50, ${0.78 * alpha})`;
   ctx.strokeStyle = `rgba(220, 230, 240, ${0.55 * alpha})`;
@@ -102,9 +111,16 @@ function drawTitleBanner(ctx, state, screenW) {
   if (alpha <= 0.01) return;
 
   const cx = screenW / 2;
-  // Mission toast occupies hudStripHeight + 8 down to ~+50; sit below
-  // it so a mission-completion frame can show both without overlap.
-  const top = hudStripHeight(state) + 64;
+  // Stack directly below the mission toast (which can be ~60 px tall
+  // when it carries a subtitle) so a mission-completion frame —
+  // award title + advance to next mission's banner on the same tick —
+  // shows both without overlap. Uses the shared MISSION_TOAST_*
+  // constants so this stays in sync with the toast's actual layout.
+  const TITLE_BANNER_GAP = 8;
+  const top = hudStripHeight(state)
+    + MISSION_TOAST_TOP_OFFSET
+    + MISSION_TOAST_MAX_BG_H
+    + TITLE_BANNER_GAP;
   const padX = 16;
   const padY = 8;
   const labelFont = "11px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
