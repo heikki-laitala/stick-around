@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getCloseButtonRect, isInCloseButton } from '../render.js';
+import { getCloseButtonRect, isInCloseButton, drawCenteredBanner } from '../render.js';
 import { HUD_HEIGHT, HUD_HEIGHT_TALL } from '../constants.js';
 
 describe('HUD close button', () => {
@@ -38,5 +38,85 @@ describe('HUD close button', () => {
     expect(narrow.w).toBe(wide.w);
     expect(narrow.h).toBe(wide.h);
     expect(narrow.h).toBeLessThan(HUD_HEIGHT_TALL);
+  });
+});
+
+/**
+ * Mock 2D context that records every method call. Lets us smoke-test
+ * the renderer without a real canvas (which vitest's default
+ * environment doesn't provide). Methods return sensible stubs so
+ * code that reads measureText / save-state still works.
+ */
+function makeMockCtx() {
+  const calls = [];
+  const noop = (name) => (...args) => calls.push({ name, args });
+  return {
+    calls,
+    save: noop('save'),
+    restore: noop('restore'),
+    fillRect: noop('fillRect'),
+    strokeRect: noop('strokeRect'),
+    fillText: noop('fillText'),
+    measureText: (text) => ({ width: text ? text.length * 7 : 0 }),
+    set fillStyle(v) { calls.push({ name: 'fillStyle', args: [v] }); },
+    set strokeStyle(v) { calls.push({ name: 'strokeStyle', args: [v] }); },
+    set shadowColor(v) { calls.push({ name: 'shadowColor', args: [v] }); },
+    set shadowBlur(v) { calls.push({ name: 'shadowBlur', args: [v] }); },
+    set lineWidth(v) { calls.push({ name: 'lineWidth', args: [v] }); },
+    set font(v) { calls.push({ name: 'font', args: [v] }); },
+    set textAlign(v) { calls.push({ name: 'textAlign', args: [v] }); },
+    set textBaseline(v) { calls.push({ name: 'textBaseline', args: [v] }); },
+  };
+}
+
+describe('drawCenteredBanner', () => {
+  const baseOpts = () => ({
+    cx: 400,
+    top: 50,
+    alpha: 1,
+    padX: 18,
+    padY: 10,
+    bg:     { rgb: '15, 25, 50',    alpha: 0.78 },
+    stroke: { rgb: '220, 230, 240', alpha: 0.55 },
+    shadow: { rgb: '0, 0, 0',       alpha: 0.7  },
+    rows: [
+      { text: 'Hello', font: '20px serif', color: { rgb: '240, 230, 180', alpha: 0.98 }, height: 22 },
+    ],
+  });
+
+  it('issues a fill+stroke for the bg and a fillText for each row', () => {
+    const ctx = makeMockCtx();
+    drawCenteredBanner(ctx, baseOpts());
+    const names = ctx.calls.map((c) => c.name);
+    expect(names).toContain('fillRect');
+    expect(names).toContain('strokeRect');
+    expect(names.filter((n) => n === 'fillText')).toHaveLength(1);
+  });
+
+  it('skips drawing entirely when alpha is below the visibility floor', () => {
+    const ctx = makeMockCtx();
+    drawCenteredBanner(ctx, { ...baseOpts(), alpha: 0.005 });
+    expect(ctx.calls).toHaveLength(0);
+  });
+
+  it('multiplies the banner-wide alpha into each element\'s color', () => {
+    const ctx = makeMockCtx();
+    drawCenteredBanner(ctx, { ...baseOpts(), alpha: 0.5 });
+    const fillStyle = ctx.calls.find((c) => c.name === 'fillStyle');
+    // bg.alpha = 0.78 * banner alpha 0.5 = 0.39
+    expect(fillStyle.args[0]).toBe('rgba(15, 25, 50, 0.39)');
+  });
+
+  it('draws every row passed in', () => {
+    const ctx = makeMockCtx();
+    drawCenteredBanner(ctx, {
+      ...baseOpts(),
+      rows: [
+        { text: 'one', font: 'a', color: { rgb: '0, 0, 0', alpha: 1 }, height: 20 },
+        { text: 'two', font: 'b', color: { rgb: '0, 0, 0', alpha: 1 }, height: 20, gap: 4 },
+      ],
+    });
+    const fillTexts = ctx.calls.filter((c) => c.name === 'fillText');
+    expect(fillTexts.map((c) => c.args[0])).toEqual(['one', 'two']);
   });
 });

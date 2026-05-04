@@ -11,6 +11,7 @@ import {
   formatMs,
   totalRunMs,
   markRunEnded,
+  computeFadeAlpha,
   TITLE_BANNER_TOTAL,
   _setNowForTests,
   _resetNowForTests,
@@ -174,6 +175,29 @@ describe('latestTitle', () => {
   it('returns null when no titles have been earned', () => {
     expect(latestTitle({})).toBeNull();
     expect(latestTitle({ titles: [] })).toBeNull();
+  });
+});
+
+describe('computeFadeAlpha', () => {
+  it('ramps up from 0 to 1 during the fade-in window', () => {
+    expect(computeFadeAlpha(0, 0.4, 3.6, 1.0)).toBe(0);
+    expect(computeFadeAlpha(0.2, 0.4, 3.6, 1.0)).toBeCloseTo(0.5);
+    expect(computeFadeAlpha(0.4, 0.4, 3.6, 1.0)).toBe(1);
+  });
+
+  it('holds at 1 throughout the hold window', () => {
+    expect(computeFadeAlpha(1.0, 0.4, 3.6, 1.0)).toBe(1);
+    expect(computeFadeAlpha(3.9, 0.4, 3.6, 1.0)).toBe(1);
+  });
+
+  it('ramps down from 1 to 0 during the fade-out window', () => {
+    expect(computeFadeAlpha(4.0, 0.4, 3.6, 1.0)).toBeCloseTo(1);    // start of fade-out
+    expect(computeFadeAlpha(4.5, 0.4, 3.6, 1.0)).toBeCloseTo(0.5);
+    expect(computeFadeAlpha(5.0, 0.4, 3.6, 1.0)).toBe(0);
+  });
+
+  it('returns 0 past the total lifetime', () => {
+    expect(computeFadeAlpha(10, 0.4, 3.6, 1.0)).toBe(0);
   });
 });
 
