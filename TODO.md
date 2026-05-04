@@ -20,33 +20,15 @@ if let Ok(guard) = bounds.lock() { /* use guard */ }
 
 ## Nice to have
 
-### 2. Consolidate remaining HUD/shield magic numbers
-Most shield literals (`SHIELD_FADE_IN_DURATION`, `CAST_FLASH_DURATION`)
-are already constants in `spells.js`. What's left to hoist:
+### 2. Per-column icon X positions in the single-row HUD
+Per-column icon X positions in `renderHud.js` (`14`, `84`, `154`,
+`264`) are still literals — fine today, but if a sixth column ever
+lands they should become a single layout array so the gaps are
+maintained automatically.
 
-- HUD row centers `15` / `hudH - 15`, mission-clip y/height (`12`/`24`),
-  separator tick half-height `9` (in `renderHud.js`).
-- Per-column icon X positions (`14`, `84`, `154`, `264`) — fine as
-  literals, but could become a single layout array if a sixth column
-  ever lands.
-- Shield aura padding `+22 px` (in `renderShield.js`).
+**Impact:** low. Defer until the next column actually lands.
 
-**Impact:** tuneability. Next visual pass becomes grep-free.
-
-### 3. Smoke-test the private banner / overlay render paths
-`drawCenteredBanner`, `drawShieldAura`, and `drawStasisVignette` now
-have smoke tests. Two private helpers in `render.js` still don't:
-
-- `drawEndScreen` (run-summary panel)
-- `drawDrillFloorEffect` (long-press-S magic circle)
-
-Both are file-local. Either export them (test-only seam) or wrap in a
-single `_test_renderHelpers` re-export in the spirit of `_setNowForTests`.
-
-**Impact:** safety net for refactors; cheap to add now that the
-mock-context pattern is in place.
-
-### 4. Collectibles and mana mines share update patterns
+### 3. Collectibles and mana mines share update patterns
 Both manage age, lifetime, removal, and call into `stepItemPhysics`.
 If a third item type appears, the duplication will bite. Not urgent —
 defer until the third type actually arrives (Rule of Three).
@@ -105,10 +87,17 @@ analysis:
   progression alone — closes the "future mission could quietly violate
   the contract" risk.
 - **Smoke tests via mock canvas context.** `drawCenteredBanner`,
-  `drawShieldAura`, and `drawStasisVignette` all run against a
-  recording mock that supports paths, gradients, and the full subset
-  of methods these helpers use — catches typos and property-access
-  bugs without needing a real canvas.
+  `drawShieldAura`, `drawStasisVignette`, `drawEndScreen`, and
+  `drawDrillFloorEffect` all run against a recording mock that
+  supports paths, gradients, and the full subset of methods these
+  helpers use — catches typos and property-access bugs without needing
+  a real canvas. (Two of those were private to render.js; exported as
+  test-only seams to enable the coverage.)
+- **HUD layout magic numbers hoisted.** `TWO_ROW_INSET`,
+  `MISSION_CLIP_INSET`, `MISSION_CLIP_HEIGHT`, `SEPARATOR_HALF` in
+  `renderHud.js`; `SHIELD_AURA_RADIUS_PADDING` in `render.js`. The
+  remaining literals are per-column X positions, still left as
+  literals until a layout change actually requires them to move.
 
 ## Overall health
 
