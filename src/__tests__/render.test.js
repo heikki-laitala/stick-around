@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { getCloseButtonRect, isInCloseButton, drawCenteredBanner } from '../render.js';
+import {
+  getCloseButtonRect, isInCloseButton, drawCenteredBanner,
+  drawEndScreen, drawDrillFloorEffect,
+} from '../render.js';
 import { HUD_HEIGHT, HUD_HEIGHT_TALL } from '../constants.js';
 import { drawShieldAura } from '../renderShield.js';
 import { drawStasisVignette } from '../missions/shardfall/render.js';
@@ -178,5 +181,71 @@ describe('drawStasisVignette — smoke', () => {
   it('still runs after the vignette has aged into its ripple phase', () => {
     const ctx = makeMockCtx();
     expect(() => drawStasisVignette(ctx, 800, 600, 1.5, 400, 300)).not.toThrow();
+  });
+});
+
+describe('drawEndScreen — smoke', () => {
+  it('runs against a fully-completed run without throwing', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      hudTall: false,
+      missionOrder: [0, 1, 2],
+      titles: [
+        { name: 'lava lucky', missionId: 'escape-lava', earnedAt: 1500 },
+        { name: 'chronomancer', missionId: 'shardfall', earnedAt: 4500 },
+      ],
+      runStartedAt: 0,
+      runEndedAt: 60_000,
+      missionStats: {
+        'escape-lava': { enteredAt: 0, completedAt: 12_000 },
+        'meteor-shower': { enteredAt: 12_000, completedAt: 30_000 },
+        'shardfall': { enteredAt: 30_000, completedAt: 60_000 },
+      },
+    };
+    expect(() => drawEndScreen(ctx, state, 1024)).not.toThrow();
+    const fillTexts = ctx.calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(fillTexts).toContain('Run complete');
+  });
+
+  it('renders cleanly with an empty title list', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      hudTall: false,
+      missionOrder: [0, 1],
+      titles: [],
+      runStartedAt: 0,
+      runEndedAt: 30_000,
+      missionStats: {},
+    };
+    expect(() => drawEndScreen(ctx, state, 800)).not.toThrow();
+  });
+});
+
+describe('drawDrillFloorEffect — smoke', () => {
+  it('runs while charging on a real platform without throwing', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      gx: 200,
+      standingHash: 0xABCD,
+      drillCharge: 0.4,
+      platforms: [{ x: 100, y: 300, w: 200, h: 10, hash: 0xABCD }],
+    };
+    expect(() => drawDrillFloorEffect(ctx, state, 200, 280)).not.toThrow();
+    const names = ctx.calls.map((c) => c.name);
+    // The floor effect always draws the connecting beam (line) and a
+    // pulsing magic circle (arc).
+    expect(names).toContain('arc');
+    expect(names).toContain('stroke');
+  });
+
+  it('bails harmlessly when the man stands on no recognised platform', () => {
+    const ctx = makeMockCtx();
+    const state = {
+      gx: 200,
+      standingHash: 0,
+      drillCharge: 0.4,
+      platforms: [],
+    };
+    expect(() => drawDrillFloorEffect(ctx, state, 200, 280)).not.toThrow();
   });
 });

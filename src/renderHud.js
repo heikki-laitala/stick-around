@@ -30,6 +30,19 @@ const SINGLE_ROW_MISSION_X = 460;
 const MISSION_RIGHT_PAD = 12;
 const MIN_MISSION_WIDTH = 40;
 
+// Two-row HUD vertical anchor: the icon row sits TWO_ROW_INSET px from
+// the top of the strip, and the mission row sits the same distance up
+// from the bottom. Tuned for HUD_HEIGHT_TALL — wider numbers crowd the
+// gold trim, smaller ones swim in the middle of the panel.
+const TWO_ROW_INSET = 15;
+// Vertical clip box around the mission text on a two-row HUD (so a
+// long quest fades behind the gold trim instead of bleeding past it).
+const MISSION_CLIP_INSET = 12;
+const MISSION_CLIP_HEIGHT = 24;
+// Separator half-height — each tick is 2 × this px tall, centered on
+// the row midline. Matches the visual gap between adjacent HUD columns.
+const SEPARATOR_HALF = 9;
+
 /**
  * True when the single-row HUD layout would clip — i.e. the class label
  * already overruns the mission slot, or the remaining space to the left
@@ -84,8 +97,8 @@ export function renderHUD(ctx, state, screenW) {
   ctx.textBaseline = 'alphabetic';
   // Row centers: single-row HUDs render everything on one midline; two-row
   // HUDs put icons/counters on the top row and the quest text on the bottom.
-  const row1Y = twoRow ? 15 : hudH / 2;
-  const row2Y = twoRow ? hudH - 15 : hudH / 2;
+  const row1Y = twoRow ? TWO_ROW_INSET : hudH / 2;
+  const row2Y = twoRow ? hudH - TWO_ROW_INSET : hudH / 2;
   const ref = ctx.measureText('M0');
   const capOff = (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
   const row1TextY = row1Y + capOff;
@@ -145,8 +158,8 @@ export function renderHUD(ctx, state, screenW) {
   if (missionMaxW > 40 && state.mission) {
     ctx.save();
     ctx.beginPath();
-    const clipY = twoRow ? row2Y - 12 : 0;
-    const clipH = twoRow ? 24 : hudH;
+    const clipY = twoRow ? row2Y - MISSION_CLIP_INSET : 0;
+    const clipH = twoRow ? MISSION_CLIP_HEIGHT : hudH;
     ctx.rect(missionX, clipY, missionMaxW, clipH);
     ctx.clip();
     ctx.fillStyle = 'rgba(195, 230, 180, 0.95)';
@@ -176,10 +189,11 @@ function drawSeparator(ctx, x, rowY = HUD_HEIGHT / 2) {
   ctx.strokeStyle = 'rgba(190, 155, 85, 0.35)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  // 9 px tall tick centered on the row (same visual height as the single-row
-  // HUD's 7 → HUD_HEIGHT-7 span).
-  ctx.moveTo(x + 0.5, rowY - 9);
-  ctx.lineTo(x + 0.5, rowY + 9);
+  // Tick centered on the row (full height = 2 × SEPARATOR_HALF px) —
+  // matches the visual span between adjacent column rows in the
+  // single-row HUD.
+  ctx.moveTo(x + 0.5, rowY - SEPARATOR_HALF);
+  ctx.lineTo(x + 0.5, rowY + SEPARATOR_HALF);
   ctx.stroke();
 }
 

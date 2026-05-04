@@ -28,6 +28,11 @@ function drawLimb(ctx, ax, ay, bx, by) {
 const MISSION_TOAST_FADE_IN = 0.4;
 const MISSION_TOAST_HOLD = 3.6;
 const MISSION_TOAST_FADE_OUT = 1.0;
+// Pixels added to the shield aura's radius beyond the half-height of
+// the man's bounding box. Gives the dome air around the silhouette so
+// it reads as a wrapper, not a tight skin. Tune downwards if it ever
+// feels gaudy.
+const SHIELD_AURA_RADIUS_PADDING = 22;
 // Mission-toast layout constants — kept at module scope so the title
 // banner can stack itself directly below the mission banner without
 // drifting out of sync if either gets retuned.
@@ -193,7 +198,7 @@ function drawTitleBanner(ctx, state, screenW) {
  * order, including any title-bearing missions the player skipped via
  * Shift+N (those rows get a "—" duration placeholder).
  */
-function drawEndScreen(ctx, state, screenW) {
+export function drawEndScreen(ctx, state, screenW) {
   const titleFont = "bold 28px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
   const headFont = "bold 14px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
   const rowFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
@@ -710,7 +715,7 @@ export function render(ctx, state, screenW, screenH) {
   if (isShielded(state)) {
     const crownY = head.y - 5 * s;
     const shieldCY = (crownY + state.feetY) / 2;
-    const shieldR = (state.feetY - crownY) / 2 + 22;
+    const shieldR = (state.feetY - crownY) / 2 + SHIELD_AURA_RADIUS_PADDING;
     drawShieldAura(ctx, state.gx, shieldCY, shieldR, shieldFadeAlpha(state));
   }
 
@@ -950,7 +955,7 @@ function drawWand(ctx, handX, handY, angle) {
  * Looks for the platform via `state.standingHash`; bails on lava /
  * prompt floors (hash === 0) since those aren't drillable anyway.
  */
-function drawDrillFloorEffect(ctx, state, wandHandX, wandHandY) {
+export function drawDrillFloorEffect(ctx, state, wandHandX, wandHandY) {
   const hash = state.standingHash;
   if (!hash) return;
   const plat = state.platforms?.find((p) => p.hash === hash);
