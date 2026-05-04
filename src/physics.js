@@ -1,5 +1,5 @@
 import { GRAV, JUMP_V, ACCEL, FRIC, ICE_FRIC, MAXV, ROPE_AIM_SPEED, ROPE_FLY_SPEED, ROPE_MAX_LEN, SWING_GRAVITY, SWING_PUMP, SWING_DAMPING, SWING_DAMPING_END, SWING_ANCHOR_DECAY_TIME, SWING_PUMP_FLOOR, AXE_SWING_DURATION, AXE_HIT_FRAME, AXE_REACH, AXE_HIT_RADIUS, MANA_PER_MINE } from './constants.js';
-import { lerpPose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, torsoY } from './poses.js';
+import { lerpPose, clonePose, IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, CROUCH, CROUCH_WALK, PRONE, PRONE_CRAWL, SWIM, SWIM_STROKE, SCALE, STANDING_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT, torsoY } from './poses.js';
 import { findFloor, findCeiling, isInHole } from './platforms.js';
 export { isInHole };
 
@@ -446,7 +446,7 @@ export function resetPlayer(state) {
   state.proneRequested = false;
   state.landT = 0;
   state.walkPh = 0;
-  state.curPose = JSON.parse(JSON.stringify(IDLE));
+  state.curPose = clonePose(IDLE);
 
   if (state.promptArea) {
     state.gx = state.textOffsetX + state.textWidth - 20 * SCALE - 20;

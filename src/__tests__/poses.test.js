@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  lerp, lerpPose, p,
+  lerp, lerpPose, p, clonePose,
   IDLE, WALK, JUMP_RISE, JUMP_FALL, LAND, SCALE,
 } from '../poses.js';
 
@@ -24,6 +24,29 @@ describe('lerp', () => {
 
   it('extrapolates beyond 0-1', () => {
     expect(lerp(0, 10, 2)).toBe(20);
+  });
+});
+
+describe('clonePose', () => {
+  it('produces a structurally equal copy of the input pose', () => {
+    const c = clonePose(IDLE);
+    for (const k of JOINT_KEYS) {
+      expect(c[k]).toEqual(IDLE[k]);
+    }
+  });
+
+  it('returns a fresh object — mutating the clone does not touch the original', () => {
+    const c = clonePose(IDLE);
+    c.head.x = 999;
+    expect(IDLE.head.x).not.toBe(999);
+  });
+
+  it('clones each inner joint object as well — not just shallow-copied references', () => {
+    const c = clonePose(IDLE);
+    expect(c).not.toBe(IDLE);
+    for (const k of JOINT_KEYS) {
+      expect(c[k]).not.toBe(IDLE[k]);
+    }
   });
 });
 

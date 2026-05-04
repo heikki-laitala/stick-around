@@ -6,6 +6,18 @@ export function lerpPose(a, b, t) {
   return r;
 }
 
+/**
+ * Deep-copy a pose. Each joint is its own `{ x, y }` so a shallow
+ * spread would still alias the inner objects — `clonePose` copies the
+ * outer keys AND the inner joint objects so the caller can mutate the
+ * result without affecting the source.
+ */
+export function clonePose(pose) {
+  const r = {};
+  for (const k of Object.keys(pose)) r[k] = { x: pose[k].x, y: pose[k].y };
+  return r;
+}
+
 export function p(hd, nk, hp, ls, rs, le, re, lh, rh, lhp, rhp, lk, rk, lf, rf) {
   return { head: hd, neck: nk, hip: hp, lsh: ls, rsh: rs, lel: le, rel: re, lh, rh, lhip: lhp, rhip: rhp, lk, rk, lf, rf };
 }

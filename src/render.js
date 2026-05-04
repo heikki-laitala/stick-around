@@ -9,7 +9,7 @@ import { renderHUD } from './renderHud.js';
 import { drawShieldAura } from './renderShield.js';
 import { drawStasisVignette } from './missions/shardfall/render.js';
 import { hudStripHeight } from './constants.js';
-import { titleBannerAlpha, formatMs, totalRunMs, missionDurationMs } from './runStats.js';
+import { titleBannerAlpha, computeFadeAlpha, formatMs, totalRunMs, missionDurationMs } from './runStats.js';
 import { DRILL_HOLD_TIME, DRILL_HOLE_W } from './drill.js';
 import { renderSplash } from './renderSplash.js';
 import { IS_LINUX } from './platform-info.js';
@@ -28,7 +28,6 @@ function drawLimb(ctx, ax, ay, bx, by) {
 const MISSION_TOAST_FADE_IN = 0.4;
 const MISSION_TOAST_HOLD = 3.6;
 const MISSION_TOAST_FADE_OUT = 1.0;
-const MISSION_TOAST_TOTAL = MISSION_TOAST_FADE_IN + MISSION_TOAST_HOLD + MISSION_TOAST_FADE_OUT;
 // Mission-toast layout constants — kept at module scope so the title
 // banner can stack itself directly below the mission banner without
 // drifting out of sync if either gets retuned.
@@ -40,6 +39,67 @@ const MISSION_TOAST_MAX_BG_H =
   MISSION_TOAST_TITLE_H + MISSION_TOAST_SUB_H + MISSION_TOAST_PAD_Y * 2;
 
 /**
+ * Shared centred-banner draw routine. Both `drawMissionToast` and
+ * `drawTitleBanner` use this — the only thing that varies between
+ * banners is the palette, padding, and the stack of text rows.
+ *
+ * Each element (bg, stroke, shadow, row.color) is `'r, g, b'` tuple
+ * paired with its own opaque-alpha multiplier; the helper multiplies
+ * by the banner-wide `alpha` (the time fade) so per-element opacity
+ * differences (e.g. dimmer stroke, slightly translucent subtitle)
+ * survive the consolidation.
+ *
+ * Rows are drawn top-to-bottom inside the panel; each row specifies
+ * its own font, color, height, and an optional `gap` of extra pixels
+ * above it. Width is sized to the widest row's text.
+ */
+export function drawCenteredBanner(ctx, opts) {
+  const { cx, top, alpha, padX, padY, bg, stroke, shadow, rows } = opts;
+  if (alpha <= 0.01 || !rows || rows.length === 0) return;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  let widest = 0;
+  for (const row of rows) {
+    ctx.font = row.font;
+    widest = Math.max(widest, ctx.measureText(row.text || '').width);
+  }
+  // Gaps push the next row's draw position down but deliberately do
+  // NOT extend the panel's bg height — the original mission-toast
+  // layout did exactly this (subtitle drawn 4 px below the title's
+  // bottom edge, but bg sized only to titleH + subH), and we preserve
+  // that to keep the visual identical to before the refactor.
+  let contentH = 0;
+  for (const row of rows) contentH += row.height;
+  const bgW = widest + padX * 2;
+  const bgH = contentH + padY * 2;
+
+  ctx.fillStyle = `rgba(${bg.rgb}, ${alpha * bg.alpha})`;
+  ctx.strokeStyle = `rgba(${stroke.rgb}, ${alpha * stroke.alpha})`;
+  ctx.lineWidth = 1;
+  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
+  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
+
+  ctx.shadowColor = `rgba(${shadow.rgb}, ${alpha * shadow.alpha})`;
+  ctx.shadowBlur = 4;
+  let y = top + padY;
+  for (const row of rows) {
+    y += row.gap || 0;
+    ctx.font = row.font;
+    ctx.fillStyle = `rgba(${row.color.rgb}, ${alpha * row.color.alpha})`;
+    ctx.fillText(row.text || '', cx, y);
+    y += row.height;
+  }
+  ctx.restore();
+}
+
+const TITLE_FONT_LARGE = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+const SUB_FONT = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+const TITLE_FONT_MED = "bold 18px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+const LABEL_FONT_SMALL = "11px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
+
+/**
  * Mission-entry banner. Each time `ensureEntered` activates a new
  * mission, progression sets `state.missionToast = { age, text,
  * subtitle? }`. The renderer fades that in below the HUD strip,
@@ -49,52 +109,38 @@ const MISSION_TOAST_MAX_BG_H =
  */
 function drawMissionToast(ctx, state, screenW) {
   const t = state.missionToast;
-  if (!t || typeof t.age !== 'number' || t.age >= MISSION_TOAST_TOTAL) return;
-  const fadeIn = Math.min(1, t.age / MISSION_TOAST_FADE_IN);
-  const fadeOut = t.age > MISSION_TOAST_FADE_IN + MISSION_TOAST_HOLD
-    ? Math.max(0, 1 - (t.age - MISSION_TOAST_FADE_IN - MISSION_TOAST_HOLD) / MISSION_TOAST_FADE_OUT)
-    : 1;
-  const alpha = fadeIn * fadeOut;
+  if (!t || typeof t.age !== 'number') return;
+  const alpha = computeFadeAlpha(t.age, MISSION_TOAST_FADE_IN, MISSION_TOAST_HOLD, MISSION_TOAST_FADE_OUT);
   if (alpha <= 0.01) return;
 
-  const cx = screenW / 2;
-  const top = hudStripHeight(state) + MISSION_TOAST_TOP_OFFSET;
-  const padX = 18;
-  const padY = MISSION_TOAST_PAD_Y;
-  const titleFont = "bold 20px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  const subFont = "13px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-
-  ctx.font = titleFont;
-  const titleW = ctx.measureText(t.text || '').width;
-  let subW = 0;
+  const rows = [{
+    text: t.text || '',
+    font: TITLE_FONT_LARGE,
+    color: { rgb: '240, 230, 180', alpha: 0.98 },
+    height: MISSION_TOAST_TITLE_H,
+  }];
   if (t.subtitle) {
-    ctx.font = subFont;
-    subW = ctx.measureText(t.subtitle).width;
+    // gap=4 picks up the extra spacing the previous hardcoded layout
+    // baked into the y offset (top + padY + 26 = title + 4 px gap).
+    rows.push({
+      text: t.subtitle,
+      font: SUB_FONT,
+      color: { rgb: '220, 230, 240', alpha: 0.92 },
+      height: MISSION_TOAST_SUB_H,
+      gap: 4,
+    });
   }
-  const bgW = Math.max(titleW, subW) + padX * 2;
-  const bgH = (t.subtitle ? MISSION_TOAST_TITLE_H + MISSION_TOAST_SUB_H : MISSION_TOAST_TITLE_H) + padY * 2;
-
-  ctx.fillStyle = `rgba(15, 25, 50, ${0.78 * alpha})`;
-  ctx.strokeStyle = `rgba(220, 230, 240, ${0.55 * alpha})`;
-  ctx.lineWidth = 1;
-  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
-  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
-
-  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
-  ctx.shadowBlur = 4;
-  ctx.font = titleFont;
-  ctx.fillStyle = `rgba(240, 230, 180, ${0.98 * alpha})`;
-  ctx.fillText(t.text || '', cx, top + padY);
-  if (t.subtitle) {
-    ctx.font = subFont;
-    ctx.fillStyle = `rgba(220, 230, 240, ${0.92 * alpha})`;
-    ctx.fillText(t.subtitle, cx, top + padY + 26);
-  }
-  ctx.restore();
+  drawCenteredBanner(ctx, {
+    cx: screenW / 2,
+    top: hudStripHeight(state) + MISSION_TOAST_TOP_OFFSET,
+    alpha,
+    padX: 18,
+    padY: MISSION_TOAST_PAD_Y,
+    bg:     { rgb: '15, 25, 50',    alpha: 0.78 },
+    stroke: { rgb: '220, 230, 240', alpha: 0.55 },
+    shadow: { rgb: '0, 0, 0',       alpha: 0.7  },
+    rows,
+  });
 }
 
 /**
@@ -110,51 +156,30 @@ function drawTitleBanner(ctx, state, screenW) {
   const alpha = titleBannerAlpha(b);
   if (alpha <= 0.01) return;
 
-  const cx = screenW / 2;
-  // Stack directly below the mission toast (which can be ~60 px tall
-  // when it carries a subtitle) so a mission-completion frame —
-  // award title + advance to next mission's banner on the same tick —
-  // shows both without overlap. Uses the shared MISSION_TOAST_*
-  // constants so this stays in sync with the toast's actual layout.
+  // Stack directly below the mission toast (max ~60 px tall when it
+  // carries a subtitle) so a mission-completion frame — award title +
+  // advance to next mission's banner on the same tick — shows both
+  // without overlap. Uses the shared MISSION_TOAST_* constants so this
+  // stays in sync with the toast's actual layout.
   const TITLE_BANNER_GAP = 8;
   const top = hudStripHeight(state)
     + MISSION_TOAST_TOP_OFFSET
     + MISSION_TOAST_MAX_BG_H
     + TITLE_BANNER_GAP;
-  const padX = 16;
-  const padY = 8;
-  const labelFont = "11px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  const titleFont = "bold 18px 'Cinzel', 'Trajan Pro', 'Palatino', 'Georgia', serif";
-  const label = 'Title earned';
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-
-  ctx.font = titleFont;
-  const titleW = ctx.measureText(b.name).width;
-  ctx.font = labelFont;
-  const labelW = ctx.measureText(label).width;
-  const bgW = Math.max(titleW, labelW) + padX * 2;
-  const bgH = 18 + 22 + padY * 2;
-
-  // Gold trim that matches the HUD palette so the celebration reads as
-  // an RPG award, distinct from the cool-blue mission banner above.
-  ctx.fillStyle = `rgba(40, 30, 12, ${0.85 * alpha})`;
-  ctx.strokeStyle = `rgba(220, 175, 90, ${0.7 * alpha})`;
-  ctx.lineWidth = 1;
-  ctx.fillRect(cx - bgW / 2, top, bgW, bgH);
-  ctx.strokeRect(cx - bgW / 2, top, bgW, bgH);
-
-  ctx.shadowColor = `rgba(0, 0, 0, ${0.7 * alpha})`;
-  ctx.shadowBlur = 4;
-  ctx.font = labelFont;
-  ctx.fillStyle = `rgba(220, 175, 90, ${0.95 * alpha})`;
-  ctx.fillText(label, cx, top + padY);
-  ctx.font = titleFont;
-  ctx.fillStyle = `rgba(245, 220, 160, ${0.98 * alpha})`;
-  ctx.fillText(b.name, cx, top + padY + 18);
-  ctx.restore();
+  drawCenteredBanner(ctx, {
+    cx: screenW / 2,
+    top,
+    alpha,
+    padX: 16,
+    padY: 8,
+    bg:     { rgb: '40, 30, 12',    alpha: 0.85 },
+    stroke: { rgb: '220, 175, 90',  alpha: 0.7  },
+    shadow: { rgb: '0, 0, 0',       alpha: 0.7  },
+    rows: [
+      { text: 'Title earned', font: LABEL_FONT_SMALL, color: { rgb: '220, 175, 90',  alpha: 0.95 }, height: 18 },
+      { text: b.name,         font: TITLE_FONT_MED,   color: { rgb: '245, 220, 160', alpha: 0.98 }, height: 22 },
+    ],
+  });
 }
 
 /**

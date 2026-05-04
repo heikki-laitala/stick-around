@@ -49,6 +49,22 @@ const TITLE_BANNER_HOLD = 2.2;
 const TITLE_BANNER_FADE_OUT = 0.6;
 export const TITLE_BANNER_TOTAL = TITLE_BANNER_FADE_IN + TITLE_BANNER_HOLD + TITLE_BANNER_FADE_OUT;
 
+/**
+ * Trapezoidal fade-in / hold / fade-out alpha envelope.
+ * Returns 1 during the hold window, ramps to 1 across the fade-in, and
+ * ramps back to 0 across the fade-out. Past the total lifetime the
+ * envelope returns 0. Shared by every banner-style overlay so the
+ * timing curve is implemented exactly once.
+ */
+export function computeFadeAlpha(age, fadeIn, hold, fadeOut) {
+  if (age <= 0) return 0;
+  const total = fadeIn + hold + fadeOut;
+  if (age >= total) return 0;
+  if (age < fadeIn) return age / fadeIn;
+  if (age < fadeIn + hold) return 1;
+  return Math.max(0, 1 - (age - fadeIn - hold) / fadeOut);
+}
+
 export function tickTitleBanner(state, dt) {
   const b = state.titleBanner;
   if (!b) return;
@@ -58,11 +74,7 @@ export function tickTitleBanner(state, dt) {
 
 export function titleBannerAlpha(banner) {
   if (!banner) return 0;
-  const fadeIn = Math.min(1, banner.age / TITLE_BANNER_FADE_IN);
-  const fadeOut = banner.age > TITLE_BANNER_FADE_IN + TITLE_BANNER_HOLD
-    ? Math.max(0, 1 - (banner.age - TITLE_BANNER_FADE_IN - TITLE_BANNER_HOLD) / TITLE_BANNER_FADE_OUT)
-    : 1;
-  return fadeIn * fadeOut;
+  return computeFadeAlpha(banner.age, TITLE_BANNER_FADE_IN, TITLE_BANNER_HOLD, TITLE_BANNER_FADE_OUT);
 }
 
 export function latestTitle(state) {

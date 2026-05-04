@@ -1,4 +1,4 @@
-import { IDLE, SCALE, jointWorldPos } from './poses.js';
+import { IDLE, SCALE, clonePose, jointWorldPos } from './poses.js';
 import { ROPE_COOLDOWN, hudStripHeight, isNarrowHud } from './constants.js';
 import { buildPlatforms } from './platforms.js';
 import { updateMovement, updateRope, updatePose, updatePosture, resetPlayer, updateParticles, startAxeSwing, updateAxeSwing } from './physics.js';
@@ -61,7 +61,7 @@ const state = {
   walkPh: 0,
   landT: 0,
   dropThrough: 0,
-  curPose: JSON.parse(JSON.stringify(IDLE)),
+  curPose: clonePose(IDLE),
   hasSpawned: false,
   overlayActive: false, // true while the overlay is key/focused (user can drive the man)
 
