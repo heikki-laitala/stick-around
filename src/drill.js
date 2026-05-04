@@ -21,6 +21,13 @@
 
 export const DRILL_HOLD_TIME = 0.7;
 export const DRILL_HOLE_W = 32;
+// Short window where the platform-collision check is bypassed after a
+// drill so sideways motion (e.g. holding D mid-drill) can't drift the
+// man past the hole edge and snap him back onto the same platform.
+// physics.js gates landing on `dropThrough <= 0`; 150 ms is long
+// enough for gravity to push feet past its `prevFeetY + 4` tolerance
+// regardless of horizontal velocity.
+const DRILL_DROP_THROUGH = 0.15;
 
 export function initialDrill() {
   return { drillCharge: 0 };
@@ -63,6 +70,7 @@ export function triggerDrill(state) {
   });
   state.grounded = false;
   state.standingHash = 0;
+  state.dropThrough = DRILL_DROP_THROUGH;
   if (Array.isArray(state.particles)) {
     spawnDrillDust(state.particles, state.gx, plat.y);
   }
