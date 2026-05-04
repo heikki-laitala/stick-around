@@ -1,20 +1,25 @@
 # TODO — codebase improvement backlog
 
-Findings from a full-codebase review (April 2026). Ordered by impact;
-"do first" items are most likely to pay back quickly.
+Findings consolidated from the April 2026 review and the May 2026
+follow-up audit. Ordered by impact; "do first" items are most likely
+to pay back quickly.
 
 ## Do first
 
-### 1. Hoist shared mission scaffolding (Rule of Three)
-`escapeLava`, `meteorShower`, and any future mission repeat:
+### 1. Hoist remaining mission scaffolding (Rule of Three)
+Partly done — `src/missions/_shared.js` already exposes `renderGameOver`,
+`findPlatformByHash`, `burstParticles`, `burstPlatformsBetween`, and
+`spawnXRange`, used by escape-lava / meteor-shower / shardfall.
 
-- HUD-height floor fallback via `textOffsetY || effectiveHudHeight`.
-- `renderGameOver(ctx, W, H)` overlay (near-identical copies).
-- `restart*(state)` that clears `gameOver`, `currentMissionId`,
-  `missionScene`.
+Still scattered:
+- HUD-height floor fallback (`textOffsetY || effectiveHudHeight`) is
+  recomputed in each scene-driven mission.
+- `restart*(state)` helpers (`restartEscapeLava`, etc.) all clear the
+  same trio of fields (`gameOver`, `currentMissionId`, `missionScene`)
+  before the mission-specific cleanup.
 
-Extract to `src/missions/lib.js` with `missionFloorY(state)`,
-`renderGameOverOverlay(ctx, W, H)`, `resetMission(state)`.
+Add `missionFloorY(state)` and `resetMissionBase(state)` to `_shared.js`
+and have each mission's `restart*` call into it.
 
 **Impact:** maintainability. Stops drift between mission files.
 
@@ -32,49 +37,46 @@ if let Ok(guard) = bounds.lock() { /* use guard */ }
 
 ## Nice to have
 
-### 3. Consolidate newly-added HUD/shield magic numbers
-Recent HUD + shield work left literals scattered in `render.js`:
+### 3. Consolidate remaining HUD/shield magic numbers
+Most shield literals (`SHIELD_FADE_IN_DURATION`, `CAST_FLASH_DURATION`)
+are already constants in `spells.js`. What's left to hoist:
 
-- HUD row centers `15` / `hudH - 15`, separator tick half-height `9`,
-  mission clip height `24`, class/spell icon X positions
-  (`14`, `84`, `154`, `264`).
-- Shield aura padding `+22` px, `SHIELD_FADE_IN_DURATION = 0.2`,
-  `CAST_FLASH_DURATION = 0.35`.
-
-Move to a `HUD_*` constants block (ideally near `HUD_HEIGHT`) and a
-`SHIELD_*` block in `spells.js` or a new `shieldVisuals.js`.
+- HUD row centers `15` / `hudH - 15`, mission-clip y/height (`12`/`24`),
+  separator tick half-height `9` (in `renderHud.js`).
+- Per-column icon X positions (`14`, `84`, `154`, `264`) — fine as
+  literals, but could become a single layout array if a sixth column
+  ever lands.
+- Shield aura padding `+22 px` (in `renderShield.js`).
 
 **Impact:** tuneability. Next visual pass becomes grep-free.
 
-### 4. Stop deep-cloning static poses via JSON
-`src/physics.js:388` and `src/main.js:38` use
-`JSON.parse(JSON.stringify(IDLE))` to copy a small static pose object.
-Swap to `{ ...IDLE }` (shallow) or a tiny `clonePose(p)` helper.
+### 4. Smoke-test the remaining banner / overlay render paths
+`drawCenteredBanner` is now smoke-tested via a mock canvas; the same
+pattern should cover the more elaborate render-only code:
 
-**Impact:** code smell only — poses are small and this runs rarely.
+- `drawEndScreen` (run-summary panel)
+- `drawDrillFloorEffect` (long-press-S magic circle)
+- `drawShieldAura` and `drawStasisVignette`
 
-### 5. Pose interpolation duplication in `updatePose`
-`src/physics.js:330-371` has 3–4 near-identical branches that advance
-`walkPh`, wrap to [0, 1), index into a WALK cycle, and lerp poses.
-Extract `advanceWalkAnimation(state, speed, frames)`.
+Each just needs a "doesn't throw with a plausible state" smoke test.
 
-**Impact:** maintainability only. Small payoff unless a new pose cycle
-is being added.
+**Impact:** safety net for refactors; cheap to add now that the
+mock-context pattern is in place.
+
+### 5. Document the mission-state contract
+Missions are expected to mutate `state.missionScene`, award titles via
+`awardTitle()`, and freely read player position / mana / score, but
+they MUST NOT directly mutate gameplay globals. This convention isn't
+written down anywhere; a future mission could violate it quietly. Add
+a short comment at the top of `src/progression.js` and inside one
+mission file as a template.
+
+**Impact:** architectural hygiene as missions multiply.
 
 ### 6. Collectibles and mana mines share update patterns
-Both manage age, lifetime, removal, and call into
-`stepItemPhysics`. If a third item type appears, the duplication will
-bite. Not urgent today — defer until the third type actually arrives
-(Rule of Three).
-
-### 7. Document the mission-state contract
-Missions are expected to only mutate `state.missionScene` and not reach
-into `state.score`, `state.mana`, or other gameplay globals. This
-convention isn't written down anywhere; a future mission could violate
-it quietly. Add a short comment at the top of `src/progression.js` and
-inside the mission template.
-
-**Impact:** low today, architectural hygiene as missions multiply.
+Both manage age, lifetime, removal, and call into `stepItemPhysics`.
+If a third item type appears, the duplication will bite. Not urgent —
+defer until the third type actually arrives (Rule of Three).
 
 ## Explicitly skipped
 
@@ -96,18 +98,37 @@ analysis:
   pragmatic mutation pattern is fine for a single-threaded game loop.
   Adding a class boundary would cost more than it earns.
 
-## Done since this list was written
+## Done
 
-- **Split `src/render.js` into focused modules.** Now
-  `renderHud.js` (373), `renderShield.js` (165), `renderSplash.js` (381);
-  `render.js` is down from 1042 → 831 lines.
+### April 2026 review
+- **Split `src/render.js` into focused modules.** Now `renderHud.js`,
+  `renderShield.js`, `renderSplash.js`; `render.js` itself dropped
+  from 1042 → ~830 lines.
 - **Full-lifecycle tests for scene-driven missions.** `escapeLava.test.js`,
   `meteorShower.test.js`, and `aloneInDark.test.js` cover `onEnter`,
   `update` edge cases, `check`, and the restart/reset path.
 
+### May 2026 audit + refactor
+- **`drawCenteredBanner` shared helper** (formerly two near-clones in
+  `render.js`). Drop ~80 lines; per-element alpha multipliers preserved
+  via `{ rgb, alpha }` colour tuples.
+- **`computeFadeAlpha(age, fadeIn, hold, fadeOut)`** in `runStats.js`.
+  Trapezoidal fade envelope was duplicated inline in `drawMissionToast`
+  and inside `titleBannerAlpha`; now both call into one function.
+- **`clonePose(pose)`** in `poses.js`. Replaces the two
+  `JSON.parse(JSON.stringify(IDLE))` deep-clone sites in `main.js` and
+  `physics.js`.
+- **`advanceWalkAnimation(state, dt, frames, speed)`** in `physics.js`.
+  Collapses four near-identical walk-cycle branches in `updatePose`
+  (water stroke, prone crawl, crouch walk, standing walk) into a single
+  helper.
+- **`drawCenteredBanner` smoke tests** using a mock canvas context —
+  records every fillStyle / fillText / fillRect call so future
+  refactors of the banner shape can be verified without a real canvas.
+
 ## Overall health
 
-Shipping-quality for its scope. The two biggest risk surfaces from the
-original review — `render.js` size and missing mission-lifecycle tests —
-are addressed. Remaining items are maintainability polish and one safety
-fix (`.lock().unwrap()`); none block a release.
+Shipping-quality for its scope. Render pipeline is consolidated, pose
+animation has no obvious duplication left, and the mission lifecycle
+is well-tested. Remaining items are maintainability polish and one
+real safety fix (`.lock().unwrap()`); none block a release.
