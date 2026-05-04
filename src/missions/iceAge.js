@@ -1,4 +1,3 @@
-import { effectiveHudHeight } from '../constants.js';
 import { torsoY } from '../poses.js';
 import { isInHole } from '../platforms.js';
 import { resetPlayer } from '../physics.js';
@@ -6,6 +5,7 @@ import { hazardDt, isShielded } from '../spells.js';
 import {
   burstParticles,
   findPlatformByHash,
+  missionTopY,
   renderGameOver,
   spawnOnPlatform,
   spawnXRange,
@@ -84,10 +84,7 @@ export const SNOW_AMBIENT_COUNT = 60;
 const PROMPT_PLATFORM_HASH = 0xFFFF;
 
 export function ceilingY(state) {
-  const top = typeof state.textOffsetY === 'number' && state.textOffsetY > 0
-    ? state.textOffsetY
-    : effectiveHudHeight(state.screenW);
-  return top - 4;                              // tiny inset so icicle tips poke down
+  return missionTopY(state) - 4;               // tiny inset so icicle tips poke down
 }
 
 function eligiblePlatforms(state) {

@@ -6,24 +6,7 @@ to pay back quickly.
 
 ## Do first
 
-### 1. Hoist remaining mission scaffolding (Rule of Three)
-Partly done — `src/missions/_shared.js` already exposes `renderGameOver`,
-`findPlatformByHash`, `burstParticles`, `burstPlatformsBetween`, and
-`spawnXRange`, used by escape-lava / meteor-shower / shardfall.
-
-Still scattered:
-- HUD-height floor fallback (`textOffsetY || effectiveHudHeight`) is
-  recomputed in each scene-driven mission.
-- `restart*(state)` helpers (`restartEscapeLava`, etc.) all clear the
-  same trio of fields (`gameOver`, `currentMissionId`, `missionScene`)
-  before the mission-specific cleanup.
-
-Add `missionFloorY(state)` and `resetMissionBase(state)` to `_shared.js`
-and have each mission's `restart*` call into it.
-
-**Impact:** maintainability. Stops drift between mission files.
-
-### 2. Replace `.lock().unwrap()` in `src-tauri/src/lib.rs`
+### 1. Replace `.lock().unwrap()` in `src-tauri/src/lib.rs`
 Four call sites (lines 88, 111, 296, 314) call `.lock().unwrap()` on the
 shared bounds Mutex. A panic anywhere under the lock poisons it and
 kills the whole overlay on the next tick. Cheap fix:
@@ -37,7 +20,7 @@ if let Ok(guard) = bounds.lock() { /* use guard */ }
 
 ## Nice to have
 
-### 3. Consolidate remaining HUD/shield magic numbers
+### 2. Consolidate remaining HUD/shield magic numbers
 Most shield literals (`SHIELD_FADE_IN_DURATION`, `CAST_FLASH_DURATION`)
 are already constants in `spells.js`. What's left to hoist:
 
@@ -50,30 +33,20 @@ are already constants in `spells.js`. What's left to hoist:
 
 **Impact:** tuneability. Next visual pass becomes grep-free.
 
-### 4. Smoke-test the remaining banner / overlay render paths
-`drawCenteredBanner` is now smoke-tested via a mock canvas; the same
-pattern should cover the more elaborate render-only code:
+### 3. Smoke-test the private banner / overlay render paths
+`drawCenteredBanner`, `drawShieldAura`, and `drawStasisVignette` now
+have smoke tests. Two private helpers in `render.js` still don't:
 
 - `drawEndScreen` (run-summary panel)
 - `drawDrillFloorEffect` (long-press-S magic circle)
-- `drawShieldAura` and `drawStasisVignette`
 
-Each just needs a "doesn't throw with a plausible state" smoke test.
+Both are file-local. Either export them (test-only seam) or wrap in a
+single `_test_renderHelpers` re-export in the spirit of `_setNowForTests`.
 
 **Impact:** safety net for refactors; cheap to add now that the
 mock-context pattern is in place.
 
-### 5. Document the mission-state contract
-Missions are expected to mutate `state.missionScene`, award titles via
-`awardTitle()`, and freely read player position / mana / score, but
-they MUST NOT directly mutate gameplay globals. This convention isn't
-written down anywhere; a future mission could violate it quietly. Add
-a short comment at the top of `src/progression.js` and inside one
-mission file as a template.
-
-**Impact:** architectural hygiene as missions multiply.
-
-### 6. Collectibles and mana mines share update patterns
+### 4. Collectibles and mana mines share update patterns
 Both manage age, lifetime, removal, and call into `stepItemPhysics`.
 If a third item type appears, the duplication will bite. Not urgent —
 defer until the third type actually arrives (Rule of Three).
@@ -122,9 +95,20 @@ analysis:
   Collapses four near-identical walk-cycle branches in `updatePose`
   (water stroke, prone crawl, crouch walk, standing walk) into a single
   helper.
-- **`drawCenteredBanner` smoke tests** using a mock canvas context —
-  records every fillStyle / fillText / fillRect call so future
-  refactors of the banner shape can be verified without a real canvas.
+- **`missionTopY(state)` and `resetMissionBase(state)`** in
+  `missions/_shared.js`. Replace four duplicated `textOffsetY ||
+  effectiveHudHeight` fallbacks (escape-lava, ice-age, meteor-shower,
+  shardfall) and the two cookie-cutter `restart*` cleanups
+  (escape-lava, meteor-shower).
+- **Mission-state contract documented.** `progression.js` header now
+  spells out which fields missions may read/mutate and which belong to
+  progression alone — closes the "future mission could quietly violate
+  the contract" risk.
+- **Smoke tests via mock canvas context.** `drawCenteredBanner`,
+  `drawShieldAura`, and `drawStasisVignette` all run against a
+  recording mock that supports paths, gradients, and the full subset
+  of methods these helpers use — catches typos and property-access
+  bugs without needing a real canvas.
 
 ## Overall health
 

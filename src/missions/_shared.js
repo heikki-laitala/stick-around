@@ -4,6 +4,40 @@
  * the mission's own file.
  */
 
+import { effectiveHudHeight } from '../constants.js';
+
+/**
+ * Top y of the terminal text area — the y at which a mission may
+ * legitimately spawn hazards / items / scenery without colliding with
+ * the HUD strip or the terminal title bar.
+ *
+ * `state.textOffsetY` is the canonical value (set by the Rust side
+ * when terminal metrics arrive); falls back to the per-screen-width
+ * HUD height when the metrics aren't yet known so the very first
+ * frame after activation still renders sensibly.
+ */
+export function missionTopY(state) {
+  const y = state?.textOffsetY;
+  if (typeof y === 'number' && y > 0) return y;
+  return effectiveHudHeight(state?.screenW);
+}
+
+/**
+ * The base of every mission's `restart*` helper — clears the gameOver
+ * latch and wipes per-run scene state so the next `advanceMission`
+ * tick re-runs `onEnter` from scratch. Mission-specific cleanup
+ * (e.g. flashing a ball counter) layers on top.
+ *
+ * Mainly a test seam now; production code goes through
+ * `progression.restartActiveMission` which does this cleanup *plus*
+ * a full physics reset (player, collectibles, particles, holes).
+ */
+export function resetMissionBase(state) {
+  state.gameOver = false;
+  state.currentMissionId = null;
+  state.missionScene = null;
+}
+
 /**
  * Standard fail overlay used by every mission that has an instant-death
  * state (lava, meteors, icicles). Dim wash + serif "GAME OVER" + a small

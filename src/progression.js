@@ -37,6 +37,38 @@
  * Callers (main.js game loop, render.js) invoke the hooks via
  * `tickActiveMission` and `renderActiveMission` — they never need to know
  * which mission is active.
+ *
+ * Mission-state contract:
+ *   Missions OWN `state.missionScene` — a fresh `{}` is created on entry
+ *   and cleared on exit, so anything mission-specific (hazard arrays,
+ *   timers, goal counters) lives there.
+ *
+ *   Missions MAY:
+ *     - read `state.gx`, `state.feetY`, `state.posture`, `state.platforms`,
+ *       `state.holes`, `state.score`, `state.mana`, `state.shieldActive`,
+ *       `state.stasisActive` etc.
+ *     - call `awardTitle(state, name, missionId)` from `runStats.js` for
+ *       mid-mission rewards.
+ *     - set `state.gameOver = true` to fail the run (frozen until
+ *       `Shift+R` calls `restartActiveMission`).
+ *     - set `state.missionScene.requestRestart = true` to ask for an
+ *       automatic restart on the next tick.
+ *     - mutate `state.holes`, `state.particles`, `state.collectibles`,
+ *       and `state.manaMines` (these are physics-shared but missions
+ *       routinely contribute hazards/items to them).
+ *     - mutate `state.gvx`, `state.gvy`, `state.feetY`, `state.grounded`
+ *       when implementing custom physics interactions (lava parking,
+ *       icicle crush, evil-twin contact knockback).
+ *
+ *   Missions MUST NOT:
+ *     - touch `state.spells`, `state.spellIdx`, `state.titles`,
+ *       `state.runStartedAt`, `state.missionStats`, `state.missionOrder`,
+ *       `state.missionIdx`, `state.completedMissionIds`, `state.unlocks`.
+ *       Those are progression's responsibility.
+ *     - call `advanceMission` or `debugSkipMission` directly.
+ *     - assume `state.missionScene` survives across `onExit`.
+ *
+ *   See `missions/escapeLava.js` for a worked example.
  */
 
 import { ALONE_IN_DARK_MISSION } from './missions/aloneInDark.js';
