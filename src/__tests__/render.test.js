@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { getCloseButtonRect, isInCloseButton, drawCenteredBanner } from '../render.js';
 import { HUD_HEIGHT, HUD_HEIGHT_TALL } from '../constants.js';
+import { drawShieldAura } from '../renderShield.js';
+import { drawStasisVignette } from '../missions/shardfall/render.js';
 
 describe('HUD close button', () => {
   it('sits inset from the right edge of the HUD strip', () => {
@@ -50,6 +52,10 @@ describe('HUD close button', () => {
 function makeMockCtx() {
   const calls = [];
   const noop = (name) => (...args) => calls.push({ name, args });
+  // Gradient stub: enough surface that real-API callers (addColorStop)
+  // don't crash. Returned object is interchangeable with a real
+  // CanvasGradient since callers only assign it to fillStyle/strokeStyle.
+  const stubGradient = () => ({ addColorStop: noop('gradient.addColorStop') });
   return {
     calls,
     save: noop('save'),
@@ -57,15 +63,40 @@ function makeMockCtx() {
     fillRect: noop('fillRect'),
     strokeRect: noop('strokeRect'),
     fillText: noop('fillText'),
-    measureText: (text) => ({ width: text ? text.length * 7 : 0 }),
+    beginPath: noop('beginPath'),
+    closePath: noop('closePath'),
+    moveTo: noop('moveTo'),
+    lineTo: noop('lineTo'),
+    arc: noop('arc'),
+    fill: noop('fill'),
+    stroke: noop('stroke'),
+    translate: noop('translate'),
+    rotate: noop('rotate'),
+    scale: noop('scale'),
+    setLineDash: noop('setLineDash'),
+    rect: noop('rect'),
+    clip: noop('clip'),
+    bezierCurveTo: noop('bezierCurveTo'),
+    quadraticCurveTo: noop('quadraticCurveTo'),
+    measureText: (text) => ({
+      width: text ? text.length * 7 : 0,
+      actualBoundingBoxAscent: 8,
+      actualBoundingBoxDescent: 2,
+    }),
+    createLinearGradient: () => stubGradient(),
+    createRadialGradient: () => stubGradient(),
     set fillStyle(v) { calls.push({ name: 'fillStyle', args: [v] }); },
     set strokeStyle(v) { calls.push({ name: 'strokeStyle', args: [v] }); },
     set shadowColor(v) { calls.push({ name: 'shadowColor', args: [v] }); },
     set shadowBlur(v) { calls.push({ name: 'shadowBlur', args: [v] }); },
     set lineWidth(v) { calls.push({ name: 'lineWidth', args: [v] }); },
+    set lineCap(v) { calls.push({ name: 'lineCap', args: [v] }); },
+    set lineJoin(v) { calls.push({ name: 'lineJoin', args: [v] }); },
     set font(v) { calls.push({ name: 'font', args: [v] }); },
     set textAlign(v) { calls.push({ name: 'textAlign', args: [v] }); },
     set textBaseline(v) { calls.push({ name: 'textBaseline', args: [v] }); },
+    set globalAlpha(v) { calls.push({ name: 'globalAlpha', args: [v] }); },
+    set globalCompositeOperation(v) { calls.push({ name: 'globalCompositeOperation', args: [v] }); },
   };
 }
 
@@ -118,5 +149,34 @@ describe('drawCenteredBanner', () => {
     });
     const fillTexts = ctx.calls.filter((c) => c.name === 'fillText');
     expect(fillTexts.map((c) => c.args[0])).toEqual(['one', 'two']);
+  });
+});
+
+describe('drawShieldAura — smoke', () => {
+  it('runs against a plausible state without throwing and emits arc / gradient draws', () => {
+    const ctx = makeMockCtx();
+    expect(() => drawShieldAura(ctx, 400, 300, 30, 1)).not.toThrow();
+    const names = ctx.calls.map((c) => c.name);
+    // The aura is built from radial gradients + arcs — both should fire.
+    expect(names).toContain('arc');
+    expect(names).toContain('fill');
+  });
+
+  it('still runs cleanly when alpha is mid-fade', () => {
+    const ctx = makeMockCtx();
+    expect(() => drawShieldAura(ctx, 400, 300, 30, 0.4)).not.toThrow();
+  });
+});
+
+describe('drawStasisVignette — smoke', () => {
+  it('runs against a plausible screen size without throwing', () => {
+    const ctx = makeMockCtx();
+    expect(() => drawStasisVignette(ctx, 800, 600, 0, 400, 300)).not.toThrow();
+    expect(ctx.calls.length).toBeGreaterThan(0);
+  });
+
+  it('still runs after the vignette has aged into its ripple phase', () => {
+    const ctx = makeMockCtx();
+    expect(() => drawStasisVignette(ctx, 800, 600, 1.5, 400, 300)).not.toThrow();
   });
 });

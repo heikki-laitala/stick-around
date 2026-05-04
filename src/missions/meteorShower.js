@@ -3,7 +3,10 @@ import { IS_LINUX } from '../platform-info.js';
 import { torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
-import { burstParticles, burstPlatformsBetween, renderGameOver, spawnXRange } from './_shared.js';
+import {
+  burstParticles, burstPlatformsBetween, missionTopY,
+  renderGameOver, resetMissionBase, spawnXRange,
+} from './_shared.js';
 
 /**
  * "Dodge the meteor shower" mission.
@@ -28,10 +31,7 @@ const METEOR_MAN_HIT_R = 18;                 // collision radius against the man
 const METEOR_SPAWN_Y_MARGIN = 20;            // spawn this many px above textOffsetY
 
 function spawnY(state) {
-  const top = typeof state.textOffsetY === 'number' && state.textOffsetY > 0
-    ? state.textOffsetY
-    : effectiveHudHeight(state.screenW);
-  return top - METEOR_SPAWN_Y_MARGIN;
+  return missionTopY(state) - METEOR_SPAWN_Y_MARGIN;
 }
 
 export const METEOR_SHOWER_MISSION = {
@@ -208,9 +208,7 @@ function hitsMan(state, m) {
  * Reset the meteor shower to a fresh run.
  */
 export function restartMeteorShower(state) {
-  state.gameOver = false;
-  state.currentMissionId = null;
-  state.missionScene = null;
+  resetMissionBase(state);
 }
 
 function renderMeteor(ctx, m) {

@@ -1,7 +1,7 @@
-import { GRAV, JUMP_V, effectiveHudHeight } from '../constants.js';
+import { GRAV, JUMP_V } from '../constants.js';
 import { STANDING_HEIGHT, torsoY } from '../poses.js';
 import { hazardDt, isShielded } from '../spells.js';
-import { findPlatformByHash, renderGameOver } from './_shared.js';
+import { findPlatformByHash, missionTopY, renderGameOver, resetMissionBase } from './_shared.js';
 import { awardTitle, titleNames } from '../runStats.js';
 
 /**
@@ -44,16 +44,10 @@ function trackable(p) {
 }
 
 // Door must sit fully inside the terminal text area — below the HUD AND
-// below the terminal title bar. state.textOffsetY is the top of the text
-// area (the title sits above it). Fall back to the HUD height appropriate
-// for the current screen width if we don't have the terminal metrics yet.
-function minDoorTop(state) {
-  const y = state?.textOffsetY;
-  return typeof y === 'number' && y > 0 ? y : effectiveHudHeight(state?.screenW);
-}
-
+// below the terminal title bar. `missionTopY` returns that y, falling
+// back to the HUD height when terminal metrics aren't known yet.
 function canHostDoor(p, state, doorH) {
-  return p.y >= minDoorTop(state) + doorH;
+  return p.y >= missionTopY(state) + doorH;
 }
 
 function topmostTrackablePlatform(platforms, state, doorH) {
@@ -102,7 +96,7 @@ export const ESCAPE_LAVA_MISSION = {
       // let the physics step on the next frame pull the door down until
       // something catches it.
       scene.doorX = 30;
-      scene.doorY = minDoorTop(state) + 4;
+      scene.doorY = missionTopY(state) + 4;
       scene.doorAnchorHash = null;
       scene.doorAnchorOffsetX = 0;
     }
@@ -281,9 +275,7 @@ function updateDoorPhysics(state, scene, dt) {
  * scene so the next `advanceMission` tick fires onEnter again.
  */
 export function restartEscapeLava(state) {
-  state.gameOver = false;
-  state.currentMissionId = null;
-  state.missionScene = null;
+  resetMissionBase(state);
 }
 
 function renderLava(ctx, top, W, H) {

@@ -1,8 +1,7 @@
-import { effectiveHudHeight } from '../constants.js';
 import { torsoY } from '../poses.js';
 import { resetPlayer } from '../physics.js';
 import { hazardDt } from '../spells.js';
-import { burstParticles, burstPlatformsBetween, renderGameOver, spawnXRange } from './_shared.js';
+import { burstParticles, burstPlatformsBetween, missionTopY, renderGameOver, spawnXRange } from './_shared.js';
 import { drawShards } from './shardfall/render.js';
 
 /**
@@ -34,10 +33,7 @@ export const GOLD_SHARD_CHANCE = 0.15;             // fraction of spawns that co
 export const GOLD_SHARD_VALUE = 2;                 // counted toward the goal when caught
 
 function spawnY(state) {
-  const top = typeof state.textOffsetY === 'number' && state.textOffsetY > 0
-    ? state.textOffsetY
-    : effectiveHudHeight(state.screenW);
-  return top - 24;
+  return missionTopY(state) - 24;
 }
 
 function spawnShard(state, scene) {
