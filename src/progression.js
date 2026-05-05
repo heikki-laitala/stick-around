@@ -77,6 +77,7 @@ import { EVIL_TWIN_MISSION } from './missions/evilTwin.js';
 import { ICE_AGE_MISSION } from './missions/iceAge.js';
 import { METEOR_SHOWER_MISSION } from './missions/meteorShower.js';
 import { SHARDFALL_MISSION } from './missions/shardfall.js';
+import { SPELL_WARMUP_MISSION } from './missions/spellWarmup.js';
 import {
   awardTitle, markMissionEntered, markMissionCompleted, markRunEnded, latestTitle,
 } from './runStats.js';
@@ -122,6 +123,7 @@ export const MISSIONS = [
     check: (s) => (s.minesMined || 0) - (s.minesMinedAtMissionStart || 0) >= 4,
     rewardRank: 'journeyman pauper',
   },
+  SPELL_WARMUP_MISSION,
   ESCAPE_LAVA_MISSION,
   METEOR_SHOWER_MISSION,
   ALONE_IN_DARK_MISSION,
@@ -130,11 +132,12 @@ export const MISSIONS = [
   SHARDFALL_MISSION,
 ];
 
-// The first two missions are fixed-order tutorials (collect balls, then
-// collect mines). Everything past that is shuffled per session so the
-// player gets a fresh ladder each run without ever repeating a mission
-// they've already played in this run.
-export const FIXED_MISSION_COUNT = 2;
+// The first three missions are fixed-order tutorials: collect balls,
+// collect mines, then a quick spell-warmup that demos shield, lightning,
+// and stasis on a forgiving target dummy each. Everything past that is
+// shuffled per session so the player gets a fresh ladder each run
+// without ever repeating a mission they've already played in this run.
+export const FIXED_MISSION_COUNT = 3;
 
 const ALL_DONE_MISSION = 'All missions complete!';
 
