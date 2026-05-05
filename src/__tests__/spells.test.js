@@ -32,6 +32,51 @@ function make(overrides = {}) {
   return { mana: 0, ...initialSpells(), ...overrides };
 }
 
+describe('mutual exclusion — casting a new spell cancels any other active spell', () => {
+  it('activating lightning cancels an active shield', () => {
+    const s = make({ mana: 10, shieldActive: true, shieldFadeIn: 0.2 });
+    castSpellByName(s, 'lightning');
+    expect(s.shieldActive).toBe(false);
+    expect(isLightningAiming(s)).toBe(true);
+  });
+
+  it('activating shield cancels an in-flight lightning aim', () => {
+    const s = make({ mana: 10, spellIdx: 1, lightningAim: { angle: -Math.PI / 2 } });
+    castSpellByName(s, 'shield');
+    expect(isLightningAiming(s)).toBe(false);
+    expect(isShielded(s)).toBe(true);
+  });
+
+  it('activating shield cancels active stasis', () => {
+    const s = make({ mana: 10, spellIdx: 2, stasisActive: true });
+    castSpellByName(s, 'shield');
+    expect(s.stasisActive).toBe(false);
+    expect(isShielded(s)).toBe(true);
+  });
+
+  it('activating stasis cancels an active shield', () => {
+    const s = make({ mana: 10, shieldActive: true });
+    castSpellByName(s, 'stasis');
+    expect(s.shieldActive).toBe(false);
+    expect(s.stasisActive).toBe(true);
+  });
+
+  it('activating lightning cancels active stasis', () => {
+    const s = make({ mana: 10, spellIdx: 2, stasisActive: true });
+    castSpellByName(s, 'lightning');
+    expect(s.stasisActive).toBe(false);
+    expect(isLightningAiming(s)).toBe(true);
+  });
+
+  it('toggling shield OFF (re-pressing 1) does not flip other inactive spells back on', () => {
+    const s = make({ mana: 10, shieldActive: true });
+    castSpellByName(s, 'shield');           // toggle off
+    expect(s.shieldActive).toBe(false);
+    expect(s.stasisActive).toBe(false);
+    expect(isLightningAiming(s)).toBe(false);
+  });
+});
+
 describe('initialSpells', () => {
   it('includes shield, lightning, and stasis with shield selected by default', () => {
     const s = make();
