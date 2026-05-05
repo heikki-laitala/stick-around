@@ -61,6 +61,12 @@ function completeRealMissions(s) {
       s.minesMined = (s.minesMinedAtMissionStart || 0) + 10;
       continue;
     }
+    if (m.id === 'spell-warmup' && s.missionScene) {
+      // Skip past the lightning/shield/stasis phase machine by stamping
+      // the final phase — the check returns true once phase === 'done'.
+      s.missionScene.phase = 'done';
+      continue;
+    }
     if (m.id === 'escape-lava' && s.missionScene) {
       s.missionScene.reachedDoor = true;
       continue;

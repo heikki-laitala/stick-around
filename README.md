@@ -223,13 +223,17 @@ Mana doesn't regenerate on its own — mine mana crystals with `F` to refill.
 
 ## Missions
 
-The game runs a short progression. The first two missions always come
+The game runs a short progression. The first three missions always come
 in the same order — a warm-up. After that, the remaining missions are
 shuffled per session, so each run plays the variable tail in a fresh
 sequence (no repeats within a run).
 
 1. **Collect 5 glowing balls** — warm-up run across the rooftops.
 2. **Collect 4 mana crystals** — use `F` to mine them.
+3. **Practice your spells** — a quick sampler: zap a floating crystal
+   with lightning, block a fireball with the shield, and step around a
+   falling shard with stasis slowing time. Forgiving — missing any
+   phase just respawns the target and you try again.
 
 After the warm-up, in random order:
 
