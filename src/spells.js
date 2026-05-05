@@ -129,9 +129,23 @@ export function cycleSpell(state) {
 }
 
 /**
+ * Cancel any currently-active spell other than `except`. Called from
+ * the activation path of every spell so casting a new one auto-drops
+ * the previous (mutually-exclusive cast model). Toggling a spell OFF
+ * does not call this — that's just a deactivation, not a new cast.
+ */
+function cancelOtherSpells(state, except) {
+  if (except !== 'shield' && state.shieldActive) state.shieldActive = false;
+  if (except !== 'lightning' && state.lightningAim) state.lightningAim = null;
+  if (except !== 'stasis' && state.stasisActive) state.stasisActive = false;
+}
+
+/**
  * Keydown handler for the cast key. For shield, toggles the dome. For
  * lightning, enters aim mode — the bolt isn't launched until the key
- * is released (see `releaseCast`).
+ * is released (see `releaseCast`). Activating any spell auto-cancels
+ * the others (mutual exclusion); toggling shield off is a no-op for
+ * the others since nothing else is being activated.
  */
 export function castSpell(state) {
   const spell = selectedSpell(state);
@@ -142,6 +156,7 @@ export function castSpell(state) {
       return true;
     }
     if ((state.mana || 0) <= 0) return false;
+    cancelOtherSpells(state, 'shield');
     state.shieldActive = true;
     state.shieldFadeIn = 0;
     state.castFlash = { spell, life: CAST_FLASH_DURATION, maxLife: CAST_FLASH_DURATION };
@@ -150,12 +165,14 @@ export function castSpell(state) {
   if (spell === 'lightning') {
     if (state.lightningAim) return false;              // already aiming
     if ((state.mana || 0) < LIGHTNING_MANA_COST) return false;
+    cancelOtherSpells(state, 'lightning');
     state.lightningAim = { angle: LIGHTNING_AIM_DEFAULT };
     return true;
   }
   if (spell === 'stasis') {
     if (state.stasisActive) return false;
     if ((state.mana || 0) <= 0) return false;
+    cancelOtherSpells(state, 'stasis');
     state.stasisActive = true;
     state.castFlash = { spell, life: CAST_FLASH_DURATION, maxLife: CAST_FLASH_DURATION };
     return true;
