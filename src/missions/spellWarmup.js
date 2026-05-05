@@ -24,7 +24,11 @@ import { burstParticles, missionTopY, resetMissionBase } from './_shared.js';
  * the player always knows what the current step is asking for.
  */
 
-export const SPELL_WARMUP_PRIME_MANA = 12;
+// Generous: enough that fumbling lightning a few times, holding shield
+// up for a beat, and stasis-stalling at the end all comfortably fit
+// within one priming pass. The mission re-primes between phases (see
+// `setPhase`) so the player can never run dry mid-tutorial.
+export const SPELL_WARMUP_PRIME_MANA = 40;
 const CRYSTAL_RADIUS = 12;
 const CRYSTAL_ABOVE = 110;             // px above the player's spawn feet
 const FIREBALL_SPEED = 240;
@@ -66,6 +70,12 @@ function setPhase(state, phase) {
   const scene = state.missionScene;
   if (!scene) return;
   scene.phase = phase;
+  // Top mana back up to the prime amount on every phase advance so a
+  // player who burned mana fumbling phase 1 still has full reserves
+  // for phase 2 and 3. Never lower an already-rich pool.
+  if ((state.mana || 0) < SPELL_WARMUP_PRIME_MANA) {
+    state.mana = SPELL_WARMUP_PRIME_MANA;
+  }
   // Refresh the entry-banner hint each time the phase advances so the
   // player gets a clear subtitle for the next exercise.
   state.missionToast = {
