@@ -142,19 +142,26 @@ import { isInHole } from '../platforms.js';
 
 /**
  * Punch holes in every platform top whose y crosses the segment from
- * `(xBefore, yBefore)` to `(xAfter, yAfter)` — meteors and shards both
- * use this when they fall through the play area. `holeW` controls how
- * wide the hole is; `onCross` is an optional callback fired at the
- * crossing point (use it for a particle burst etc.). A crossing that
- * lands inside an existing hole is skipped so repeat hits at the same
- * spot don't pile up redundant entries.
+ * `(xBefore, yBefore)` to `(xAfter, yAfter)` — meteors, shards, and the
+ * spell-warmup ball all use this. `holeW` controls how wide the hole
+ * is; `onCross` is an optional callback fired at the crossing point
+ * (use it for a particle burst etc.). A crossing that lands inside an
+ * existing hole is skipped so repeat hits at the same spot don't pile
+ * up redundant entries.
+ *
+ * The bounds check is bidirectional — segments traveling upward (e.g.
+ * a ball after a floor bounce) punch holes the same way downward
+ * segments do. The lerp `t` stays signed against the original
+ * direction so `crossX` is correct either way.
  */
 export function burstPlatformsBetween(state, xBefore, yBefore, xAfter, yAfter, holeW, onCross) {
   if (!state.platforms || !state.holes) return;
   const dy = yAfter - yBefore;
+  const yMin = Math.min(yBefore, yAfter);
+  const yMax = Math.max(yBefore, yAfter);
   for (const p of state.platforms) {
     if (!p || p.x == null) continue;
-    if (yBefore > p.y || yAfter < p.y) continue;
+    if (yMin > p.y || yMax < p.y) continue;
     const t = dy !== 0 ? (p.y - yBefore) / dy : 0;
     const crossX = xBefore + (xAfter - xBefore) * t;
     if (crossX < p.x || crossX > p.x + p.w) continue;
