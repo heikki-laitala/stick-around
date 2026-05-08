@@ -467,7 +467,13 @@ document.addEventListener('keydown', e => {
   // so the player can stay on WASD and pick a spell with their other hand.
   // ArrowLeft/Right keep their existing aim role and are handled per-frame
   // in the game loop, not here.
-  if (e.code === 'ArrowUp') {
+  //
+  // `!e.repeat` filters OS key auto-repeat: when the player holds the
+  // cast key, only the initial press should activate the spell. After
+  // a Q-cancel mid-hold the active flag is cleared, so an unfiltered
+  // auto-repeat would silently re-arm the spell on the next OS tick
+  // and the cancel would feel unreliable.
+  if (e.code === 'ArrowUp' && !e.repeat) {
     castSpell(state);
     e.preventDefault();
     return;
@@ -486,10 +492,11 @@ document.addEventListener('keydown', e => {
   }
   // Spell slots: tap 1 to toggle the shield, hold 2 to aim lightning
   // (released on keyup below). Direct slots replace the old cycle+cast
-  // pair so each spell has a dedicated finger.
-  if (e.code === 'Digit1') { castSpellByName(state, 'shield'); return; }
-  if (e.code === 'Digit2') { castSpellByName(state, 'lightning'); return; }
-  if (e.code === 'Digit3') { castSpellByName(state, 'stasis'); return; }
+  // pair so each spell has a dedicated finger. `!e.repeat` filters OS
+  // key auto-repeat — see the comment on the ArrowUp handler above.
+  if (e.code === 'Digit1' && !e.repeat) { castSpellByName(state, 'shield'); return; }
+  if (e.code === 'Digit2' && !e.repeat) { castSpellByName(state, 'lightning'); return; }
+  if (e.code === 'Digit3' && !e.repeat) { castSpellByName(state, 'stasis'); return; }
 
   // Bare Q is the universal "drop the spell" key — drops a lightning
   // aim without firing, lowers the shield, releases stasis. Lets the
