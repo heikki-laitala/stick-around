@@ -31,8 +31,8 @@ import {
 export const SPELL_WARMUP_PRIME_MANA = 40;
 const BALL_RADIUS = 14;
 const BALL_HIT_RADIUS_PLAYER = 22;     // collision against the man's torso
-const BALL_GRAVITY = 600;              // px/s^2 — softer than the player's so arcs read clearly
-const BALL_INITIAL_VX = 220;
+const BALL_GRAVITY = 720;              // px/s^2 — close to the player's so arcs feel snappy
+const BALL_INITIAL_VX = 320;           // tuned by feel — slow enough to track, fast enough to miss
 const BALL_HOLE_W = 30;                // matches METEOR_HOLE_W so visual continuity holds
 const BALL_INVULN = 0.4;               // s — post-zap window where lightning can't double-count
 const BALL_HITS_TO_WIN = 3;
