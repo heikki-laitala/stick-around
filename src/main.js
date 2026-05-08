@@ -311,10 +311,10 @@ if (window.__TAURI__) {
 // active (focused, non-click-through) overlay sits on top of the
 // terminal eating every event — the user can't move, focus, or type
 // in the terminal underneath. macOS/Windows leave the overlay active
-// (the user activates explicitly via the Cmd/Win+Shift+G shortcut),
+// (the user activates explicitly via the Ctrl+Shift+G shortcut),
 // but Linux has no comparable re-activation path here, so we default
 // the post-splash state to passive: terminal is usable, and the user
-// can re-activate via Super+Shift+G when they want to play.
+// can re-activate via Ctrl+Shift+G when they want to play.
 function dismissSplash() {
   if (!state.splashActive) return;
   state.splashActive = false;
@@ -364,7 +364,7 @@ window.addEventListener('click', (e) => {
   // The strip is the only clickable surface, so two gestures need to
   // resolve here: clicking the close button quits, anything else
   // re-activates. macOS/Windows have no equivalent click path —
-  // those platforms re-activate exclusively via the Cmd/Win+Shift+G
+  // those platforms re-activate exclusively via the Ctrl+Shift+G
   // global shortcut.
   if (IS_LINUX && !state.overlayActive && !state.splashActive) {
     if (isInCloseButton(e.clientX, e.clientY, W())) {
