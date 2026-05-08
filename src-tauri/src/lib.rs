@@ -371,7 +371,7 @@ pub fn run() {
 
             // Start in passive mode: clicks pass through to whatever is underneath,
             // and the overlay doesn't capture keyboard input. Users activate via
-            // Cmd+Shift+G or Ctrl+click.
+            // Ctrl+Shift+G.
             let _ = window.set_ignore_cursor_events(true);
             #[cfg(target_os = "macos")]
             {
@@ -380,7 +380,13 @@ pub fn run() {
                 }
             }
 
-            // Cmd+Shift+G: global shortcut that activates the overlay.
+            // Ctrl+Shift+G: global shortcut that activates the overlay.
+            // Picked Ctrl over Cmd/Win/Super specifically because Win+Shift+G
+            // is reserved by Windows for Xbox Game Bar — RegisterHotKey
+            // silently fails for that chord, leaving Windows users with no
+            // re-activation path after Esc. Ctrl+Shift+G isn't OS-reserved
+            // on macOS, Windows, or Linux/GNOME, and gives a single chord
+            // that reads the same in every doc.
             let activation_window = window.clone();
             let shortcut_active = overlay_active.clone();
             let shortcut_bounds = poll_bounds.clone();
@@ -388,7 +394,7 @@ pub fn run() {
             let shortcut_hud_tall_known = hud_tall_known.clone();
             let shortcut_pid = pid;
             let shortcut = Shortcut::new(
-                Some(Modifiers::META | Modifiers::SHIFT),
+                Some(Modifiers::CONTROL | Modifiers::SHIFT),
                 Code::KeyG,
             );
             let shortcut_match = shortcut;

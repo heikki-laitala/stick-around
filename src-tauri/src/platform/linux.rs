@@ -492,7 +492,7 @@ pub fn get_terminal_content(
 
 /// Subscribe to the GNOME Shell helper extension's `ActivateOverlay`
 /// signal and run `callback` each time it fires. The extension owns
-/// the activation keybinding (Super+Shift+G by default) through
+/// the activation keybinding (Ctrl+Shift+G by default) through
 /// Mutter's authoritative path, working around Wayland's rejection of
 /// the overlay's own XGrabKey-based registration.
 ///

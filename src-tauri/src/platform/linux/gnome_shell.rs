@@ -84,7 +84,7 @@ impl GnomeShellHelper {
     /// Spawn a worker thread that listens for `ActivateOverlay` signals
     /// from the helper extension and runs `callback` for each one. The
     /// signal is fired by Mutter when the user invokes the registered
-    /// activation keybinding (Super+Shift+G by default). The connection
+    /// activation keybinding (Ctrl+Shift+G by default). The connection
     /// and proxy live inside the worker so its `iter` borrow stays valid
     /// for the lifetime of the subscription.
     pub fn subscribe_activate_overlay<F>(callback: F)
