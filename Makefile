@@ -90,15 +90,17 @@ deps-windows:
 	@echo "Then run: npm install"
 	@exit 1
 
-## Warn if Rust isn't on PATH so a fresh checkout doesn't fail at
-## `make build` with a confusing 'cargo: command not found'. We don't
-## auto-install rustup because the recommended path is curl-piped
-## from sh.rustup.rs, which the user should run interactively.
+## Fail if Rust isn't on PATH so `make deps` doesn't claim success and
+## then leave `make dev` to die with a confusing 'cargo: command not
+## found'. We don't auto-install rustup because the recommended path
+## is a curl-pipe from sh.rustup.rs, which the user should run
+## interactively.
 check-rust:
 	@if ! command -v cargo >/dev/null 2>&1; then \
-		echo "WARNING: cargo not found. Install Rust via:"; \
+		echo "ERROR: cargo not found. Install Rust via:"; \
 		echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
-		echo ""; \
+		echo "Then re-run 'make deps'."; \
+		exit 1; \
 	fi
 
 ## Verify Node + npm and pull JS dev dependencies (vitest, eslint, the
