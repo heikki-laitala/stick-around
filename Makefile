@@ -1,7 +1,14 @@
 ifeq ($(OS),Windows_NT)
-EXE := .exe
+EXE     := .exe
+DEPS_OS := windows
 else
 EXE :=
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+DEPS_OS := macos
+else
+DEPS_OS := linux
+endif
 endif
 
 # Derive the plugin version from plugin.json so the cache path tracks
@@ -20,7 +27,89 @@ GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTE
 DESKTOP_FILE_DIR := $(HOME)/.local/share/applications
 DESKTOP_ICON_DIR := $(HOME)/.local/share/icons/hicolor/512x512/apps
 
-.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop release
+.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop release deps deps-linux deps-macos deps-windows check-rust check-node
+
+## One-shot dev environment setup. Detects the host OS, installs the
+## platform's system build dependencies (apt on Linux, Xcode CLT on
+## macOS), warns if Rust or Node aren't on PATH, and runs `npm install`.
+## After this, `make dev` will build and sync the binary to the plugin
+## cache so /stick-around:play picks it up. Re-running is safe:
+## apt-get / xcode-select / npm install are all idempotent.
+deps: deps-$(DEPS_OS) check-rust check-node
+	@echo ""
+	@echo "Done. Next step: make dev"
+
+## Linux (Debian/Ubuntu) system deps. Mirrors the apt list in
+## .github/workflows/ci.yml so a fresh checkout builds with the same
+## libraries CI uses. Non-apt distros print a manual-install hint and
+## bail; pacman/dnf wrappers can be added later if there's demand.
+deps-linux:
+	@if ! command -v apt-get >/dev/null 2>&1; then \
+		echo "Non-Debian/Ubuntu Linux detected. Install these system packages with your distro's package manager:"; \
+		echo "  build-essential pkg-config libssl-dev libgtk-3-dev"; \
+		echo "  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev"; \
+		echo "  librsvg2-dev libglib2.0-bin"; \
+		exit 1; \
+	fi
+	sudo apt-get update
+	sudo apt-get install -y \
+		build-essential \
+		pkg-config \
+		libssl-dev \
+		libgtk-3-dev \
+		libwebkit2gtk-4.1-dev \
+		libayatana-appindicator3-dev \
+		librsvg2-dev \
+		libglib2.0-bin
+
+## macOS system deps. Tauri 2 on macOS only needs the Xcode Command Line
+## Tools — `xcode-select --install` is a one-shot GUI prompt the first
+## time and a no-op afterward. We guard with `xcode-select -p` so a
+## second `make deps` doesn't re-pop the prompt.
+deps-macos:
+	@if xcode-select -p >/dev/null 2>&1; then \
+		echo "Xcode Command Line Tools already installed."; \
+	else \
+		echo "Installing Xcode Command Line Tools (a system dialog will open)..."; \
+		xcode-select --install || true; \
+		echo "Re-run 'make deps' once the Xcode CLT installer finishes."; \
+		exit 1; \
+	fi
+
+## Windows is too varied to automate cleanly — winget vs. Visual Studio
+## Installer vs. manual MSVC, plus rustup-init.exe and the Node.js MSI.
+## Print pointers and let the user run them.
+deps-windows:
+	@echo "Windows dev setup is manual. Install:"
+	@echo "  - Visual Studio Build Tools 2019+ with the 'Desktop development with C++' workload"
+	@echo "    https://visualstudio.microsoft.com/downloads/"
+	@echo "  - Rust toolchain via rustup-init.exe from https://rustup.rs"
+	@echo "  - Node.js 20+ from https://nodejs.org"
+	@echo "  - WebView2 Runtime (typically pre-installed on Windows 10/11)"
+	@echo ""
+	@echo "Then run: npm install"
+	@exit 1
+
+## Warn if Rust isn't on PATH so a fresh checkout doesn't fail at
+## `make build` with a confusing 'cargo: command not found'. We don't
+## auto-install rustup because the recommended path is curl-piped
+## from sh.rustup.rs, which the user should run interactively.
+check-rust:
+	@if ! command -v cargo >/dev/null 2>&1; then \
+		echo "WARNING: cargo not found. Install Rust via:"; \
+		echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
+		echo ""; \
+	fi
+
+## Verify Node + npm and pull JS dev dependencies (vitest, eslint, the
+## Tauri CLI). Splitting this from the system-deps target keeps each
+## piece individually re-runnable.
+check-node:
+	@if ! command -v npm >/dev/null 2>&1; then \
+		echo "ERROR: npm not found. Install Node.js 20+ from https://nodejs.org or your package manager, then re-run 'make deps'."; \
+		exit 1; \
+	fi
+	npm install
 
 ## Build the Tauri overlay binary (release mode). The binary stays under
 ## src-tauri/target/release; we don't copy it to the repo root because a

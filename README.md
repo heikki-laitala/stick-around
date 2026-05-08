@@ -291,6 +291,7 @@ After the warm-up, in random order:
 ## Development
 
 ```bash
+make deps                # one-shot dev environment setup (per-platform)
 make dev                 # build the Tauri binary and install into the plugin cache
 make test                # vitest
 make lint                # eslint
@@ -298,10 +299,29 @@ make install-extension   # Linux: install GNOME helper, requires Wayland session
 make install-desktop     # Linux: install .desktop entry + dock icon
 ```
 
+`make deps` detects the host OS and installs everything `make dev` needs:
+
+- **Linux (Debian/Ubuntu)** — `sudo apt-get install` of the Tauri build deps
+  (`build-essential`, `pkg-config`, `libssl-dev`, `libgtk-3-dev`,
+  `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`,
+  `libglib2.0-bin`). Non-apt distros print the package list and exit so you
+  can install via your distro's package manager. Then `npm install`. Rust
+  must be on your PATH already (install via [rustup](https://rustup.rs) if
+  not — `make deps` warns but doesn't auto-install).
+- **macOS** — runs `xcode-select --install` if the Command Line Tools aren't
+  present (a system dialog opens), then `npm install`. Same Rust/rustup
+  expectation as Linux.
+- **Windows** — Tauri on Windows depends on the MSVC toolchain plus rustup
+  and Node.js, none of which automate cleanly from a Makefile, so the target
+  prints links to the installers ([Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/),
+  [rustup](https://rustup.rs), [Node.js](https://nodejs.org)) and bails. After
+  the manual installs, run `npm install` and you're set.
+
+After `make deps` finishes cleanly, `make dev` is the round-trip — it
+rebuilds the binary and copies it to the plugin cache used by the
+`/stick-around:play` skill, so a relaunch picks up the new build.
+
 The Rust backend lives in `src-tauri/`; the canvas game code is in `src/`.
-`make dev` is the round-trip — it rebuilds the binary and copies it to the
-plugin cache used by the `/stick-around:play` skill, so a relaunch picks up
-the new build.
 
 The Linux GNOME extension lives in `gnome-extension/`. It exposes window
 tracking, geometry control, and the activation keybinding over D-Bus
