@@ -18,6 +18,7 @@ import {
   releaseStasis,
   hazardDt,
   adjustLightningAim,
+  cancelAllSpells,
   cancelLightningAim,
   isLightningAiming,
   isLightningActive,
@@ -446,6 +447,43 @@ describe('stasis', () => {
     expect(hazardDt(s, 1.0)).toBeCloseTo(STASIS_SCALE, 5);
     releaseStasis(s);
     expect(hazardDt(s, 1.0)).toBe(1.0);
+  });
+});
+
+describe('cancelAllSpells', () => {
+  it('drops a lightning aim without firing or charging mana', () => {
+    const s = make({ mana: LIGHTNING_MANA_COST, spellIdx: 1 });
+    castSpell(s);
+    expect(isLightningAiming(s)).toBe(true);
+    cancelAllSpells(s);
+    expect(isLightningAiming(s)).toBe(false);
+    expect(s.mana).toBe(LIGHTNING_MANA_COST);
+    expect(isLightningActive(s)).toBe(false);
+  });
+
+  it('lowers the shield', () => {
+    const s = make({ mana: 5 });
+    castSpellByName(s, 'shield');
+    expect(s.shieldActive).toBe(true);
+    cancelAllSpells(s);
+    expect(s.shieldActive).toBe(false);
+  });
+
+  it('releases stasis', () => {
+    const s = make({ mana: 5 });
+    castSpellByName(s, 'stasis');
+    expect(s.stasisActive).toBe(true);
+    cancelAllSpells(s);
+    expect(s.stasisActive).toBe(false);
+  });
+
+  it('is a no-op when no spell is active', () => {
+    const s = make({ mana: 10 });
+    cancelAllSpells(s);
+    expect(s.shieldActive).toBe(false);
+    expect(s.stasisActive).toBe(false);
+    expect(s.lightningAim).toBeNull();
+    expect(s.mana).toBe(10);
   });
 });
 

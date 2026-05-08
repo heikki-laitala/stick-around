@@ -207,6 +207,11 @@ home row — pick a spell with `↓` and trigger it with `↑`.
   damage while up but drains mana continuously.
 - **`2` Lightning** — *hold* `2` to aim (sweep with `←` / `→`), *release*
   `2` to fire. Costs 2 mana per bolt.
+- **`3` Stasis** — *hold* `3` to slow hazards while it's down. Drains
+  mana continuously; release to end.
+- **`Q`** — cancel any active spell: drops a lightning aim without
+  firing, lowers the shield, releases stasis. One escape hatch for all
+  three.
 - **`↑`** — cast the spell currently shown in the HUD. Same effect as
   pressing the slot key for that spell, reachable from the arrow cluster.
 - **`↓`** — cycle to the next spell without casting.
