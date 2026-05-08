@@ -262,6 +262,20 @@ export function cancelLightningAim(state) {
   state.lightningAim = null;
 }
 
+/**
+ * Force every spell to its inactive state — the lightning aim drops
+ * without firing, the shield dome comes down, stasis releases. Used by
+ * the bare-Q cancel binding so the player has one universal escape
+ * hatch from any in-flight spell. Mutual exclusion already keeps at
+ * most one spell active at a time, but this is written defensively so
+ * the function works regardless of how many flags happen to be set.
+ */
+export function cancelAllSpells(state) {
+  state.lightningAim = null;
+  state.shieldActive = false;
+  state.stasisActive = false;
+}
+
 export function adjustLightningAim(state, delta) {
   if (!state.lightningAim) return;
   const next = state.lightningAim.angle + delta;

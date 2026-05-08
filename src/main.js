@@ -8,8 +8,8 @@ import { render, isInCloseButton, wandTip } from './render.js';
 import { hudNeedsTwoRows } from './renderHud.js';
 import { advanceMission, debugSkipMission, initialProgression, restartActiveMission, tickActiveMission } from './progression.js';
 import {
-  initialSpells, castSpell, castSpellByName, cycleSpell, releaseCast, releaseStasis,
-  adjustLightningAim, isLightningAiming, tickSpells,
+  initialSpells, castSpell, castSpellByName, cancelAllSpells, cycleSpell,
+  releaseCast, releaseStasis, adjustLightningAim, isLightningAiming, tickSpells,
 } from './spells.js';
 import {
   adjustFlashlightAim, AIM_SPEED as FLASH_AIM_SPEED, isAloneInDarkActive,
@@ -490,6 +490,17 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Digit1') { castSpellByName(state, 'shield'); return; }
   if (e.code === 'Digit2') { castSpellByName(state, 'lightning'); return; }
   if (e.code === 'Digit3') { castSpellByName(state, 'stasis'); return; }
+
+  // Bare Q is the universal "drop the spell" key — drops a lightning
+  // aim without firing, lowers the shield, releases stasis. Lets the
+  // player bail out of any in-flight spell with one finger instead of
+  // remembering which slot key toggles which state. A subsequent
+  // Digit2 keyup is harmless (releaseCast is gated on
+  // isLightningAiming). Shift+Q is reserved for quit (handled above).
+  if (e.code === 'KeyQ' && !e.shiftKey) {
+    cancelAllSpells(state);
+    return;
+  }
 
   // Prone toggle: C key (works anytime on ground)
   if (e.code === 'KeyC') {
