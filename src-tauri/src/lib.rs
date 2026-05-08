@@ -410,34 +410,6 @@ pub fn run() {
                     }
                 })?;
 
-            // Shift+left-click on the overlay area: activate without first clicking
-            // through via the mouse (which would normally require the overlay to
-            // already have focus).
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
-            {
-                let click_window = window.clone();
-                let click_bounds = poll_bounds.clone();
-                let click_active = overlay_active.clone();
-                let click_hud_tall = hud_tall.clone();
-                let click_hud_tall_known = hud_tall_known.clone();
-                let click_pid = pid;
-                unsafe {
-                    platform::install_shift_click_monitor(click_bounds.clone(), move || {
-                        let handler_window = click_window.clone();
-                        let handler_state = TerminalState {
-                            pid: click_pid,
-                            bounds: click_bounds.clone(),
-                            hud_tall: click_hud_tall.clone(),
-                            hud_tall_known: click_hud_tall_known.clone(),
-                            overlay_active: click_active.clone(),
-                        };
-                        let _ = click_window.run_on_main_thread(move || {
-                            activate_overlay_impl(&handler_window, &handler_state);
-                        });
-                    });
-                }
-            }
-
             // Linux: Wayland rejects the tauri-plugin-global-shortcut XGrabKey
             // path, so activation lives in the GNOME Shell helper extension.
             // Mutter owns the keybinding and emits a D-Bus signal we subscribe

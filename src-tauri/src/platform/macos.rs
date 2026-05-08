@@ -1,12 +1,10 @@
 use std::ffi::{c_void, CString};
 use std::os::raw::c_char;
 use std::process::Command;
-use std::sync::{Arc, Mutex, Once};
+use std::sync::Once;
 use objc2::runtime::{AnyClass, AnyObject, Imp};
 use objc2::ffi::object_setClass;
 use objc2::msg_send;
-use objc2::encode::{Encode, Encoding, RefEncode};
-use block2::RcBlock;
 
 // ─── CoreGraphics / CoreFoundation FFI for stable window tracking ──────────
 // We need a way to pin the overlay to *this specific terminal window*, not
@@ -1234,96 +1232,6 @@ fn parse_dimensions_from_title(title: &str) -> Option<(usize, usize)> {
 ///   ─────────── (bottom border)
 ///   footer/status               ← footer_line
 use super::text_analysis::{detect_terminal_regions, is_wide_char};
-
-/// Install a global NSEvent monitor that fires `callback` whenever the user
-/// Shift+left-clicks anywhere, provided the click is inside the overlay's bounds.
-/// Used to activate the overlay without the user having to first give it focus.
-///
-/// # Safety
-/// Must be called from the main thread (Cocoa requirement).
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NSPointRaw { x: f64, y: f64 }
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NSSizeRaw { width: f64, height: f64 }
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NSRectRaw { origin: NSPointRaw, size: NSSizeRaw }
-
-unsafe impl Encode for NSPointRaw {
-    const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
-}
-unsafe impl RefEncode for NSPointRaw {
-    const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
-}
-unsafe impl Encode for NSSizeRaw {
-    const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
-}
-unsafe impl RefEncode for NSSizeRaw {
-    const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
-}
-unsafe impl Encode for NSRectRaw {
-    const ENCODING: Encoding = Encoding::Struct(
-        "CGRect",
-        &[<NSPointRaw as Encode>::ENCODING, <NSSizeRaw as Encode>::ENCODING],
-    );
-}
-unsafe impl RefEncode for NSRectRaw {
-    const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
-}
-
-pub unsafe fn install_shift_click_monitor<F>(
-    bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
-    callback: F,
-)
-where
-    F: Fn() + Send + Sync + 'static,
-{
-    let block = RcBlock::new(move |event: *mut AnyObject| {
-        let flags: usize = msg_send![event, modifierFlags];
-        // NSEventModifierFlagShift = 1 << 17
-        if (flags & (1 << 17)) == 0 {
-            return;
-        }
-
-        // NSEvent.mouseLocation is screen coords, origin bottom-left of the primary
-        // display. The bounds we track come from AX (top-left origin). Flip Y using
-        // the main screen's height.
-        let ns_event_cls = objc2::ffi::objc_getClass(c"NSEvent".as_ptr()) as *const AnyClass;
-        let loc: NSPointRaw = msg_send![ns_event_cls, mouseLocation];
-
-        let ns_screen_cls = objc2::ffi::objc_getClass(c"NSScreen".as_ptr()) as *const AnyClass;
-        let main_screen: *mut AnyObject = msg_send![ns_screen_cls, mainScreen];
-        let screen_frame: NSRectRaw = msg_send![main_screen, frame];
-        let screen_h = screen_frame.size.height;
-        let click_x = loc.x;
-        let click_y = screen_h - loc.y;
-
-        let (bx, by, bw, bh) = *bounds.lock().unwrap();
-        if click_x >= bx as f64
-            && click_x <= (bx + bw as i32) as f64
-            && click_y >= by as f64
-            && click_y <= (by + bh as i32) as f64
-        {
-            callback();
-        }
-    });
-
-    let ns_event_cls = objc2::ffi::objc_getClass(c"NSEvent".as_ptr()) as *const AnyClass;
-    // NSEventMaskLeftMouseDown = 1 << 1
-    const MASK: u64 = 1 << 1;
-    let _: *mut AnyObject = msg_send![
-        ns_event_cls,
-        addGlobalMonitorForEventsMatchingMask: MASK,
-        handler: &*block
-    ];
-
-    // Keep the block alive for the lifetime of the app
-    std::mem::forget(block);
-}
 
 /// Make the overlay the key window (receives keyboard input).
 ///

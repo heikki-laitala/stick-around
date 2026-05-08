@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use windows::core::{Interface, BSTR, PWSTR};
 use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM};
@@ -10,7 +10,6 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -25,12 +24,11 @@ use windows::Win32::UI::Accessibility::{
     IUIAutomationTextRange, TextPatternRangeEndpoint_End, TextUnit_Line, UIA_TextPatternId,
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CallNextHookEx, DispatchMessageW, EnumWindows, GetForegroundWindow,
-    GetMessageW, GetWindowLongW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsWindowVisible, SetForegroundWindow, SetWindowsHookExW, ShowWindow, TranslateMessage,
-    GWL_EXSTYLE, HHOOK, MSG, MSLLHOOKSTRUCT, SW_RESTORE, WH_MOUSE_LL, WM_LBUTTONDOWN,
+    BringWindowToTop, EnumWindows, GetForegroundWindow,
+    GetWindowLongW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId,
+    IsWindowVisible, SetForegroundWindow, ShowWindow,
+    GWL_EXSTYLE, SW_RESTORE,
     WS_EX_TOOLWINDOW,
 };
 
@@ -720,81 +718,6 @@ unsafe fn hwnd_at_position(pid: u32, x: i32, y: i32) -> Option<HWND> {
     };
     let _ = EnumWindows(Some(cb), LPARAM(&mut ctx as *mut _ as isize));
     ctx.result
-}
-
-type ClickCallback = Arc<dyn Fn() + Send + Sync + 'static>;
-
-struct HookState {
-    bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
-    callback: ClickCallback,
-}
-
-static HOOK_STATE: OnceLock<HookState> = OnceLock::new();
-
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0 && wparam.0 as u32 == WM_LBUTTONDOWN {
-        // GetAsyncKeyState's high bit set => key currently down. VK_SHIFT covers
-        // both left and right shift; we don't care which.
-        let shift_held = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
-        if shift_held {
-            if let Some(state) = HOOK_STATE.get() {
-                let info = &*(lparam.0 as *const MSLLHOOKSTRUCT);
-                let pt = info.pt;
-                let (bx, by, bw, bh) = *state.bounds.lock().unwrap();
-                if pt.x >= bx
-                    && pt.x < bx + bw as i32
-                    && pt.y >= by
-                    && pt.y < by + bh as i32
-                {
-                    (state.callback)();
-                    // Don't consume — match the macOS global monitor's behaviour
-                    // and let the click also reach whatever's underneath.
-                }
-            }
-        }
-    }
-    CallNextHookEx(HHOOK::default(), code, wparam, lparam)
-}
-
-/// Install a global low-level mouse hook that fires `callback` when the user
-/// shift+left-clicks anywhere inside the tracked terminal window. The hook
-/// runs on a dedicated thread with its own message pump so it stays responsive
-/// regardless of what the main thread is doing.
-pub unsafe fn install_shift_click_monitor<F>(
-    bounds: Arc<Mutex<(i32, i32, u32, u32)>>,
-    callback: F,
-) where
-    F: Fn() + Send + Sync + 'static,
-{
-    let _ = HOOK_STATE.set(HookState {
-        bounds,
-        callback: Arc::new(callback),
-    });
-
-    std::thread::spawn(|| unsafe {
-        let module = GetModuleHandleW(None).unwrap_or_default();
-        let hook = match SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), module, 0) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("[stick-around] failed to install WH_MOUSE_LL hook: {:?}", e);
-                return;
-            }
-        };
-
-        let mut msg = MSG::default();
-        // GetMessageW returns >0 for a real message, 0 on WM_QUIT, -1 on error.
-        // We only care that the loop services hook callbacks; messages get
-        // dispatched but no real window owns them.
-        loop {
-            let ret = GetMessageW(&mut msg, HWND::default(), 0, 0);
-            if ret.0 <= 0 {
-                break;
-            }
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-        let _ = windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(hook);
-    });
 }
 
 pub fn get_name_by_pid(pid: u32) -> Option<String> {

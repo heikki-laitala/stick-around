@@ -43,7 +43,8 @@ void and respawn at the start.
   rising lava → survive a meteor shower → fight through a pitch-black
   level with only a flashlight.
 - **Give up whenever.** `Esc` hands focus back to the terminal and the
-  stick man carries on without you. `Shift+click` to take over again.
+  stick man carries on without you. Press `Cmd/Win/Super + Shift + G`
+  to take over again.
 - **Zero impact on Claude.** The game runs in its own process. You are
   not slowing the spinner down. You are just refusing to be bored by it.
 
@@ -152,14 +153,14 @@ to load the new version.
 The overlay floats above the terminal and only grabs your keyboard when
 it has focus. You toggle between the two:
 
-- **Shift + click** anywhere on the overlay — grabs focus so keys go to
-  the game. *macOS / Windows only* — Wayland blocks global click
-  monitoring from clients, so on Linux click-to-focus works only when
-  you click directly on the HUD strip.
-- **Cmd/Win/Super + Shift + G** — same thing, without the mouse. (Cmd
-  on macOS, Windows key on Windows, Super on Linux. The Linux binding
-  is owned by the GNOME helper extension via Mutter, so it works on
-  Wayland where the macOS/Windows `XGrabKey` path is rejected.)
+- **Cmd/Win/Super + Shift + G** — grabs focus so keys go to the game.
+  Cmd on macOS, the Windows key on Windows, Super on Linux. The Linux
+  binding is owned by the GNOME helper extension via Mutter, so it
+  works on Wayland where the macOS/Windows `XGrabKey` path is rejected.
+- **Linux only — click the HUD strip** when the overlay is passive.
+  Wayland's window-manager-owned cursor means we can't make the
+  overlay click-through, so the visible strip doubles as a re-activate
+  surface. macOS and Windows are keyboard-only.
 - **Esc** — releases focus back to the terminal so you can keep typing.
   The stick man carries on; he just stops listening to your keys until
   you grab focus again.

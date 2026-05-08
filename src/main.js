@@ -311,7 +311,7 @@ if (window.__TAURI__) {
 // active (focused, non-click-through) overlay sits on top of the
 // terminal eating every event — the user can't move, focus, or type
 // in the terminal underneath. macOS/Windows leave the overlay active
-// (the user activates explicitly via global shortcut / shift-click),
+// (the user activates explicitly via the Cmd/Win+Shift+G shortcut),
 // but Linux has no comparable re-activation path here, so we default
 // the post-splash state to passive: terminal is usable, and the user
 // can re-activate via Super+Shift+G when they want to play.
@@ -363,9 +363,9 @@ window.addEventListener('click', (e) => {
   // under WebKit2GTK on Wayland, so we can't rely on click-through).
   // The strip is the only clickable surface, so two gestures need to
   // resolve here: clicking the close button quits, anything else
-  // re-activates (this also covers Shift+click — a regular click is
-  // strictly more permissive than the macOS/Windows shift-click gate
-  // and Wayland blocks the kind of global click monitor we use there).
+  // re-activates. macOS/Windows have no equivalent click path —
+  // those platforms re-activate exclusively via the Cmd/Win+Shift+G
+  // global shortcut.
   if (IS_LINUX && !state.overlayActive && !state.splashActive) {
     if (isInCloseButton(e.clientX, e.clientY, W())) {
       if (window.__TAURI__) window.__TAURI__.core.invoke('quit_app').catch(() => {});
