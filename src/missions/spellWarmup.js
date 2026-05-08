@@ -11,16 +11,22 @@ import {
  * A single ball drops from above the play area, bouncing perfectly
  * elastically off the four edges of the terminal text region. As it
  * travels it punches holes through any platform it crosses (same shape
- * as a meteor's trail). The player has to:
+ * as a meteor's trail). Each lightning hit speeds the ball up and
+ * nudges its velocity toward the man, so the second and third zaps
+ * effectively require stasis to aim and shield to survive close passes
+ * — the mission earns its "teaches all three spells" framing through
+ * difficulty rather than an explicit gate. Three clean lightning hits
+ * end the mission.
  *
  *   1. lightning  — hold `2`, sweep with arrows, release to zap the ball.
- *                   Three clean hits ends the mission.
+ *                   Three hits wins; each hit makes the ball faster and
+ *                   slightly homing.
  *   2. shield     — tap `1` to raise the dome when the ball is about to
  *                   ram the man. A shielded hit deflects the ball; an
  *                   unshielded hit ends the run.
  *   3. stasis     — hold `3` to slow the ball's motion via hazardDt, so
  *                   aiming lightning or moving into shield position is
- *                   easier on a fast pass.
+ *                   feasible once the ball is whipping around.
  *
  * Mana is pre-primed to PRIME_MANA at entry so all three spells are
  * available without a separate mining detour.
@@ -39,6 +45,9 @@ const BALL_HITS_TO_WIN = 3;
 const BALL_SPAWN_DELAY = 0.6;          // s before the ball first appears, so the toast is readable
 const BALL_SHIELD_BOUNCE_VY = -360;    // upward kick when a shielded man deflects the ball
 const BALL_SHIELD_BOUNCE_VX = 280;     // horizontal kick away from the man on a shield deflect
+const BALL_HIT_SPEED_BOOST = 1.4;      // velocity multiplier after each successful lightning hit
+const BALL_HIT_HOMING = 200;           // px/s velocity added toward the man after each hit
+const BALL_MAX_SPEED = 900;            // hard ceiling so the ramp doesn't blow past the bounce solver
 
 function spawnBall(state) {
   const { x0, x1 } = spawnXRange(state);
@@ -142,7 +151,10 @@ export const SPELL_WARMUP_MISSION = {
       }));
 
     // Lightning hit — increment counter, brief invuln window so a single
-    // bolt's lifetime can't tick three hits in three frames.
+    // bolt's lifetime can't tick three hits in three frames. After the
+    // hit, scale the ball's velocity up and add a homing nudge toward
+    // the man so the next zap is meaningfully harder; that's the
+    // mechanism that forces shield + stasis usage instead of a gate.
     if (b.invulnT === 0 && lightningStrikesPoint(state, b.x, b.y)) {
       b.hits += 1;
       b.invulnT = BALL_INVULN;
@@ -153,6 +165,19 @@ export const SPELL_WARMUP_MISSION = {
         scene.ball = null;
         scene.done = true;
         return;
+      }
+      b.vx *= BALL_HIT_SPEED_BOOST;
+      b.vy *= BALL_HIT_SPEED_BOOST;
+      const dx = state.gx - b.x;
+      const dy = torsoY(state) - b.y;
+      const len = Math.hypot(dx, dy) || 1;
+      b.vx += (dx / len) * BALL_HIT_HOMING;
+      b.vy += (dy / len) * BALL_HIT_HOMING;
+      const speed = Math.hypot(b.vx, b.vy);
+      if (speed > BALL_MAX_SPEED) {
+        const k = BALL_MAX_SPEED / speed;
+        b.vx *= k;
+        b.vy *= k;
       }
     }
 

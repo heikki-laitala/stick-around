@@ -110,6 +110,25 @@ describe('SPELL_WARMUP_MISSION — lightning hits', () => {
     expect(s.missionScene.done).toBe(true);
     expect(s.missionScene.ball).toBeNull();
   });
+
+  it('speeds up and homes the ball toward the man on a non-final hit', () => {
+    const s = makeState({ gx: 600, feetY: 500 });
+    SPELL_WARMUP_MISSION.onEnter(s);
+    // Place the ball off to one side with a moderate baseline speed,
+    // then land a hit while it's not yet the final zap.
+    s.missionScene.ball = { x: 200, y: 200, vx: 100, vy: 0, hits: 0, invulnT: 0 };
+    const speedBefore = Math.hypot(s.missionScene.ball.vx, s.missionScene.ball.vy);
+    s.lightningBolt = {
+      x: 200, y: 400, angle: -Math.PI / 2,
+      life: 0.3, maxLife: 0.35, zig: [],
+    };
+    SPELL_WARMUP_MISSION.update(s, 0.016);
+    const b = s.missionScene.ball;
+    expect(b.hits).toBe(1);
+    // Ball is faster post-hit and now points generally toward the man (+x).
+    expect(Math.hypot(b.vx, b.vy)).toBeGreaterThan(speedBefore);
+    expect(b.vx).toBeGreaterThan(0);
+  });
 });
 
 describe('SPELL_WARMUP_MISSION — player contact', () => {
