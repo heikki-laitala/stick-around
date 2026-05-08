@@ -36,15 +36,15 @@ function makeState(overrides = {}) {
 }
 
 describe('SPELL_WARMUP_MISSION.onEnter', () => {
-  it('starts in the lightning phase with a fresh crystal target', () => {
+  it('starts with no ball spawned and a non-zero spawn delay', () => {
     const s = makeState();
     SPELL_WARMUP_MISSION.onEnter(s);
-    expect(s.missionScene.phase).toBe('lightning');
-    expect(s.missionScene.crystal).toBeDefined();
-    expect(s.missionScene.crystal.zapped).toBe(false);
+    expect(s.missionScene.ball).toBeNull();
+    expect(s.missionScene.spawnT).toBeGreaterThan(0);
+    expect(s.missionScene.done).toBe(false);
   });
 
-  it('primes mana high enough to cover all three phases', () => {
+  it('primes mana high enough to cover all three spells', () => {
     const s = makeState({ mana: 0 });
     SPELL_WARMUP_MISSION.onEnter(s);
     expect(s.mana).toBeGreaterThanOrEqual(10);
@@ -57,90 +57,78 @@ describe('SPELL_WARMUP_MISSION.onEnter', () => {
   });
 });
 
-describe('SPELL_WARMUP_MISSION — phase advance', () => {
-  it('advances from lightning to shield once the crystal is zapped', () => {
+describe('SPELL_WARMUP_MISSION — ball spawn', () => {
+  it('spawns the ball after the spawn delay elapses', () => {
     const s = makeState();
     SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.crystal.zapped = true;
-    SPELL_WARMUP_MISSION.update(s, 0.1);
-    expect(s.missionScene.phase).toBe('shield');
-  });
-
-  it('advances from shield to stasis after blocking a fireball', () => {
-    const s = makeState();
-    SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.phase = 'shield';
-    s.missionScene.fireball = null;
-    s.missionScene.shieldedHits = 1;        // one block recorded
-    SPELL_WARMUP_MISSION.update(s, 0.1);
-    expect(s.missionScene.phase).toBe('stasis');
-  });
-
-  it('advances from stasis to done after a successful slow-mo dodge', () => {
-    const s = makeState();
-    SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.phase = 'stasis';
-    s.missionScene.shardDodged = true;
-    SPELL_WARMUP_MISSION.update(s, 0.1);
-    expect(s.missionScene.phase).toBe('done');
+    // Walk past the spawn delay.
+    for (let i = 0; i < 60; i++) SPELL_WARMUP_MISSION.update(s, 0.016);
+    expect(s.missionScene.ball).not.toBeNull();
+    expect(s.missionScene.ball.hits).toBe(0);
   });
 });
 
 describe('SPELL_WARMUP_MISSION.check', () => {
-  it('returns true once the phase machine reaches done', () => {
+  it('returns true once the scene is marked done', () => {
     const s = makeState();
     SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.phase = 'done';
+    s.missionScene.done = true;
     expect(SPELL_WARMUP_MISSION.check(s)).toBe(true);
   });
 
-  it('returns false in any earlier phase', () => {
+  it('returns false while the ball is still in play', () => {
     const s = makeState();
     SPELL_WARMUP_MISSION.onEnter(s);
-    expect(SPELL_WARMUP_MISSION.check(s)).toBe(false);
-    s.missionScene.phase = 'shield';
-    expect(SPELL_WARMUP_MISSION.check(s)).toBe(false);
-    s.missionScene.phase = 'stasis';
     expect(SPELL_WARMUP_MISSION.check(s)).toBe(false);
   });
 });
 
-describe('SPELL_WARMUP_MISSION — lightning detection', () => {
-  it('marks the crystal zapped when a lightning bolt overlaps it', () => {
+describe('SPELL_WARMUP_MISSION — lightning hits', () => {
+  it('counts a lightning strike on the ball as a hit', () => {
     const s = makeState();
     SPELL_WARMUP_MISSION.onEnter(s);
-    const c = s.missionScene.crystal;
-    // Place a bolt that passes directly through the crystal.
+    // Force a ball into play directly under the bolt.
+    s.missionScene.ball = { x: 400, y: 200, vx: 0, vy: 0, hits: 0, invulnT: 0 };
     s.lightningBolt = {
-      x: c.x, y: c.y + 200, angle: -Math.PI / 2,
+      x: 400, y: 400, angle: -Math.PI / 2,
       life: 0.3, maxLife: 0.35, zig: [],
     };
     SPELL_WARMUP_MISSION.update(s, 0.016);
-    expect(s.missionScene.crystal.zapped).toBe(true);
+    expect(s.missionScene.ball.hits).toBe(1);
+    expect(s.missionScene.ball.invulnT).toBeGreaterThan(0);
+  });
+
+  it('marks the mission done after the third lightning hit', () => {
+    const s = makeState();
+    SPELL_WARMUP_MISSION.onEnter(s);
+    s.missionScene.ball = { x: 400, y: 200, vx: 0, vy: 0, hits: 2, invulnT: 0 };
+    s.lightningBolt = {
+      x: 400, y: 400, angle: -Math.PI / 2,
+      life: 0.3, maxLife: 0.35, zig: [],
+    };
+    SPELL_WARMUP_MISSION.update(s, 0.016);
+    expect(s.missionScene.done).toBe(true);
+    expect(s.missionScene.ball).toBeNull();
   });
 });
 
-describe('SPELL_WARMUP_MISSION — shield detection', () => {
-  it('counts a fireball as blocked when it reaches the player while shielded', () => {
-    const s = makeState({ shieldActive: true });
-    SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.phase = 'shield';
-    s.missionScene.fireball = { x: s.gx, y: s.feetY - 30, vx: 200, life: 5 };
-    SPELL_WARMUP_MISSION.update(s, 0.016);
-    expect(s.missionScene.shieldedHits).toBeGreaterThanOrEqual(1);
-  });
-
-  it('despawns and respawns the fireball when it flies past the player without a shield up', () => {
+describe('SPELL_WARMUP_MISSION — player contact', () => {
+  it('ends the run when the unshielded ball reaches the man', () => {
     const s = makeState({ shieldActive: false });
     SPELL_WARMUP_MISSION.onEnter(s);
-    s.missionScene.phase = 'shield';
-    // Simulate a fireball that already left the play area.
-    s.missionScene.fireball = { x: 9999, y: 200, vx: 200, age: 1 };
+    // Place the ball right on top of the man's torso (~feetY - 30).
+    s.missionScene.ball = { x: s.gx, y: s.feetY - 30, vx: 0, vy: 0, hits: 0, invulnT: 0 };
     SPELL_WARMUP_MISSION.update(s, 0.016);
-    expect(s.missionScene.fireball).toBeNull();
-    // Walk the timer past the respawn delay; a fresh fireball should be back.
-    for (let i = 0; i < 60; i++) SPELL_WARMUP_MISSION.update(s, 0.016);
-    expect(s.missionScene.fireball).not.toBeNull();
-    expect(s.missionScene.shieldedHits || 0).toBe(0);
+    expect(s.gameOver).toBe(true);
+  });
+
+  it('deflects the ball away when the shield is up', () => {
+    const s = makeState({ shieldActive: true });
+    SPELL_WARMUP_MISSION.onEnter(s);
+    s.missionScene.ball = { x: s.gx, y: s.feetY - 30, vx: 100, vy: 200, hits: 0, invulnT: 0 };
+    SPELL_WARMUP_MISSION.update(s, 0.016);
+    expect(s.gameOver).toBe(false);
+    // The deflect kicks the ball upward.
+    expect(s.missionScene.ball.vy).toBeLessThan(0);
   });
 });

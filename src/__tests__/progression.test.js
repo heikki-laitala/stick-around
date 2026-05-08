@@ -62,9 +62,9 @@ function completeRealMissions(s) {
       continue;
     }
     if (m.id === 'spell-warmup' && s.missionScene) {
-      // Skip past the lightning/shield/stasis phase machine by stamping
-      // the final phase — the check returns true once phase === 'done'.
-      s.missionScene.phase = 'done';
+      // Skip past the bouncing-ball challenge by stamping done — the
+      // check returns true as soon as the scene flag flips.
+      s.missionScene.done = true;
       continue;
     }
     if (m.id === 'escape-lava' && s.missionScene) {

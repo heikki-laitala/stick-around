@@ -1,108 +1,73 @@
 import { torsoY } from '../poses.js';
 import { hazardDt, isShielded, lightningStrikesPoint } from '../spells.js';
-import { burstParticles, missionTopY, resetMissionBase } from './_shared.js';
+import {
+  burstParticles, burstPlatformsBetween, missionTopY,
+  renderGameOver, resetMissionBase, spawnXRange,
+} from './_shared.js';
 
 /**
  * "Practice your spells" warm-up mission.
  *
- * A short tutorial that runs the player through each spell in turn so
- * they walk into the variable mission tail knowing the keys exist:
+ * A single ball drops from above the play area, bouncing perfectly
+ * elastically off the four edges of the terminal text region. As it
+ * travels it punches holes through any platform it crosses (same shape
+ * as a meteor's trail). The player has to:
  *
- *   1. lightning  — a fixed crystal target hangs above the spawn area;
- *                   player has to hold `2`, sweep with arrows, release.
- *   2. shield     — a telegraphed fireball loops in toward the man at
- *                   torso height; raising the dome (`1`) absorbs it.
- *   3. stasis     — a fast shard drops at the man's column; engaging
- *                   stasis (`3`) slows it enough to step aside.
+ *   1. lightning  — hold `2`, sweep with arrows, release to zap the ball.
+ *                   Three clean hits ends the mission.
+ *   2. shield     — tap `1` to raise the dome when the ball is about to
+ *                   ram the man. A shielded hit deflects the ball; an
+ *                   unshielded hit ends the run.
+ *   3. stasis     — hold `3` to slow the ball's motion via hazardDt, so
+ *                   aiming lightning or moving into shield position is
+ *                   easier on a fast pass.
  *
- * The mission is FORGIVING — missing a phase doesn't fail the run; the
- * relevant target/projectile just respawns and the player tries again.
- * Mana is pre-primed to PRIME_MANA at entry so none of the three
- * exercises gates on a separate mining trip.
- *
- * Each phase exposes its own `subtitle` style hint via the renderer so
- * the player always knows what the current step is asking for.
+ * Mana is pre-primed to PRIME_MANA at entry so all three spells are
+ * available without a separate mining detour.
  */
 
-// Generous: enough that fumbling lightning a few times, holding shield
-// up for a beat, and stasis-stalling at the end all comfortably fit
-// within one priming pass. The mission re-primes between phases (see
-// `setPhase`) so the player can never run dry mid-tutorial.
+// Generous: enough for a few lightning fumbles, a couple of shield
+// raises, and some stasis stalling without the player ever running dry.
 export const SPELL_WARMUP_PRIME_MANA = 40;
-const CRYSTAL_RADIUS = 12;
-const CRYSTAL_ABOVE = 110;             // px above the player's spawn feet
-const FIREBALL_SPEED = 240;
-const FIREBALL_RADIUS = 12;
-const FIREBALL_HIT_RADIUS = 22;        // collision against the player torso
-const FIREBALL_TELEGRAPH = 0.7;        // s — dotted line warning before launch
-const FIREBALL_RESPAWN_DELAY = 0.6;
-const SHARD_RADIUS = 9;
-const SHARD_FALL_SPEED = 360;
-const SHARD_DODGE_PX = 36;             // horizontal distance from shard to count as dodged
-const SHARD_RESPAWN_DELAY = 0.5;
-const SHARD_SPAWN_ABOVE = 80;          // px above missionTopY for the shard's spawn
+const BALL_RADIUS = 14;
+const BALL_HIT_RADIUS_PLAYER = 22;     // collision against the man's torso
+const BALL_GRAVITY = 600;              // px/s^2 — softer than the player's so arcs read clearly
+const BALL_INITIAL_VX = 220;
+const BALL_HOLE_W = 30;                // matches METEOR_HOLE_W so visual continuity holds
+const BALL_INVULN = 0.4;               // s — post-zap window where lightning can't double-count
+const BALL_HITS_TO_WIN = 3;
+const BALL_SPAWN_DELAY = 0.6;          // s before the ball first appears, so the toast is readable
+const BALL_SHIELD_BOUNCE_VY = -360;    // upward kick when a shielded man deflects the ball
+const BALL_SHIELD_BOUNCE_VX = 280;     // horizontal kick away from the man on a shield deflect
 
-function spawnCrystal(state) {
-  const cx = state.gx;
+function spawnBall(state) {
+  const { x0, x1 } = spawnXRange(state);
   const top = missionTopY(state);
-  const cy = Math.max(top + 30, state.feetY - CRYSTAL_ABOVE);
-  return { x: cx, y: cy, zapped: false };
-}
-
-function spawnFireball(state) {
-  // Pick a side opposite the player so the bolt sweeps toward them.
-  const fromLeft = state.gx > (state.screenW || 800) / 2;
-  const x = fromLeft ? -30 : (state.screenW || 800) + 30;
-  const vx = fromLeft ? FIREBALL_SPEED : -FIREBALL_SPEED;
-  const y = torsoY(state);
-  return { x, y, vx, age: 0, telegraphed: false };
-}
-
-function spawnShard(state) {
-  return { x: state.gx, y: missionTopY(state) - SHARD_SPAWN_ABOVE, vy: SHARD_FALL_SPEED };
-}
-
-function intersectsPlayer(state, p, radius) {
-  return Math.hypot(p.x - state.gx, p.y - torsoY(state)) < radius;
-}
-
-function setPhase(state, phase) {
-  const scene = state.missionScene;
-  if (!scene) return;
-  scene.phase = phase;
-  // Top mana back up to the prime amount on every phase advance so a
-  // player who burned mana fumbling phase 1 still has full reserves
-  // for phase 2 and 3. Never lower an already-rich pool.
-  if ((state.mana || 0) < SPELL_WARMUP_PRIME_MANA) {
-    state.mana = SPELL_WARMUP_PRIME_MANA;
-  }
-  // Refresh the entry-banner hint each time the phase advances so the
-  // player gets a clear subtitle for the next exercise.
-  state.missionToast = {
-    age: 0,
-    text: phaseTitle(phase),
-    subtitle: phaseSubtitle(phase),
+  // Spawn at a horizontal position offset from the man so the first
+  // descent isn't a guaranteed bullseye.
+  const margin = 60;
+  const lo = x0 + margin;
+  const hi = x1 - margin;
+  const target = state.gx;
+  // Pick a side opposite the man if there's room; otherwise center.
+  const x = hi - lo > 200
+    ? (target < (lo + hi) / 2 ? hi : lo)
+    : (lo + hi) / 2;
+  const vx = x > target ? -BALL_INITIAL_VX : BALL_INITIAL_VX;
+  return {
+    x,
+    y: top + 8,
+    vx,
+    vy: 0,
+    hits: 0,
+    invulnT: 0,
   };
-}
-
-function phaseTitle(phase) {
-  if (phase === 'lightning') return 'Lightning practice';
-  if (phase === 'shield') return 'Shield practice';
-  if (phase === 'stasis') return 'Stasis practice';
-  return 'Practice complete';
-}
-
-function phaseSubtitle(phase) {
-  if (phase === 'lightning') return 'hold 2 to aim, release to fire — zap the crystal above';
-  if (phase === 'shield') return 'tap 1 to raise the shield — block the incoming fireball';
-  if (phase === 'stasis') return 'hold 3 to slow time — step aside as the shard falls';
-  return null;
 }
 
 export const SPELL_WARMUP_MISSION = {
   id: 'spell-warmup',
   text: 'Practice your spells',
-  subtitle: 'a short workout for shield, lightning, and stasis',
+  subtitle: 'a falling ball — zap it 3x with lightning, shield to survive, stasis to slow',
 
   onEnter(state) {
     const scene = state.missionScene;
@@ -110,131 +75,116 @@ export const SPELL_WARMUP_MISSION = {
     if ((state.mana || 0) < SPELL_WARMUP_PRIME_MANA) {
       state.mana = SPELL_WARMUP_PRIME_MANA;
     }
-    scene.phase = 'lightning';
-    scene.crystal = spawnCrystal(state);
-    scene.fireball = null;
-    scene.shieldedHits = 0;
-    scene.fireballRespawnT = 0;
-    scene.shard = null;
-    scene.shardDodged = false;
-    scene.shardRespawnT = 0;
+    scene.ball = null;
+    scene.spawnT = BALL_SPAWN_DELAY;
+    scene.done = false;
   },
 
   questSuffix(state) {
     const scene = state.missionScene;
     if (!scene) return '';
-    if (scene.phase === 'lightning') return '(1/3 lightning)';
-    if (scene.phase === 'shield') return '(2/3 shield)';
-    if (scene.phase === 'stasis') return '(3/3 stasis)';
-    return '';
+    const hits = scene.ball?.hits ?? 0;
+    return `(${Math.min(BALL_HITS_TO_WIN, hits)}/${BALL_HITS_TO_WIN} zaps)`;
   },
 
   check(state) {
-    return state.missionScene?.phase === 'done';
+    return state.missionScene?.done === true;
   },
 
   update(state, dt) {
     const scene = state.missionScene;
     if (!scene) return;
+    if (state.gameOver) return;
+    if (scene.done) return;
 
-    if (scene.phase === 'lightning') {
-      // Once a bolt overlaps the crystal, mark zapped (the crystal
-      // disappears in render). Advance once it's marked.
-      if (scene.crystal && !scene.crystal.zapped && state.lightningBolt) {
-        if (lightningStrikesPoint(state, scene.crystal.x, scene.crystal.y)) {
-          scene.crystal.zapped = true;
-          burstParticles(state, scene.crystal.x, scene.crystal.y, {
-            count: 14, speedMin: 60, speedMax: 200, life: 0.4,
-          });
-        }
-      }
-      if (scene.crystal?.zapped) {
-        setPhase(state, 'shield');
-        scene.fireballRespawnT = 0;
-      }
+    if (!scene.ball) {
+      scene.spawnT = (scene.spawnT || 0) - dt;
+      if (scene.spawnT <= 0) scene.ball = spawnBall(state);
       return;
     }
 
-    if (scene.phase === 'shield') {
-      if (!scene.fireball) {
-        scene.fireballRespawnT = (scene.fireballRespawnT || 0) - dt;
-        if (scene.fireballRespawnT <= 0) scene.fireball = spawnFireball(state);
-      } else {
-        const f = scene.fireball;
-        f.age += dt;
-        // Telegraph window — fireball doesn't move yet.
-        if (f.age >= FIREBALL_TELEGRAPH) {
-          // Hazard motion respects stasis even on the warmup, so an
-          // overzealous player can practice stacking spells if they
-          // want.
-          f.x += f.vx * hazardDt(state, dt);
-        }
-        if (intersectsPlayer(state, f, FIREBALL_HIT_RADIUS)) {
-          if (isShielded(state)) {
-            scene.shieldedHits = (scene.shieldedHits || 0) + 1;
-            burstParticles(state, f.x, f.y, {
-              count: 12, speedMin: 80, speedMax: 200, life: 0.35,
-            });
-            scene.fireball = null;
-            scene.fireballRespawnT = FIREBALL_RESPAWN_DELAY;
-          } else {
-            // No shield — the fireball passes harmlessly (warmup is
-            // forgiving) but still despawns and respawns after a beat
-            // so the player gets another try without standing around.
-            scene.fireball = null;
-            scene.fireballRespawnT = FIREBALL_RESPAWN_DELAY;
-          }
-        } else if (f.x < -60 || f.x > (state.screenW || 800) + 60) {
-          // Flew past — also a "miss"; reset and try again.
-          scene.fireball = null;
-          scene.fireballRespawnT = FIREBALL_RESPAWN_DELAY;
-        }
-      }
-      if ((scene.shieldedHits || 0) >= 1) {
-        setPhase(state, 'stasis');
-      }
-      return;
+    const b = scene.ball;
+    const hDt = hazardDt(state, dt);
+    if (b.invulnT > 0) b.invulnT = Math.max(0, b.invulnT - dt);
+
+    // Integrate motion. Stasis scales both gravity and existing velocity
+    // through hDt so a slowed ball loses speed believably.
+    b.vy += BALL_GRAVITY * hDt;
+    const xBefore = b.x;
+    const yBefore = b.y;
+    b.x += b.vx * hDt;
+    b.y += b.vy * hDt;
+
+    // Bounce off the four edges of the terminal text area. Perfectly
+    // elastic — the mission ends on a lightning hit, not a stalled ball.
+    const { x0, x1 } = spawnXRange(state);
+    const yTop = missionTopY(state);
+    const yBot = (state.screenH || 600) - 8;
+    if (b.x - BALL_RADIUS < x0) {
+      b.x = x0 + BALL_RADIUS;
+      b.vx = Math.abs(b.vx);
+    } else if (b.x + BALL_RADIUS > x1) {
+      b.x = x1 - BALL_RADIUS;
+      b.vx = -Math.abs(b.vx);
+    }
+    if (b.y - BALL_RADIUS < yTop) {
+      b.y = yTop + BALL_RADIUS;
+      b.vy = Math.abs(b.vy);
+    } else if (b.y + BALL_RADIUS > yBot) {
+      b.y = yBot - BALL_RADIUS;
+      b.vy = -Math.abs(b.vy);
     }
 
-    if (scene.phase === 'stasis') {
-      if (!scene.shard) {
-        scene.shardRespawnT = (scene.shardRespawnT || 0) - dt;
-        if (scene.shardRespawnT <= 0) scene.shard = spawnShard(state);
-      } else {
-        const sh = scene.shard;
-        sh.y += sh.vy * hazardDt(state, dt);
-        const dodged = Math.abs(state.gx - sh.x) > SHARD_DODGE_PX;
-        if (sh.y > torsoY(state)) {
-          if (dodged) {
-            scene.shardDodged = true;
-            scene.shard = null;
-          } else if (sh.y > (state.screenH || 600) + 30) {
-            // Hit/passed without dodging — respawn for another try.
-            scene.shard = null;
-            scene.shardRespawnT = SHARD_RESPAWN_DELAY;
-          }
-        }
+    // Punch holes through any platform tops crossed during this step.
+    burstPlatformsBetween(state, xBefore, yBefore, b.x, b.y, BALL_HOLE_W,
+      (cx, cy) => burstParticles(state, cx, cy, {
+        count: 8, speedMin: 50, speedMax: 160, life: 0.35,
+      }));
+
+    // Lightning hit — increment counter, brief invuln window so a single
+    // bolt's lifetime can't tick three hits in three frames.
+    if (b.invulnT === 0 && lightningStrikesPoint(state, b.x, b.y)) {
+      b.hits += 1;
+      b.invulnT = BALL_INVULN;
+      burstParticles(state, b.x, b.y, {
+        count: 16, speedMin: 80, speedMax: 240, life: 0.45,
+      });
+      if (b.hits >= BALL_HITS_TO_WIN) {
+        scene.ball = null;
+        scene.done = true;
+        return;
       }
-      if (scene.shardDodged) {
-        setPhase(state, 'done');
+    }
+
+    // Player contact. Shield deflects (kick the ball up and away);
+    // unshielded contact ends the run.
+    if (Math.hypot(b.x - state.gx, b.y - torsoY(state)) < BALL_HIT_RADIUS_PLAYER) {
+      if (isShielded(state)) {
+        const dir = b.x >= state.gx ? 1 : -1;
+        b.vx = dir * BALL_SHIELD_BOUNCE_VX;
+        b.vy = BALL_SHIELD_BOUNCE_VY;
+        // Nudge the ball outside the hit radius so the next frame
+        // doesn't immediately re-trigger the deflect.
+        b.x = state.gx + dir * (BALL_HIT_RADIUS_PLAYER + BALL_RADIUS + 1);
+        burstParticles(state, b.x, b.y, {
+          count: 12, speedMin: 80, speedMax: 200, life: 0.35,
+        });
+      } else {
+        burstParticles(state, b.x, b.y, {
+          count: 18, speedMin: 100, speedMax: 260, life: 0.5,
+        });
+        state.gameOver = true;
+        state.gvx = 0;
+        state.gvy = 0;
       }
     }
   },
 
-  render(ctx, state) {
+  render(ctx, state, W, H) {
     const scene = state.missionScene;
     if (!scene) return;
-    const now = performance.now() / 1000;
-    if (scene.crystal && !scene.crystal.zapped) {
-      drawCrystal(ctx, scene.crystal.x, scene.crystal.y, now);
-    }
-    if (scene.fireball) {
-      const launching = scene.fireball.age < FIREBALL_TELEGRAPH;
-      drawFireball(ctx, scene.fireball, launching, state);
-    }
-    if (scene.shard) {
-      drawShard(ctx, scene.shard.x, scene.shard.y);
-    }
+    if (scene.ball) drawBall(ctx, scene.ball);
+    if (state.gameOver) renderGameOver(ctx, W, H);
   },
 };
 
@@ -244,69 +194,26 @@ export function restartSpellWarmup(state) {
 
 // ── Render helpers ────────────────────────────────────────────────────
 
-function drawCrystal(ctx, x, y, now) {
-  const r = CRYSTAL_RADIUS;
-  const pulse = 1 + 0.12 * Math.sin(now * 5);
+function drawBall(ctx, b) {
   ctx.save();
-  ctx.shadowColor = 'rgba(180, 220, 255, 0.85)';
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = 'rgba(220, 240, 255, 0.95)';
-  ctx.beginPath();
-  // Diamond shape — clearly a "lightning target", not a collectible.
-  ctx.moveTo(x, y - r * pulse);
-  ctx.lineTo(x + r * 0.7, y);
-  ctx.lineTo(x, y + r * pulse);
-  ctx.lineTo(x - r * 0.7, y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(120, 200, 255, 0.85)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawFireball(ctx, f, launching, state) {
-  ctx.save();
-  if (launching) {
-    // Telegraph: dashed red line from fireball's spawn point toward
-    // the player so the lane is readable before motion starts.
-    ctx.strokeStyle = 'rgba(255, 100, 80, 0.6)';
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(f.x, f.y);
-    ctx.lineTo(state.gx, f.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  // Fireball body — orange-red sphere with a glowing core.
-  ctx.shadowColor = 'rgba(255, 120, 40, 0.85)';
-  ctx.shadowBlur = 12;
-  const grad = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, FIREBALL_RADIUS);
-  grad.addColorStop(0, 'rgba(255, 245, 200, 0.95)');
-  grad.addColorStop(0.5, 'rgba(255, 150, 60, 0.95)');
-  grad.addColorStop(1, 'rgba(180, 50, 30, 0.85)');
+  // Brief flash while invulnerable so the player can see the hit
+  // landed and the next zap won't register yet.
+  const flash = b.invulnT > 0 ? 0.55 + 0.45 * (b.invulnT / BALL_INVULN) : 0;
+  ctx.shadowColor = 'rgba(255, 200, 90, 0.85)';
+  ctx.shadowBlur = 14;
+  const grad = ctx.createRadialGradient(b.x, b.y, 1, b.x, b.y, BALL_RADIUS);
+  grad.addColorStop(0, 'rgba(255, 250, 220, 0.98)');
+  grad.addColorStop(0.55, 'rgba(255, 180, 80, 0.95)');
+  grad.addColorStop(1, 'rgba(190, 80, 40, 0.85)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(f.x, f.y, FIREBALL_RADIUS, 0, Math.PI * 2);
+  ctx.arc(b.x, b.y, BALL_RADIUS, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
-}
-
-function drawShard(ctx, x, y) {
-  ctx.save();
-  ctx.shadowColor = 'rgba(150, 100, 255, 0.7)';
-  ctx.shadowBlur = 8;
-  ctx.fillStyle = 'rgba(220, 200, 255, 0.95)';
-  ctx.strokeStyle = 'rgba(140, 100, 220, 0.85)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(x, y - SHARD_RADIUS);
-  ctx.lineTo(x + SHARD_RADIUS * 0.55, y);
-  ctx.lineTo(x, y + SHARD_RADIUS);
-  ctx.lineTo(x - SHARD_RADIUS * 0.55, y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${flash})`;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, BALL_RADIUS * 0.65, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
