@@ -133,10 +133,11 @@ export const MISSIONS = [
 ];
 
 // The first three missions are fixed-order tutorials: collect balls,
-// collect mines, then a quick spell-warmup that demos shield, lightning,
-// and stasis on a forgiving target dummy each. Everything past that is
-// shuffled per session so the player gets a fresh ladder each run
-// without ever repeating a mission they've already played in this run.
+// collect mines, then a spell-warmup where a bouncing ball forces the
+// player to use lightning, shield, and stasis together. Everything past
+// that is shuffled per session so the player gets a fresh ladder each
+// run without ever repeating a mission they've already played in this
+// run.
 export const FIXED_MISSION_COUNT = 3;
 
 const ALL_DONE_MISSION = 'All missions complete!';
