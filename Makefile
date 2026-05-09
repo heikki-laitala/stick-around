@@ -97,7 +97,7 @@ deps-macos:
 ## Get-Command per branch to avoid any `$` temporaries (bash would
 ## expand them before powershell sees them).
 deps-windows:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
 	  if ((Get-Command cargo -ErrorAction SilentlyContinue) -and (Get-Command npm -ErrorAction SilentlyContinue)) { \
 	    Write-Host 'Windows dev prerequisites already on PATH (cargo + npm).' \
 	  } else { \
@@ -123,7 +123,7 @@ deps-windows:
 ## interactively.
 check-rust:
 ifeq ($(OS),Windows_NT)
-	powershell.exe -NoProfile -Command "\
+	@powershell.exe -NoProfile -Command "\
 	  if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
 	    Write-Host 'ERROR: cargo not found. Install Rust via rustup-init.exe from https://rustup.rs, then re-run make deps.'; \
 	    exit 1 \
@@ -142,7 +142,7 @@ endif
 ## piece individually re-runnable.
 check-node:
 ifeq ($(OS),Windows_NT)
-	powershell.exe -NoProfile -Command "\
+	@powershell.exe -NoProfile -Command "\
 	  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
 	    Write-Host 'ERROR: npm not found. Install Node.js 20+ from https://nodejs.org, then re-run make deps.'; \
 	    exit 1 \
@@ -184,7 +184,7 @@ endif
 ## symlink needs admin / Developer Mode).
 install: $(BINARY_SRC)
 ifeq ($(OS),Windows_NT)
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
 	  Write-Host 'Syncing binary to plugin cache...'; \
 	  New-Item -ItemType Directory -Force -ErrorAction Stop -Path '$(PLUGIN_CACHE)','$(PLUGIN_CACHE)/skills/play','$(PLUGIN_CACHE)/skills/stop','$(PLUGIN_CACHE)/scripts','$(PLUGIN_CACHE)/.claude-plugin' | Out-Null; \
 	  Copy-Item -Force -ErrorAction Stop '$(BINARY_SRC)' '$(BINARY_DST)'; \
