@@ -43,10 +43,11 @@ DESKTOP_ICON_DIR := $(HOME)/.local/share/icons/hicolor/512x512/apps
 
 ## One-shot dev environment setup. Detects the host OS, installs the
 ## platform's system build dependencies (apt on Linux, Xcode CLT on
-## macOS), warns if Rust or Node aren't on PATH, and runs `npm install`.
-## After this, `make dev` will build and sync the binary to the plugin
-## cache so /stick-around:play picks it up. Re-running is safe:
-## apt-get / xcode-select / npm install are all idempotent.
+## macOS, Chocolatey on Windows), warns if Rust or Node aren't on
+## PATH, and runs `npm install`. After this, `make dev` will build
+## and sync the binary to the plugin cache so /stick-around:play picks
+## it up. Re-running is safe: apt-get / xcode-select / choco install
+## / npm install are all idempotent.
 deps: deps-$(DEPS_OS) check-rust check-node
 	@echo ""
 	@echo "Done. Next step: make dev"
@@ -88,31 +89,43 @@ deps-macos:
 		exit 1; \
 	fi
 
-## Windows is too varied to automate cleanly — winget vs. Visual Studio
-## Installer vs. manual MSVC, plus rustup-init.exe and the Node.js MSI.
-## We can't auto-install, but we can keep `make deps` idempotent:
-## succeed silently when cargo + npm are already on PATH, otherwise
-## print targeted install pointers (only the missing pieces) and exit
-## non-zero. Inline-PS through powershell.exe -Command; we re-call
-## Get-Command per branch to avoid any `$` temporaries (bash would
-## expand them before powershell sees them).
+## Windows: drive the auto-install through Chocolatey to match what
+## deps-linux / deps-macos do. We pick choco over winget because choco
+## ships a `refreshenv` and choco install is non-interactive with -y;
+## winget needs `--accept-source-agreements` plus a new shell to pick
+## up PATH. Strategy:
+##   1. If choco isn't on PATH, point the user at chocolatey.org/install
+##      and exit 1 — we don't curl-pipe an admin one-liner from a
+##      Makefile.
+##   2. If cargo + npm are both already there, succeed silently.
+##   3. Otherwise `choco install -y` the missing pieces (rust-ms pulls
+##      the MSVC C++ build tools as a transitive dep) and exit 1 with
+##      a "open a new terminal and re-run" message — newly-installed
+##      tools won't be on the current make process's PATH, so the
+##      check-rust / check-node steps after this in the deps chain
+##      would still fail. The next `make deps` from a fresh shell
+##      sees everything installed and proceeds to npm install.
 deps-windows:
 	@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	  if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { \
+	    Write-Host 'Chocolatey is required to auto-install Windows dev dependencies.'; \
+	    Write-Host ''; \
+	    Write-Host 'Install Chocolatey from an elevated PowerShell — see:'; \
+	    Write-Host '  https://chocolatey.org/install'; \
+	    Write-Host ''; \
+	    Write-Host 'Then re-run: make deps'; \
+	    exit 1 \
+	  }; \
 	  if ((Get-Command cargo -ErrorAction SilentlyContinue) -and (Get-Command npm -ErrorAction SilentlyContinue)) { \
 	    Write-Host 'Windows dev prerequisites already on PATH (cargo + npm).' \
 	  } else { \
-	    Write-Host 'Windows dev setup is manual. Install:'; \
-	    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
-	      Write-Host '  - Rust toolchain via rustup-init.exe from https://rustup.rs'; \
-	      Write-Host '  - Visual Studio Build Tools 2019+ with the Desktop development with C++ workload'; \
-	      Write-Host '    https://visualstudio.microsoft.com/downloads/' \
-	    }; \
-	    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
-	      Write-Host '  - Node.js 20+ from https://nodejs.org' \
-	    }; \
-	    Write-Host '  - WebView2 Runtime (typically pre-installed on Windows 10/11)'; \
+	    Write-Host 'Installing missing Windows dev prerequisites via Chocolatey...'; \
+	    Write-Host '(UAC prompt may appear for elevation; install can take several minutes.)'; \
 	    Write-Host ''; \
-	    Write-Host 'Then re-run: make deps'; \
+	    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { choco install -y rust-ms }; \
+	    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { choco install -y nodejs-lts }; \
+	    Write-Host ''; \
+	    Write-Host 'Install complete. Open a NEW terminal and re-run: make deps'; \
 	    exit 1 \
 	  }"
 
@@ -125,7 +138,7 @@ check-rust:
 ifeq ($(OS),Windows_NT)
 	@powershell.exe -NoProfile -Command "\
 	  if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
-	    Write-Host 'ERROR: cargo not found. Install Rust via rustup-init.exe from https://rustup.rs, then re-run make deps.'; \
+	    Write-Host 'ERROR: cargo not found. Run make deps first to install via Chocolatey.'; \
 	    exit 1 \
 	  }"
 else
@@ -144,7 +157,7 @@ check-node:
 ifeq ($(OS),Windows_NT)
 	@powershell.exe -NoProfile -Command "\
 	  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
-	    Write-Host 'ERROR: npm not found. Install Node.js 20+ from https://nodejs.org, then re-run make deps.'; \
+	    Write-Host 'ERROR: npm not found. Run make deps first to install via Chocolatey.'; \
 	    exit 1 \
 	  }"
 	npm install
