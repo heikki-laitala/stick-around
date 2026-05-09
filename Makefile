@@ -16,7 +16,16 @@ endif
 # would silently desync `make dev` from real installs after a release
 # bump (Claude Code keys cache dirs on this value, and bootstrap reads
 # the same field to build the binary download URL).
+#
+# On Windows we skip this — the sed pipeline runs through cmd.exe when
+# make is launched from PowerShell, where sed isn't on PATH, and the
+# noisy 'sed is not recognized' would land in every make invocation.
+# All Windows paths route through scripts/install-dev.ps1, which reads
+# the version directly from plugin.json, so PLUGIN_CACHE staying empty
+# here is harmless.
+ifneq ($(OS),Windows_NT)
 PLUGIN_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
+endif
 PLUGIN_CACHE   := $(HOME)/.claude/plugins/cache/stick-around/stick-around/$(PLUGIN_VERSION)
 BINARY_SRC     := src-tauri/target/release/stick-around$(EXE)
 BINARY_DST     := $(PLUGIN_CACHE)/stick-around$(EXE)
@@ -78,17 +87,13 @@ deps-macos:
 
 ## Windows is too varied to automate cleanly — winget vs. Visual Studio
 ## Installer vs. manual MSVC, plus rustup-init.exe and the Node.js MSI.
-## Print pointers and let the user run them.
+## We can't auto-install, but the PS helper keeps `make deps`
+## idempotent: succeed silently when cargo + npm are already on PATH,
+## otherwise print targeted install pointers and exit non-zero. Same
+## delegate-to-PowerShell pattern as the install recipe so this works
+## regardless of which terminal launched make.
 deps-windows:
-	@echo "Windows dev setup is manual. Install:"
-	@echo "  - Visual Studio Build Tools 2019+ with the 'Desktop development with C++' workload"
-	@echo "    https://visualstudio.microsoft.com/downloads/"
-	@echo "  - Rust toolchain via rustup-init.exe from https://rustup.rs"
-	@echo "  - Node.js 20+ from https://nodejs.org"
-	@echo "  - WebView2 Runtime (typically pre-installed on Windows 10/11)"
-	@echo ""
-	@echo "Then run: npm install"
-	@exit 1
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deps-windows.ps1
 
 ## Fail if Rust isn't on PATH so `make deps` doesn't claim success and
 ## then leave `make dev` to die with a confusing 'cargo: command not
