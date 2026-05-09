@@ -315,12 +315,13 @@ make install-desktop     # Linux: install .desktop entry + dock icon
   If `choco` isn't on PATH, `make deps` points at
   [chocolatey.org/install](https://chocolatey.org/install) and bails — install
   it from an elevated PowerShell, then re-run. Once choco is available,
-  `make deps` runs `choco install -y rust-ms` (Rust with the MSVC C++ build
-  tools pulled in as a transitive dep) and `choco install -y nodejs-lts` for
-  whatever's missing, then asks you to open a **new terminal** and re-run
-  `make deps`. The fresh shell sees the new tools on PATH and the second pass
-  proceeds to `npm install`. Works the same from PowerShell, Git Bash, or
-  cmd.
+  `make deps` installs whatever's missing: Visual Studio Build Tools (Desktop
+  development with C++ workload) plus `rust-ms` when Rust is absent, and
+  `nodejs-lts` when Node is absent. Plan for a multi-GB download on a clean
+  machine — VS Build Tools is the slow part. After the install it asks you
+  to open a **new terminal** and re-run `make deps`; the fresh shell sees
+  the new tools on PATH and the second pass proceeds to `npm install`. Works
+  the same from PowerShell, Git Bash, or cmd.
 
 After `make deps` finishes cleanly, `make dev` is the round-trip — it
 rebuilds the binary and copies it to the plugin cache used by the
