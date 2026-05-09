@@ -1,6 +1,17 @@
 ifeq ($(OS),Windows_NT)
 EXE     := .exe
 DEPS_OS := windows
+# Plugin-version detection on Windows: spawn powershell.exe explicitly
+# from $(shell ...) instead of trying to set SHELL := powershell.exe.
+# GNU make's Windows port has a hardcoded shell-name allow-list (sh,
+# bash, cmd, command), so SHELL := powershell.exe is silently ignored
+# for recipe execution even though $(shell) and `make -p` show it set.
+# Calling powershell.exe inline sidesteps that completely. We avoid
+# embedded double-quote tokens (Select-String '"version":' fails with
+# 'Missing expression after ','' when passed through the argv layer)
+# by matching the bare word `version` and splitting on chr(34).
+PLUGIN_VERSION := $(shell powershell.exe -NoProfile -Command "(Select-String version .claude-plugin/plugin.json).Line.Split([char]34)[3]")
+PLUGIN_HOME    := $(USERPROFILE)
 else
 EXE :=
 UNAME_S := $(shell uname -s)
@@ -9,26 +20,18 @@ DEPS_OS := macos
 else
 DEPS_OS := linux
 endif
-endif
-
 # Derive the plugin version from plugin.json so the cache path tracks
 # whatever version the manifest currently says. Hard-coding the version
 # would silently desync `make dev` from real installs after a release
 # bump (Claude Code keys cache dirs on this value, and bootstrap reads
 # the same field to build the binary download URL).
-#
-# On Windows we skip this — the sed pipeline runs through cmd.exe when
-# make is launched from PowerShell, where sed isn't on PATH, and the
-# noisy 'sed is not recognized' would land in every make invocation.
-# All Windows paths route through scripts/install-dev.ps1, which reads
-# the version directly from plugin.json, so PLUGIN_CACHE staying empty
-# here is harmless.
-ifneq ($(OS),Windows_NT)
 PLUGIN_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
+PLUGIN_HOME    := $(HOME)
 endif
-PLUGIN_CACHE   := $(HOME)/.claude/plugins/cache/stick-around/stick-around/$(PLUGIN_VERSION)
-BINARY_SRC     := src-tauri/target/release/stick-around$(EXE)
-BINARY_DST     := $(PLUGIN_CACHE)/stick-around$(EXE)
+
+PLUGIN_CACHE := $(PLUGIN_HOME)/.claude/plugins/cache/stick-around/stick-around/$(PLUGIN_VERSION)
+BINARY_SRC   := src-tauri/target/release/stick-around$(EXE)
+BINARY_DST   := $(PLUGIN_CACHE)/stick-around$(EXE)
 
 GNOME_EXTENSION_UUID := stick-around@stickaround.dev
 GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTENSION_UUID)
@@ -87,13 +90,31 @@ deps-macos:
 
 ## Windows is too varied to automate cleanly — winget vs. Visual Studio
 ## Installer vs. manual MSVC, plus rustup-init.exe and the Node.js MSI.
-## We can't auto-install, but the PS helper keeps `make deps`
-## idempotent: succeed silently when cargo + npm are already on PATH,
-## otherwise print targeted install pointers and exit non-zero. Same
-## delegate-to-PowerShell pattern as the install recipe so this works
-## regardless of which terminal launched make.
+## We can't auto-install, but we can keep `make deps` idempotent:
+## succeed silently when cargo + npm are already on PATH, otherwise
+## print targeted install pointers (only the missing pieces) and exit
+## non-zero. Inline-PS through powershell.exe -Command; we re-call
+## Get-Command per branch to avoid any `$` temporaries (bash would
+## expand them before powershell sees them).
 deps-windows:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deps-windows.ps1
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	  if ((Get-Command cargo -ErrorAction SilentlyContinue) -and (Get-Command npm -ErrorAction SilentlyContinue)) { \
+	    Write-Host 'Windows dev prerequisites already on PATH (cargo + npm).' \
+	  } else { \
+	    Write-Host 'Windows dev setup is manual. Install:'; \
+	    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
+	      Write-Host '  - Rust toolchain via rustup-init.exe from https://rustup.rs'; \
+	      Write-Host '  - Visual Studio Build Tools 2019+ with the Desktop development with C++ workload'; \
+	      Write-Host '    https://visualstudio.microsoft.com/downloads/' \
+	    }; \
+	    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
+	      Write-Host '  - Node.js 20+ from https://nodejs.org' \
+	    }; \
+	    Write-Host '  - WebView2 Runtime (typically pre-installed on Windows 10/11)'; \
+	    Write-Host ''; \
+	    Write-Host 'Then re-run: make deps'; \
+	    exit 1 \
+	  }"
 
 ## Fail if Rust isn't on PATH so `make deps` doesn't claim success and
 ## then leave `make dev` to die with a confusing 'cargo: command not
@@ -101,22 +122,39 @@ deps-windows:
 ## is a curl-pipe from sh.rustup.rs, which the user should run
 ## interactively.
 check-rust:
+ifeq ($(OS),Windows_NT)
+	powershell.exe -NoProfile -Command "\
+	  if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
+	    Write-Host 'ERROR: cargo not found. Install Rust via rustup-init.exe from https://rustup.rs, then re-run make deps.'; \
+	    exit 1 \
+	  }"
+else
 	@if ! command -v cargo >/dev/null 2>&1; then \
 		echo "ERROR: cargo not found. Install Rust via:"; \
 		echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"; \
 		echo "Then re-run 'make deps'."; \
 		exit 1; \
 	fi
+endif
 
 ## Verify Node + npm and pull JS dev dependencies (vitest, eslint, the
 ## Tauri CLI). Splitting this from the system-deps target keeps each
 ## piece individually re-runnable.
 check-node:
+ifeq ($(OS),Windows_NT)
+	powershell.exe -NoProfile -Command "\
+	  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
+	    Write-Host 'ERROR: npm not found. Install Node.js 20+ from https://nodejs.org, then re-run make deps.'; \
+	    exit 1 \
+	  }"
+	npm install
+else
 	@if ! command -v npm >/dev/null 2>&1; then \
 		echo "ERROR: npm not found. Install Node.js 20+ from https://nodejs.org or your package manager, then re-run 'make deps'."; \
 		exit 1; \
 	fi
 	npm install
+endif
 
 ## Build the Tauri overlay binary (release mode). The binary stays under
 ## src-tauri/target/release; we don't copy it to the repo root because a
@@ -136,14 +174,30 @@ endif
 ## bootstrap script from the cache to fetch the right binary on
 ## first session and to install the GNOME helper / .desktop on Linux.
 ##
-## On Windows we delegate to scripts/install-dev.ps1 so the recipe runs
-## natively in PowerShell — the Unix-style mkdir/cp/rm flags here don't
-## survive cmd.exe fallback, and $(HOME) is empty when make is launched
-## from PowerShell. The PS script handles link-dev too so we don't need
-## a second Windows-specific recipe.
+## Windows: one powershell.exe -Command invocation runs the whole
+## recipe (joined via `\` continuations) so a Copy-Item failure aborts
+## the install instead of leaving a half-synced cache. Avoids any `$`
+## tokens in the inline PS — bash would expand them as shell variables
+## before powershell.exe even sees them — by adding -ErrorAction Stop
+## per cmdlet rather than setting $ErrorActionPreference. The trailing
+## Copy-Item to repo root stands in for the link-dev symlink (a real
+## symlink needs admin / Developer Mode).
 install: $(BINARY_SRC)
 ifeq ($(OS),Windows_NT)
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-dev.ps1
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	  Write-Host 'Syncing binary to plugin cache...'; \
+	  New-Item -ItemType Directory -Force -ErrorAction Stop -Path '$(PLUGIN_CACHE)','$(PLUGIN_CACHE)/skills/play','$(PLUGIN_CACHE)/skills/stop','$(PLUGIN_CACHE)/scripts','$(PLUGIN_CACHE)/.claude-plugin' | Out-Null; \
+	  Copy-Item -Force -ErrorAction Stop '$(BINARY_SRC)' '$(BINARY_DST)'; \
+	  Write-Host 'Syncing skills + plugin manifest to plugin cache...'; \
+	  Copy-Item -Force -ErrorAction Stop 'skills/play/SKILL.md' '$(PLUGIN_CACHE)/skills/play/SKILL.md'; \
+	  Copy-Item -Force -ErrorAction Stop 'skills/stop/SKILL.md' '$(PLUGIN_CACHE)/skills/stop/SKILL.md'; \
+	  Copy-Item -Force -ErrorAction Stop '.claude-plugin/plugin.json' '$(PLUGIN_CACHE)/.claude-plugin/plugin.json'; \
+	  Write-Host 'Syncing bootstrap scripts to plugin cache...'; \
+	  Copy-Item -Force -ErrorAction Stop 'scripts/bootstrap.sh' '$(PLUGIN_CACHE)/scripts/bootstrap.sh'; \
+	  Copy-Item -Force -ErrorAction Stop 'scripts/bootstrap.ps1' '$(PLUGIN_CACHE)/scripts/bootstrap.ps1'; \
+	  Remove-Item -Force -ErrorAction SilentlyContinue '$(PLUGIN_CACHE)/scripts/bootstrap.cjs','$(PLUGIN_CACHE)/scripts/bootstrap.js'; \
+	  Copy-Item -Force -ErrorAction Stop '$(BINARY_SRC)' 'stick-around$(EXE)'; \
+	  Write-Host 'Done. Restart Claude Code to pick up skill changes.'"
 else
 	@echo "Syncing binary to plugin cache..."
 	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/.claude-plugin
@@ -174,9 +228,9 @@ endif
 ## installs (where CLAUDE_PLUGIN_ROOT is the source repo) can resolve
 ## ${CLAUDE_PLUGIN_ROOT}/stick-around. The path is gitignored.
 ##
-## On Windows the install script already refreshes a copy at the repo
-## root (a real symlink would require admin / Developer Mode), so this
-## target is a no-op there.
+## On Windows the install recipe already refreshes a copy at the repo
+## root (real symlinks require admin / Developer Mode), so this target
+## is a no-op there.
 link-dev:
 ifneq ($(OS),Windows_NT)
 	ln -sf $(BINARY_SRC) stick-around$(EXE)
