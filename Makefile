@@ -91,20 +91,25 @@ deps-macos:
 
 ## Windows: drive the auto-install through Chocolatey to match what
 ## deps-linux / deps-macos do. We pick choco over winget because choco
-## ships a `refreshenv` and choco install is non-interactive with -y;
-## winget needs `--accept-source-agreements` plus a new shell to pick
-## up PATH. Strategy:
+## install is non-interactive with -y; winget needs
+## `--accept-source-agreements` plus a new shell to pick up PATH.
+## Strategy:
 ##   1. If choco isn't on PATH, point the user at chocolatey.org/install
 ##      and exit 1 — we don't curl-pipe an admin one-liner from a
 ##      Makefile.
 ##   2. If cargo + npm are both already there, succeed silently.
-##   3. Otherwise `choco install -y` the missing pieces (rust-ms pulls
-##      the MSVC C++ build tools as a transitive dep) and exit 1 with
-##      a "open a new terminal and re-run" message — newly-installed
-##      tools won't be on the current make process's PATH, so the
-##      check-rust / check-node steps after this in the deps chain
-##      would still fail. The next `make deps` from a fresh shell
-##      sees everything installed and proceeds to npm install.
+##   3. Otherwise `choco install -y` the missing pieces. When cargo is
+##      missing we install Visual Studio Build Tools (with the VCTools
+##      workload) AS WELL AS rust-ms — the rust-ms package only
+##      configures Rust for the MSVC ABI, it doesn't pull link.exe /
+##      cl.exe themselves; without the Build Tools the second `make
+##      deps` looks clean but `make dev` later dies inside cargo build
+##      with a missing linker. Then exit 1 with a "open a new terminal
+##      and re-run" message — newly-installed tools won't be on the
+##      current make process's PATH, so the check-rust / check-node
+##      steps after this in the deps chain would still fail. The next
+##      `make deps` from a fresh shell sees everything installed and
+##      proceeds to npm install.
 deps-windows:
 	@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
 	  if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { \
@@ -120,10 +125,18 @@ deps-windows:
 	    Write-Host 'Windows dev prerequisites already on PATH (cargo + npm).' \
 	  } else { \
 	    Write-Host 'Installing missing Windows dev prerequisites via Chocolatey...'; \
-	    Write-Host '(UAC prompt may appear for elevation; install can take several minutes.)'; \
+	    Write-Host '(UAC prompt may appear for elevation; VS Build Tools alone is ~6GB so this can take a while.)'; \
 	    Write-Host ''; \
-	    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { choco install -y rust-ms }; \
-	    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { choco install -y nodejs-lts }; \
+	    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { \
+	      Write-Host 'Installing Visual Studio Build Tools (Desktop development with C++ workload)...'; \
+	      choco install -y visualstudio2022buildtools --package-parameters '--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive --wait'; \
+	      Write-Host 'Installing Rust (MSVC toolchain)...'; \
+	      choco install -y rust-ms \
+	    }; \
+	    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { \
+	      Write-Host 'Installing Node.js LTS...'; \
+	      choco install -y nodejs-lts \
+	    }; \
 	    Write-Host ''; \
 	    Write-Host 'Install complete. Open a NEW terminal and re-run: make deps'; \
 	    exit 1 \
