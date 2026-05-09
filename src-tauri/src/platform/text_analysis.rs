@@ -60,6 +60,9 @@ pub fn default_dump_path() -> std::path::PathBuf {
 /// is always there — kill the overlay (`Q` or `pkill stick-around`) to
 /// freeze it before inspecting. Box-drawing characters are preserved
 /// verbatim; only ASCII control bytes are escaped.
+// The Windows backend doesn't call this yet, so the dead_code lint fires
+// on Windows builds even though every other platform uses it.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
 pub fn dump_detection_snapshot(
     label: &str,
     text_lines: &[&str],

@@ -121,39 +121,61 @@ check-node:
 ## gitignored symlink created by `link-dev`.
 build:
 	cargo build --release --manifest-path src-tauri/Cargo.toml
+ifneq ($(OS),Windows_NT)
 	chmod +x $(BINARY_SRC)
+endif
 
 ## Copy binary, skills, plugin manifest, and bootstrap payload to the
 ## plugin cache. Marketplace users land at the same layout via
 ## /plugin install; the SessionStart hook in plugin.json runs the
 ## bootstrap script from the cache to fetch the right binary on
 ## first session and to install the GNOME helper / .desktop on Linux.
+##
+## On Windows we delegate to scripts/install-dev.ps1 so the recipe runs
+## natively in PowerShell — the Unix-style mkdir/cp/rm flags here don't
+## survive cmd.exe fallback, and $(HOME) is empty when make is launched
+## from PowerShell. The PS script handles link-dev too so we don't need
+## a second Windows-specific recipe.
 install: $(BINARY_SRC)
+ifeq ($(OS),Windows_NT)
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-dev.ps1
+else
 	@echo "Syncing binary to plugin cache..."
-	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons $(PLUGIN_CACHE)/.claude-plugin
+	mkdir -p $(PLUGIN_CACHE)/skills/play $(PLUGIN_CACHE)/skills/stop $(PLUGIN_CACHE)/scripts $(PLUGIN_CACHE)/.claude-plugin
 	cp $(BINARY_SRC) $(BINARY_DST)
 	chmod +x $(BINARY_DST)
 	@echo "Syncing skills + plugin manifest to plugin cache..."
 	cp skills/play/SKILL.md $(PLUGIN_CACHE)/skills/play/SKILL.md
 	cp skills/stop/SKILL.md $(PLUGIN_CACHE)/skills/stop/SKILL.md
 	cp .claude-plugin/plugin.json $(PLUGIN_CACHE)/.claude-plugin/plugin.json
-	@echo "Syncing bootstrap script + Linux assets to plugin cache..."
+	@echo "Syncing bootstrap scripts to plugin cache..."
 	cp scripts/bootstrap.sh $(PLUGIN_CACHE)/scripts/bootstrap.sh
 	cp scripts/bootstrap.ps1 $(PLUGIN_CACHE)/scripts/bootstrap.ps1
 	chmod +x $(PLUGIN_CACHE)/scripts/bootstrap.sh
 	rm -f $(PLUGIN_CACHE)/scripts/bootstrap.cjs $(PLUGIN_CACHE)/scripts/bootstrap.js
+ifeq ($(DEPS_OS),linux)
+	@echo "Syncing Linux assets (GNOME extension + .desktop) to plugin cache..."
+	mkdir -p $(PLUGIN_CACHE)/gnome-extension/schemas $(PLUGIN_CACHE)/linux $(PLUGIN_CACHE)/src-tauri/icons
 	cp gnome-extension/extension.js $(PLUGIN_CACHE)/gnome-extension/extension.js
 	cp gnome-extension/metadata.json $(PLUGIN_CACHE)/gnome-extension/metadata.json
 	cp gnome-extension/schemas/*.gschema.xml $(PLUGIN_CACHE)/gnome-extension/schemas/
 	cp linux/stick-around.desktop $(PLUGIN_CACHE)/linux/stick-around.desktop
 	cp src-tauri/icons/icon.png $(PLUGIN_CACHE)/src-tauri/icons/icon.png
+endif
 	@echo "Done. Restart Claude Code to pick up skill changes."
+endif
 
 ## Symlink the built binary at repo root so directory-marketplace dev
 ## installs (where CLAUDE_PLUGIN_ROOT is the source repo) can resolve
 ## ${CLAUDE_PLUGIN_ROOT}/stick-around. The path is gitignored.
+##
+## On Windows the install script already refreshes a copy at the repo
+## root (a real symlink would require admin / Developer Mode), so this
+## target is a no-op there.
 link-dev:
+ifneq ($(OS),Windows_NT)
 	ln -sf $(BINARY_SRC) stick-around$(EXE)
+endif
 
 ## Build and install in one step
 dev: build install link-dev
