@@ -55,10 +55,10 @@ export const LIGHTNING_BEAM_WIDTH = 52;
 export const LIGHTNING_BOLT_LIFE = 0.35;
 export const LIGHTNING_RANGE = 2000;
 export const LIGHTNING_HOLE_W = 32;
-// Aim arc mirrors the rope's — upper half only, short of true horizontal
-// so the player can't point into the floor or at the HUD strip.
-export const LIGHTNING_AIM_MIN = -Math.PI * 0.95;
-export const LIGHTNING_AIM_MAX = -Math.PI * 0.05;
+// Aim arc covers the full upper half — the bolt can fire flat-horizontal
+// in either direction but never into the floor.
+export const LIGHTNING_AIM_MIN = -Math.PI;
+export const LIGHTNING_AIM_MAX = 0;
 export const LIGHTNING_AIM_DEFAULT = -Math.PI / 2;
 const SHIELD_FADE_IN_DURATION = 0.2;
 const CAST_FLASH_DURATION = 0.35;
