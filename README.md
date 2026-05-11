@@ -148,6 +148,42 @@ re-templated `.desktop` (so the dock points at the new cache path)
 and, if the helper extension code changed, another log-out / log-in
 to load the new version.
 
+### Uninstall
+
+From inside Claude Code, drop the plugin first:
+
+```
+/plugin uninstall stick-around@stick-around
+/plugin marketplace remove stick-around
+```
+
+`/plugin uninstall` removes the source mirror but leaves the
+downloaded binary in the Claude Code plugin cache. Remove it manually:
+
+- **macOS / Linux**: `rm -rf ~/.claude/plugins/cache/stick-around`
+- **Windows (PowerShell)**:
+  `Remove-Item -Recurse -Force $env:USERPROFILE\.claude\plugins\cache\stick-around`
+
+Per-platform follow-ups:
+
+- **macOS**: the Accessibility grant stays in *System Settings →
+  Privacy & Security → Accessibility* until you delete the entry there.
+  Harmless to leave, but tidy it up if you want a clean slate.
+- **Linux**: also unwind the GNOME helper extension and the dock entry:
+  ```
+  gnome-extensions disable stick-around@stickaround.dev
+  rm -rf ~/.local/share/gnome-shell/extensions/stick-around@stickaround.dev
+  rm -f ~/.local/share/applications/stick-around.desktop
+  rm -f ~/.local/share/icons/hicolor/512x512/apps/stick-around.png
+  ```
+  Log out and back in once so Mutter forgets the extension and the
+  `Ctrl+Shift+G` keybinding.
+- **Windows**: nothing else to clean up.
+
+If you're working from a local clone, `make uninstall` chains the
+plugin-cache wipe, the dev binary at the repo root, and (on Linux) the
+`uninstall-extension` + `uninstall-desktop` targets in one shot.
+
 ## Taking and releasing focus
 
 The overlay floats above the terminal and only grabs your keyboard when

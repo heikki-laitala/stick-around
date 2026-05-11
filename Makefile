@@ -39,7 +39,7 @@ GNOME_EXTENSION_DIR  := $(HOME)/.local/share/gnome-shell/extensions/$(GNOME_EXTE
 DESKTOP_FILE_DIR := $(HOME)/.local/share/applications
 DESKTOP_ICON_DIR := $(HOME)/.local/share/icons/hicolor/512x512/apps
 
-.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop release deps deps-linux deps-macos deps-windows check-rust check-node
+.PHONY: build install dev link-dev clean test lint install-extension uninstall-extension install-desktop uninstall-desktop uninstall release deps deps-linux deps-macos deps-windows check-rust check-node
 
 ## One-shot dev environment setup. Detects the host OS, installs the
 ## platform's system build dependencies (apt on Linux, Xcode CLT on
@@ -353,6 +353,32 @@ release:
 	@echo ""
 	@echo "Tagged v$(V). To publish:"
 	@echo "  git push origin $$(git branch --show-current) v$(V)"
+
+## Tear down the dev-side install: wipes the plugin cache (every version
+## under the stick-around marketplace dir), drops the convenience binary
+## at the repo root, and on Linux also disables / removes the GNOME helper
+## extension and .desktop entry via the existing uninstall-* targets. The
+## source tree and cargo build output are left alone — pair with `clean`
+## if you want a full reset.
+##
+## Marketplace users (no local clone) should run
+## `/plugin uninstall stick-around@stick-around` from inside Claude Code
+## instead; this target is a shortcut for working out of a checkout.
+uninstall:
+ifeq ($(OS),Windows_NT)
+	@powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\
+	  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '$(PLUGIN_HOME)/.claude/plugins/cache/stick-around'; \
+	  Remove-Item -Force -ErrorAction SilentlyContinue 'stick-around$(EXE)'; \
+	  Write-Host 'Removed plugin cache and dev binary copy.'"
+else
+	rm -rf $(PLUGIN_HOME)/.claude/plugins/cache/stick-around
+	rm -f stick-around$(EXE)
+ifeq ($(DEPS_OS),linux)
+	$(MAKE) uninstall-extension
+	$(MAKE) uninstall-desktop
+endif
+	@echo "Removed plugin cache and dev binary symlink."
+endif
 
 ## Remove the release build artifacts
 clean:
