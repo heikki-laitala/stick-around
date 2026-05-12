@@ -94,11 +94,11 @@ describe('ICE_AGE_MISSION delivery', () => {
     return s;
   }
 
-  it('deposits one snowball and grows the snowman by one layer on entry', () => {
+  it('deposits every carried snowball in a single zone entry', () => {
     const s = setupAtBuildZone(2);
     ICE_AGE_MISSION.update(s, 0.016);
-    expect(s.missionScene.snowballsCollected).toBe(1);
-    expect(s.missionScene.builtLayers).toBe(1);
+    expect(s.missionScene.snowballsCollected).toBe(0);
+    expect(s.missionScene.builtLayers).toBe(2);
   });
 
   it('does not deposit when standing in the zone with no snowballs', () => {
@@ -108,25 +108,26 @@ describe('ICE_AGE_MISSION delivery', () => {
     expect(s.missionScene.builtLayers).toBe(0);
   });
 
-  it('only deposits once per zone entry — leaving and re-entering grows again', () => {
-    const s = setupAtBuildZone(3);
+  it('deposits only once per zone entry — re-entry banks newly collected balls', () => {
+    const s = setupAtBuildZone(1);
     ICE_AGE_MISSION.update(s, 0.016);                        // enter, deposit 1
-    ICE_AGE_MISSION.update(s, 0.016);                        // still inside, no extra
+    expect(s.missionScene.builtLayers).toBe(1);
+    s.missionScene.snowballsCollected = 1;                   // collect one more while inside
+    ICE_AGE_MISSION.update(s, 0.016);                        // still inside, no extra deposit
     expect(s.missionScene.builtLayers).toBe(1);
     s.gx = -100;                                             // walk away
     ICE_AGE_MISSION.update(s, 0.016);
     s.gx = s.missionScene.buildZone.x + s.missionScene.buildZone.w / 2; // walk back
     ICE_AGE_MISSION.update(s, 0.016);
     expect(s.missionScene.builtLayers).toBe(2);
+    expect(s.missionScene.snowballsCollected).toBe(0);
   });
 
   it('caps growth at SNOWMAN_LAYERS even with surplus snowballs', () => {
-    const s = setupAtBuildZone(10);
-    for (let pass = 0; pass < SNOWMAN_LAYERS + 2; pass++) {
-      s.missionScene.wasInBuildZone = false;                 // simulate re-entry
-      ICE_AGE_MISSION.update(s, 0.016);
-    }
+    const s = setupAtBuildZone(SNOWMAN_LAYERS + 5);
+    ICE_AGE_MISSION.update(s, 0.016);
     expect(s.missionScene.builtLayers).toBe(SNOWMAN_LAYERS);
+    expect(s.missionScene.snowballsCollected).toBe(5);
   });
 
   it('check() returns true once the snowman is built and the win-hold elapses', () => {
