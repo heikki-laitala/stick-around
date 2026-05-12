@@ -287,14 +287,16 @@ export const ICE_AGE_MISSION = {
 
     if (state.gameOver) return;
 
-    // Build-zone delivery on the rising edge of "in zone" so a single walk-
-    // through deposits one ball, not many — the player has to leave and
-    // return for each layer, which paces deliveries through the chaos.
+    // Build-zone delivery on the rising edge of "in zone" — one entry empties
+    // the player's haul up to the snowman cap, so a player who collected
+    // several chunks isn't forced to bounce in and out of the zone repeatedly.
     const inZone = manInBuildZone(state, scene.buildZone);
     if (inZone && !scene.wasInBuildZone) {
-      if (scene.snowballsCollected > 0 && scene.builtLayers < SNOWMAN_LAYERS) {
-        scene.snowballsCollected -= 1;
-        scene.builtLayers += 1;
+      const room = SNOWMAN_LAYERS - scene.builtLayers;
+      const deposit = Math.min(scene.snowballsCollected, room);
+      if (deposit > 0) {
+        scene.snowballsCollected -= deposit;
+        scene.builtLayers += deposit;
         spawnLayerPuff(state, scene);
       }
     }
