@@ -66,7 +66,7 @@ install_binary() {
     TMP="$TMPDIR/$ASSET"
     TMP_SHA="$TMP.sha256"
 
-    echo "[stick-around] fetching $ASSET for v$VERSION…"
+    echo "[stick-around] fetching $ASSET for v$VERSION..."
     curl -fsSL --retry 3 -o "$TMP" "$URL" || return 1
     curl -fsSL --retry 3 -o "$TMP_SHA" "$URL.sha256" || return 1
 
@@ -123,7 +123,7 @@ extension_needs_update() {
 }
 
 if extension_needs_update; then
-    echo "[stick-around] installing GNOME helper extension…"
+    echo "[stick-around] installing GNOME helper extension..."
     mkdir -p "$EXT_DIR/schemas"
     cp "$SOURCE_EXT" "$EXT_DIR/extension.js"
     cp "$SOURCE_EXT_DIR/metadata.json" "$EXT_DIR/metadata.json"

@@ -122,18 +122,93 @@ jobs:
           $global:LASTEXITCODE = 0
           "CLAUDE_PLUGIN_ROOT=$root" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
-      # Run the bootstrap script as the SessionStart hook would. This
-      # exercises the real download path: GitHub release URL, sha256
-      # sidecar verify, tar/zip extract.
+      # Private-repo workaround: GitHub's releases/download/<tag>/<asset>
+      # URL 404s without auth, and even with auth only the
+      # api.github.com/.../assets/<id> form honors the Bearer token. The
+      # bootstrap script downloads anonymously by design (real public
+      # users won't have a token), so the smoke test installs a wrapper
+      # that intercepts curl / Invoke-WebRequest, rewrites the URL, and
+      # injects the workflow's GITHUB_TOKEN. The wrapper is smoke-test
+      # instrumentation only — bootstrap.sh / bootstrap.ps1 are run
+      # unmodified.
+      - name: Install curl auth shim (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/curl-shim"
+          cat > "$RUNNER_TEMP/curl-shim/curl" <<'SHIM'
+          #!/bin/sh
+          set -eu
+          RC=/usr/bin/curl
+          TARGET=""
+          for arg in "$@"; do
+            case "$arg" in
+              https://github.com/*/releases/download/*) TARGET="$arg" ;;
+            esac
+          done
+          if [ -z "$TARGET" ]; then exec "$RC" "$@"; fi
+          rest=${TARGET#https://github.com/}
+          owner_repo=${rest%%/releases/*}
+          tag_and_file=${rest#*/releases/download/}
+          tag=${tag_and_file%%/*}
+          filename=${tag_and_file#*/}
+          asset_id=$("$RC" -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${owner_repo}/releases/tags/${tag}" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(a['id'] for a in d['assets'] if a['name']=='${filename}'))")
+          new_url="https://api.github.com/repos/${owner_repo}/releases/assets/${asset_id}"
+          new_args=""
+          for arg in "$@"; do
+            if [ "$arg" = "$TARGET" ]; then new_args="$new_args $new_url"; else new_args="$new_args $arg"; fi
+          done
+          # shellcheck disable=SC2086
+          exec "$RC" -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/octet-stream" $new_args
+          SHIM
+          chmod +x "$RUNNER_TEMP/curl-shim/curl"
+          echo "$RUNNER_TEMP/curl-shim" >> "$GITHUB_PATH"
+
       - name: Run bootstrap (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: sh "$CLAUDE_PLUGIN_ROOT/scripts/bootstrap.sh"
 
-      - name: Run bootstrap (Windows)
+      # Windows can't PATH-shadow Invoke-WebRequest (it's a cmdlet, not a
+      # binary), so the shim is a PowerShell function defined inline and
+      # the bootstrap call happens in the same step — function definitions
+      # don't survive across separate `run:` invocations.
+      - name: Run bootstrap with auth shim (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: & "$env:CLAUDE_PLUGIN_ROOT\scripts\bootstrap.ps1"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          function Invoke-WebRequest {
+            param(
+              [Parameter(Mandatory, Position=0)] [string] $Uri,
+              [string] $OutFile,
+              [switch] $UseBasicParsing
+            )
+            $headers = @{Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/octet-stream'}
+            if ($Uri -match 'https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/(.+)$') {
+              $owner_repo = $matches[1]
+              $tag        = $matches[2]
+              $filename   = $matches[3]
+              $rel        = Microsoft.PowerShell.Utility\Invoke-WebRequest `
+                              -Uri "https://api.github.com/repos/$owner_repo/releases/tags/$tag" `
+                              -Headers $headers -UseBasicParsing
+              $assets     = ($rel.Content | ConvertFrom-Json).assets
+              $asset      = $assets | Where-Object { $_.name -eq $filename }
+              $newUri     = "https://api.github.com/repos/$owner_repo/releases/assets/$($asset.id)"
+              Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $newUri -OutFile $OutFile -Headers $headers -UseBasicParsing
+            } else {
+              $params = @{Uri = $Uri}
+              if ($OutFile)         { $params.OutFile = $OutFile }
+              if ($UseBasicParsing) { $params.UseBasicParsing = $true }
+              Microsoft.PowerShell.Utility\Invoke-WebRequest @params
+            }
+          }
+          & "$env:CLAUDE_PLUGIN_ROOT\scripts\bootstrap.ps1"
 
       # Bootstrap silently exits 0 in several no-op cases (e.g., the
       # path-glob safety check). Without an explicit post-condition the
@@ -167,6 +242,37 @@ jobs:
             exit 1
           }
           Write-Host "binary at $bin"
+
+      # Idempotency: every Claude Code session start re-runs the bootstrap
+      # hook. The script must short-circuit when the stamp matches; if it
+      # re-downloads the binary on every session, the first prompt after
+      # opening Claude is needlessly slow. We assert the second run emits
+      # no "fetching" log line — that string only appears when bootstrap
+      # actually calls curl/Invoke-WebRequest. No auth shim required: the
+      # second run shouldn't hit the network at all.
+      - name: Re-run bootstrap, assert idempotent (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          OUT=$(sh "$CLAUDE_PLUGIN_ROOT/scripts/bootstrap.sh" 2>&1 || true)
+          echo "$OUT"
+          if echo "$OUT" | grep -q "fetching"; then
+            echo "FAIL: second bootstrap re-downloaded; stamp short-circuit is broken"
+            exit 1
+          fi
+          echo "PASS: bootstrap is idempotent"
+
+      - name: Re-run bootstrap, assert idempotent (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = & "$env:CLAUDE_PLUGIN_ROOT\scripts\bootstrap.ps1" 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match 'fetching') {
+            Write-Error "FAIL: second bootstrap re-downloaded; stamp short-circuit is broken"
+            exit 1
+          }
+          Write-Host "PASS: bootstrap is idempotent"
 
       # Launch the binary and confirm it doesn't crash within ~6s.
       # Tauri startup involves loading the WebKit/WebView2 runtime,

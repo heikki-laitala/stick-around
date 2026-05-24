@@ -35,8 +35,11 @@ jobs:
         run: codesign --force --sign - ./stick-around
 
       - name: Package binary
+        # -h dereferences the link-dev symlink at the repo root so the
+        # archive contains the actual binary, not a broken symlink to
+        # src-tauri/target/release/stick-around.
         run: |
-          tar -czf stick-around-macos-arm64.tar.gz stick-around
+          tar -czhf stick-around-macos-arm64.tar.gz stick-around
           shasum -a 256 stick-around-macos-arm64.tar.gz > stick-around-macos-arm64.tar.gz.sha256
 
       - name: Upload to release
@@ -86,8 +89,11 @@ jobs:
         run: make link-dev
 
       - name: Package binary
+        # -h dereferences the link-dev symlink at the repo root so the
+        # archive contains the actual binary, not a broken symlink to
+        # src-tauri/target/release/stick-around.
         run: |
-          tar -czf stick-around-linux-x86_64.tar.gz stick-around
+          tar -czhf stick-around-linux-x86_64.tar.gz stick-around
           sha256sum stick-around-linux-x86_64.tar.gz > stick-around-linux-x86_64.tar.gz.sha256
 
       - name: Upload to release
