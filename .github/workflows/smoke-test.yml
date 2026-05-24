@@ -194,18 +194,23 @@ jobs:
               [string] $OutFile,
               [switch] $UseBasicParsing
             )
-            $headers = @{Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/octet-stream'}
             if ($Uri -match 'https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/(.+)$') {
               $owner_repo = $matches[1]
               $tag        = $matches[2]
               $filename   = $matches[3]
+              # The release-info endpoint rejects Accept: application/octet-stream
+              # with HTTP 415 ('Must accept application/json'); the asset-download
+              # endpoint requires Accept: application/octet-stream to get the
+              # binary instead of an HTML page. Keep the two header sets distinct.
+              $apiHeaders      = @{Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/json'}
+              $downloadHeaders = @{Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/octet-stream'}
               $rel        = Microsoft.PowerShell.Utility\Invoke-WebRequest `
                               -Uri "https://api.github.com/repos/$owner_repo/releases/tags/$tag" `
-                              -Headers $headers -UseBasicParsing
+                              -Headers $apiHeaders -UseBasicParsing
               $assets     = ($rel.Content | ConvertFrom-Json).assets
               $asset      = $assets | Where-Object { $_.name -eq $filename }
               $newUri     = "https://api.github.com/repos/$owner_repo/releases/assets/$($asset.id)"
-              Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $newUri -OutFile $OutFile -Headers $headers -UseBasicParsing
+              Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri $newUri -OutFile $OutFile -Headers $downloadHeaders -UseBasicParsing
             } else {
               $params = @{Uri = $Uri}
               if ($OutFile)         { $params.OutFile = $OutFile }
