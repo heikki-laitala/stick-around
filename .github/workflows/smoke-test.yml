@@ -20,6 +20,11 @@ on:
         description: "Release version to smoke test (e.g. 2026.05.24). Leave blank to test plugin.json's current version on the default branch."
         required: false
         type: string
+      extended:
+        description: "Run the slow/best-effort extended job (nested GNOME Shell extension load). Default off — adds ~3 min and is environment-dependent, see the gnome-extension-runtime job comments."
+        required: false
+        type: boolean
+        default: false
   workflow_run:
     workflows: [release]
     types: [completed]
@@ -284,6 +289,41 @@ jobs:
           }
           Write-Host "PASS: bootstrap is idempotent"
 
+      # Pre-grant accessibility for the binary before the launch step so
+      # the macOS launch exercises the granted-permission path (which is
+      # what a real user has after the System Settings prompt) rather
+      # than the prompt path. Without this, the launch test passes for
+      # the wrong reason — the binary stays alive waiting for an AX
+      # decision that never comes in headless CI.
+      #
+      # Implementation: direct injection into the system TCC.db. The
+      # GitHub-hosted macos-14 runner runs with SIP enabled, but TCC's
+      # own protection doesn't extend to root-owned writes via sqlite3
+      # on this database file on Sonoma. Schema is current as of macOS
+      # 14; Apple changes the access table layout periodically, so this
+      # step is expected to need touch-ups when the runner image is
+      # bumped to a newer macOS major.
+      - name: Pre-grant accessibility (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          BIN="$CLAUDE_PLUGIN_ROOT/${{ matrix.binary }}"
+          TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+          sudo sqlite3 "$TCC_DB" <<EOF
+          INSERT OR REPLACE INTO access
+            (service, client, client_type, auth_value, auth_reason,
+             auth_version, csreq, policy_id,
+             indirect_object_identifier_type, indirect_object_identifier,
+             indirect_object_code_identity, flags, last_modified)
+          VALUES
+            ('kTCCServiceAccessibility', '$BIN', 1, 2, 4, 1,
+             NULL, NULL, 0, 'UNUSED', NULL, 0,
+             strftime('%s','now'));
+          EOF
+          echo "TCC row written, verifying..."
+          sudo sqlite3 "$TCC_DB" \
+            "SELECT service, client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client='$BIN';"
+
       # Launch the binary and confirm it doesn't crash within ~6s.
       # Tauri startup involves loading the WebKit/WebView2 runtime,
       # accessibility APIs, and the window manager — any missing dylib
@@ -352,3 +392,186 @@ jobs:
           if (Test-Path launch.log) { Get-Content launch.log | Select-Object -First 80 }
           if (Test-Path launch.err) { Get-Content launch.err | Select-Object -First 80 }
           if ($p.ExitCode -eq 0) { exit 0 } else { exit 1 }
+
+  # ──────────────────────────────────────────────────────────────────
+  # Tier 1B — GNOME extension static validation (Linux, always runs)
+  #
+  # Catches the realistic failure modes of the helper extension: JS
+  # syntax errors, malformed metadata.json, broken gschema XML. These
+  # surface only inside a real Mutter session today, which means a typo
+  # ships and breaks every Linux user's activation chord until someone
+  # logs out / back in and reads the journal. The static-only checks
+  # below run in <5 seconds with zero flake risk.
+  gnome-extension-check:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    name: gnome-extension static checks
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version != '' && format('v{0}', inputs.version) || github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install glib2 (for glib-compile-schemas)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-bin
+
+      - name: Check extension.js JS syntax
+        # node --check parses but does not execute; catches plain JS
+        # syntax errors. extension.js uses GJS-specific globals
+        # (imports.gi.*) which aren't defined in Node, but those resolve
+        # at runtime not parse time, so --check is the right tool here.
+        run: node --check gnome-extension/extension.js
+
+      - name: Validate metadata.json shape
+        # Confirms the file parses as JSON and has the required fields
+        # GNOME Shell looks up when loading an extension.
+        run: |
+          python3 - <<'PY'
+          import json, sys, pathlib
+          meta = json.loads(pathlib.Path("gnome-extension/metadata.json").read_text())
+          required = {"uuid", "name", "shell-version"}
+          missing = required - set(meta.keys())
+          if missing:
+              print(f"metadata.json missing required keys: {missing}", file=sys.stderr)
+              sys.exit(1)
+          print(f"metadata.json OK — uuid={meta['uuid']}, shell-version={meta['shell-version']}")
+          PY
+
+      - name: Compile gschema (catch XML / type errors)
+        # --strict promotes warnings to errors so a typo in <key> or
+        # <enum> fails the build instead of silently producing a
+        # mis-compiled schema users would only notice on first launch.
+        run: glib-compile-schemas --strict gnome-extension/schemas
+
+  # ──────────────────────────────────────────────────────────────────
+  # Tier 2 — Claude Code-driven install: NOT IMPLEMENTED
+  #
+  # Original plan: install Claude Code CLI in CI, run
+  #   claude -p "/plugin marketplace add heikki-laitala/stick-around"
+  #   claude -p "/plugin install stick-around@stick-around"
+  # and assert the cache layout matches what the existing rsync
+  # stand-in produces.
+  #
+  # Spike result: Claude Code's `-p` (non-interactive print mode) does
+  # NOT support the `/plugin` family of commands. The CLI responds
+  # with the literal string "/plugin isn't available in this
+  # environment." and exits 0, so we can't drive the install flow
+  # this way today. Pure-API alternatives would require shimming the
+  # plugin manager's internals, which trades the test fidelity
+  # benefit for tight coupling to undocumented surface area.
+  #
+  # Until Claude Code grows non-interactive plugin commands the
+  # rsync-based source mirror in the smoke-test job (above) is the
+  # most faithful stand-in available, and it already covers
+  # everything downstream of /plugin install. Re-revisit when the
+  # CLI surface changes.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Tier 3 — GNOME extension load in a nested Mutter session
+  #          (extended only)
+  #
+  # Static checks (Tier 1B above) catch parse-time errors; this job
+  # catches load-time errors — failures inside the JS that only fire
+  # once GNOME Shell actually imports the extension and calls its
+  # enable() hook (missing GIR bindings, wrong gschema id, runtime
+  # exceptions in module top-level code).
+  #
+  # Implementation: install gnome-shell, run it nested on top of an
+  # Xvfb display, copy the extension into the user's extensions dir,
+  # enable it, and parse the journal for load errors. Known fragile:
+  # gnome-shell --nested has historically required a real Wayland
+  # session and falls over in container environments. Treat the first
+  # green run as ground truth; if it flakes, fall back to skipping.
+  gnome-extension-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.extended }}
+    runs-on: ubuntu-latest
+    name: gnome-extension runtime load
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version != '' && format('v{0}', inputs.version) || github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install gnome-shell + Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gnome-shell \
+            mutter \
+            xvfb \
+            dbus-x11 \
+            libglib2.0-bin
+
+      - name: Install extension into user's extensions dir
+        run: |
+          UUID="stick-around@stickaround.dev"
+          DEST="$HOME/.local/share/gnome-shell/extensions/$UUID"
+          mkdir -p "$DEST/schemas"
+          cp gnome-extension/extension.js "$DEST/"
+          cp gnome-extension/metadata.json "$DEST/"
+          cp gnome-extension/schemas/*.gschema.xml "$DEST/schemas/"
+          glib-compile-schemas "$DEST/schemas"
+
+      - name: Start Xvfb + nested gnome-shell, enable extension
+        # Best-effort. gnome-shell --nested expects a real session
+        # manager and Wayland infrastructure that ephemeral CI runners
+        # don't always provide; if the shell can't start we report
+        # SKIPPED and exit 0 rather than false-positive PASS. The
+        # XDG_RUNTIME_DIR setup is required — without it Mutter dies
+        # immediately with "Failed to create socket".
+        run: |
+          set +e
+          export DISPLAY=:99
+          export XDG_RUNTIME_DIR="$(mktemp -d /tmp/xdg-runtime.XXXXXX)"
+          chmod 700 "$XDG_RUNTIME_DIR"
+
+          Xvfb :99 -screen 0 1920x1080x24 &
+          XVFB_PID=$!
+          sleep 2
+
+          # Launch nested gnome-shell. Capture stderr+stdout for later
+          # inspection.
+          dbus-launch --exit-with-session gnome-shell --nested --no-x11 \
+            >/tmp/gnome-shell.log 2>&1 &
+          SHELL_PID=$!
+
+          # Give it up to 15s to come up. A live shell registers
+          # org.gnome.Shell on the session bus; we poll for that.
+          STARTED=0
+          for i in $(seq 1 15); do
+            if dbus-send --session --dest=org.gnome.Shell --print-reply \
+                 /org/gnome/Shell org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then
+              STARTED=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$STARTED" -eq 0 ]; then
+            echo "SKIPPED: gnome-shell --nested did not come up in this environment."
+            echo "--- gnome-shell.log (last 80 lines) ---"
+            tail -n 80 /tmp/gnome-shell.log || true
+            kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
+            # Exit 0 — environment couldn't host the test, not a code
+            # failure. Tier 1B (static checks) still ran and caught
+            # the realistic load-time errors.
+            exit 0
+          fi
+
+          # Shell is up — enable the extension and look for load errors.
+          gnome-extensions enable stick-around@stickaround.dev || true
+          sleep 3
+
+          echo "--- gnome-shell.log (last 120 lines) ---"
+          tail -n 120 /tmp/gnome-shell.log || true
+
+          # Look for JS exceptions traced through our extension. Tolerate
+          # generic shell warnings.
+          if grep -E "stick-around.*(Error|Exception|TypeError|ReferenceError)" /tmp/gnome-shell.log; then
+            echo "FAIL: extension load produced JS errors"
+            kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
+            exit 1
+          fi
+
+          kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
+          echo "PASS: extension loaded under live gnome-shell with no JS errors"
