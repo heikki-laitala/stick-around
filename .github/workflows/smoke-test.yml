@@ -20,11 +20,6 @@ on:
         description: "Release version to smoke test (e.g. 2026.05.24). Leave blank to test plugin.json's current version on the default branch."
         required: false
         type: string
-      extended:
-        description: "Run the slow/best-effort extended job (nested GNOME Shell extension load). Default off — adds ~3 min and is environment-dependent, see the gnome-extension-runtime job comments."
-        required: false
-        type: boolean
-        default: false
   workflow_run:
     workflows: [release]
     types: [completed]
@@ -466,177 +461,20 @@ jobs:
   # most faithful stand-in available, and it already covers
   # everything downstream of /plugin install. Re-revisit when the
   # CLI surface changes.
-
+  #
   # ──────────────────────────────────────────────────────────────────
-  # Tier 3 — GNOME extension load in a nested Mutter session
-  #          (extended only)
-  #
-  # Static checks (Tier 1B above) catch parse-time errors; this job
-  # catches load-time errors — failures inside the JS that only fire
-  # once GNOME Shell actually imports the extension and calls its
-  # enable() hook (missing GIR bindings, wrong gschema id, runtime
-  # exceptions in module top-level code).
-  #
-  # Implementation: install gnome-shell, run it nested on top of an
-  # Xvfb display, copy the extension into the user's extensions dir,
-  # enable it, and parse the journal for load errors. Known fragile:
-  # gnome-shell --nested has historically required a real Wayland
-  # session and falls over in container environments. Treat the first
-  # green run as ground truth; if it flakes, fall back to skipping.
-  gnome-extension-runtime:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.extended }}
-    runs-on: ubuntu-latest
-    name: gnome-extension runtime load
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.version != '' && format('v{0}', inputs.version) || github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Install gnome-shell + Xvfb
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gnome-shell \
-            mutter \
-            xvfb \
-            dbus-x11 \
-            libglib2.0-bin
-
-      - name: Install extension into user's extensions dir
-        run: |
-          UUID="stick-around@stickaround.dev"
-          DEST="$HOME/.local/share/gnome-shell/extensions/$UUID"
-          mkdir -p "$DEST/schemas"
-          cp gnome-extension/extension.js "$DEST/"
-          cp gnome-extension/metadata.json "$DEST/"
-          cp gnome-extension/schemas/*.gschema.xml "$DEST/schemas/"
-          glib-compile-schemas "$DEST/schemas"
-
-      - name: Start Xvfb + nested gnome-shell, enable extension
-        # Best-effort. gnome-shell --nested expects a real session
-        # manager and Wayland infrastructure that ephemeral CI runners
-        # don't always provide; if the shell can't start we report
-        # SKIPPED and exit 0 rather than false-positive PASS. The
-        # XDG_RUNTIME_DIR setup is required — without it Mutter dies
-        # immediately with "Failed to create socket".
-        run: |
-          set +e
-          export DISPLAY=:99
-          export XDG_RUNTIME_DIR="$(mktemp -d /tmp/xdg-runtime.XXXXXX)"
-          chmod 700 "$XDG_RUNTIME_DIR"
-
-          Xvfb :99 -screen 0 1920x1080x24 &
-          XVFB_PID=$!
-          sleep 2
-
-          # Start a session bus and export DBUS_SESSION_BUS_ADDRESS
-          # into THIS shell so gnome-shell, the readiness probe, and
-          # `gnome-extensions enable` all hit the same bus.
-          # The previous form (`dbus-launch --exit-with-session
-          # gnome-shell ...`) confined the bus to gnome-shell's
-          # process tree, leaving the parent shell on a different bus
-          # and causing the probe to systematically time out even
-          # when the shell was alive.
-          eval "$(dbus-launch --sh-syntax)"
-
-          # Launch nested gnome-shell against the exported bus.
-          gnome-shell --nested --no-x11 \
-            >/tmp/gnome-shell.log 2>&1 &
-          SHELL_PID=$!
-
-          cleanup() {
-            kill "$SHELL_PID" "$XVFB_PID" "${DBUS_SESSION_BUS_PID:-0}" 2>/dev/null || true
-          }
-          shell_alive() { kill -0 "$SHELL_PID" 2>/dev/null; }
-
-          skip_unhealthy() {
-            local reason="$1"
-            echo "SKIPPED: $reason"
-            echo "--- gnome-shell.log (last 80 lines) ---"
-            tail -n 80 /tmp/gnome-shell.log || true
-            cleanup
-            # Exit 0 — environment couldn't host the test, not a code
-            # failure. Tier 1B (static checks) still ran and caught
-            # the realistic load-time errors.
-            exit 0
-          }
-
-          # Give it up to 15s to come up. A live shell registers
-          # org.gnome.Shell on the session bus AND its process is
-          # still alive. The latter check matters because gnome-shell
-          # on some kernels registers its bus name early then crashes
-          # mid-initialization with a Gio.IOErrorEnum; without the
-          # process check we'd catch the brief alive window and then
-          # run `enable` / `info` against a dead shell.
-          STARTED=0
-          for i in $(seq 1 15); do
-            if dbus-send --session --dest=org.gnome.Shell --print-reply \
-                 /org/gnome/Shell org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1 \
-               && shell_alive; then
-              STARTED=1
-              break
-            fi
-            sleep 1
-          done
-
-          if [ "$STARTED" -eq 0 ]; then
-            skip_unhealthy "gnome-shell --nested did not come up in this environment."
-          fi
-
-          # Shell is up — every check past this point is a hard
-          # pass/fail UNLESS the shell crashes between checks (which
-          # is an environment failure, not a code regression).
-          if ! shell_alive; then
-            skip_unhealthy "gnome-shell exited between readiness probe and enable."
-          fi
-
-          if ! gnome-extensions enable stick-around@stickaround.dev; then
-            if ! shell_alive; then
-              skip_unhealthy "gnome-shell exited during enable."
-            fi
-            echo "FAIL: gnome-extensions enable returned non-zero against a live shell."
-            echo "--- gnome-shell.log (last 80 lines) ---"
-            tail -n 80 /tmp/gnome-shell.log || true
-            cleanup
-            exit 1
-          fi
-          sleep 3
-
-          if ! shell_alive; then
-            skip_unhealthy "gnome-shell exited after enable but before state check."
-          fi
-
-          # Confirm the runtime state, not just the desired state.
-          # `info` reports `State: <NAME>`; ACTIVE and ENABLED both
-          # mean the extension is loaded successfully. Any other
-          # value (ERROR, INITIALIZED stuck, OUT_OF_DATE, …) is a
-          # failure.
-          STATE=$(gnome-extensions info stick-around@stickaround.dev 2>/dev/null \
-            | awk -F': *' '/^State:/ {print $2}')
-          case "$STATE" in
-            ACTIVE|ENABLED) ;;
-            *)
-              if ! shell_alive; then
-                skip_unhealthy "gnome-shell exited during state inspection (empty State output)."
-              fi
-              echo "FAIL: extension state is '$STATE', expected ACTIVE or ENABLED."
-              echo "--- gnome-shell.log (last 80 lines) ---"
-              tail -n 80 /tmp/gnome-shell.log || true
-              cleanup
-              exit 1
-              ;;
-          esac
-
-          echo "--- gnome-shell.log (last 120 lines) ---"
-          tail -n 120 /tmp/gnome-shell.log || true
-
-          # Final pass: even with State=ACTIVE, a top-level JS error
-          # traced to our extension during load is a regression.
-          if grep -E "stick-around.*(Error|Exception|TypeError|ReferenceError)" /tmp/gnome-shell.log; then
-            echo "FAIL: extension load produced JS errors"
-            cleanup
-            exit 1
-          fi
-
-          cleanup
-          echo "PASS: extension loaded under live gnome-shell with State=$STATE and no JS errors"
+  # Tier 3 (nested GNOME Shell extension load) was tried in this
+  # workflow and removed. The job ran gnome-shell --nested under Xvfb
+  # with a propagated session bus, enabled the extension via the CLI,
+  # and asserted ACTIVE/ENABLED state. Even with the strict
+  # bus-and-process guards in place, gnome-shell consistently
+  # segfaults during initialization on container-style runners
+  # (Gio.IOErrorEnum talking to colord / SessionManager), and a hosted
+  # ubuntu-latest VM doesn't ship a session manager either. In
+  # practice that meant ~3 minutes of apt + a SKIPPED outcome on every
+  # run. The static checks in gnome-extension-check (above) cover
+  # parse-time errors with zero flake risk; load-time errors that
+  # only surface in a real Mutter session remain best caught by a
+  # human dogfooding pass on a Linux desktop. Re-add this tier if a
+  # hosted-runner image that supports gnome-shell --nested becomes
+  # available.
