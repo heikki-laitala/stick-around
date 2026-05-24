@@ -84,6 +84,10 @@ jobs:
       # when we launch the binary later.
       - name: Install Tauri runtime deps (Linux)
         if: runner.os == 'Linux'
+        # rsync is preinstalled on GitHub-hosted ubuntu-latest, but the
+        # catthehacker/ubuntu image used by nektos/act for local
+        # workflow runs ships without it. Installing here is a no-op on
+        # the hosted runner and lets `act` exercise the staging step.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -91,6 +95,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            rsync \
             xvfb
 
       # Stage a fake CLAUDE_PLUGIN_ROOT at the exact path /plugin install
