@@ -1,0 +1,238 @@
+name: smoke-test
+
+# End-user install smoke test. Mirrors the documented user flow from
+# README.md ("/plugin install" → SessionStart bootstrap → run binary)
+# against a published GitHub Release, on all three target platforms.
+#
+# Triggered:
+#   - Manually via workflow_dispatch (optional `version` input to test a
+#     specific released tag; defaults to plugin.json's current version).
+#   - Automatically after release.yml finishes successfully.
+#
+# Out of scope: the dev path (`make deps` / `make dev`). Those are
+# already covered by ci.yml. This workflow covers the path real users
+# take, which neither ci.yml nor release.yml exercise.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to smoke test (e.g. 2026.05.24). Leave blank to test plugin.json's current version on the default branch."
+        required: false
+        type: string
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    # Manual runs always proceed; auto-runs only after a green release.yml.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: stick-around
+          - os: macos-14
+            binary: stick-around
+          - os: windows-latest
+            binary: stick-around.exe
+    runs-on: ${{ matrix.os }}
+    name: smoke (${{ matrix.os }})
+
+    steps:
+      # Resolve which commit to check out. Priority:
+      #   1. workflow_dispatch with `version` input → check out `v<version>`
+      #      so we test that release's bootstrap script against its own
+      #      release assets (newer bootstrap vs. older release assets
+      #      would mask real install bugs).
+      #   2. workflow_run → check out the SHA the release was tagged from.
+      #   3. Fall back to the default branch HEAD.
+      - name: Resolve checkout ref
+        id: ref
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version || '' }}" ]; then
+            echo "ref=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.workflow_run.head_sha || '' }}" ]; then
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Resolve version from plugin.json
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
+          if [ -z "$VERSION" ]; then echo "could not parse version"; exit 1; fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Smoke-testing v$VERSION on ${{ matrix.os }}"
+
+      # Tauri runtime libs. We install the -dev metapackages so this
+      # tracks release.yml's build environment exactly — if a new
+      # system dep gets added there, the same list works here.
+      # xvfb is added so the headless runner can host the Tauri window
+      # when we launch the binary later.
+      - name: Install Tauri runtime deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            xvfb
+
+      # Stage a fake CLAUDE_PLUGIN_ROOT at the exact path /plugin install
+      # writes to. Bootstrap's safety check refuses to run unless the
+      # root path contains `.claude/plugins/cache`, so this is required.
+      - name: Stage CLAUDE_PLUGIN_ROOT (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ROOT="$HOME/.claude/plugins/cache/stick-around/stick-around/${{ steps.version.outputs.version }}"
+          mkdir -p "$ROOT"
+          rsync -a \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'src-tauri/target' \
+            ./ "$ROOT/"
+          echo "CLAUDE_PLUGIN_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Stage CLAUDE_PLUGIN_ROOT (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:USERPROFILE ".claude\plugins\cache\stick-around\stick-around\${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          # robocopy uses exit codes 0–7 for success; 8+ is failure.
+          # We reset $LASTEXITCODE so a successful copy doesn't fail the step.
+          robocopy . $root /E /XD .git node_modules "src-tauri\target" /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -ge 8) { Write-Error "robocopy failed with exit code $LASTEXITCODE"; exit 1 }
+          $global:LASTEXITCODE = 0
+          "CLAUDE_PLUGIN_ROOT=$root" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # Run the bootstrap script as the SessionStart hook would. This
+      # exercises the real download path: GitHub release URL, sha256
+      # sidecar verify, tar/zip extract.
+      - name: Run bootstrap (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh "$CLAUDE_PLUGIN_ROOT/scripts/bootstrap.sh"
+
+      - name: Run bootstrap (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: & "$env:CLAUDE_PLUGIN_ROOT\scripts\bootstrap.ps1"
+
+      # Bootstrap silently exits 0 in several no-op cases (e.g., the
+      # path-glob safety check). Without an explicit post-condition the
+      # job could green-light an install that didn't actually happen,
+      # so we assert the binary landed at the expected path with the
+      # right stamp.
+      - name: Verify install artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          BIN="$CLAUDE_PLUGIN_ROOT/${{ matrix.binary }}"
+          test -f "$BIN" || { echo "binary missing: $BIN"; exit 1; }
+          test -x "$BIN" || { echo "binary not executable: $BIN"; exit 1; }
+          STAMP=$(cat "$CLAUDE_PLUGIN_ROOT/.bootstrap-version")
+          if [ "$STAMP" != "${{ steps.version.outputs.version }}" ]; then
+            echo "bootstrap stamp mismatch: '$STAMP' != '${{ steps.version.outputs.version }}'"
+            exit 1
+          fi
+          file "$BIN"
+
+      - name: Verify install artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:CLAUDE_PLUGIN_ROOT "${{ matrix.binary }}"
+          if (-not (Test-Path $bin)) { Write-Error "binary missing: $bin"; exit 1 }
+          $stampPath = Join-Path $env:CLAUDE_PLUGIN_ROOT ".bootstrap-version"
+          $stamp = (Get-Content -Raw $stampPath).Trim()
+          if ($stamp -ne "${{ steps.version.outputs.version }}") {
+            Write-Error "bootstrap stamp mismatch: '$stamp' != '${{ steps.version.outputs.version }}'"
+            exit 1
+          }
+          Write-Host "binary at $bin"
+
+      # Launch the binary and confirm it doesn't crash within ~6s.
+      # Tauri startup involves loading the WebKit/WebView2 runtime,
+      # accessibility APIs, and the window manager — any missing dylib
+      # or runtime mismatch surfaces here. We treat both "still alive
+      # after 6s" and "exited cleanly with code 0" as success; only a
+      # non-zero exit or signal counts as failure.
+      - name: Launch the binary (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          BIN="$CLAUDE_PLUGIN_ROOT/${{ matrix.binary }}"
+          xvfb-run -a "$BIN" >launch.log 2>&1 &
+          pid=$!
+          sleep 6
+          if kill -0 $pid 2>/dev/null; then
+            echo "binary alive after 6s — pass"
+            sed -n '1,80p' launch.log || true
+            kill $pid 2>/dev/null || true
+            wait $pid 2>/dev/null || true
+            exit 0
+          fi
+          wait $pid
+          status=$?
+          echo "binary exited within 6s with status=$status"
+          sed -n '1,80p' launch.log || true
+          [ "$status" -eq 0 ] && exit 0 || exit 1
+
+      - name: Launch the binary (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          BIN="$CLAUDE_PLUGIN_ROOT/${{ matrix.binary }}"
+          "$BIN" >launch.log 2>&1 &
+          pid=$!
+          sleep 6
+          if kill -0 $pid 2>/dev/null; then
+            echo "binary alive after 6s — pass"
+            sed -n '1,80p' launch.log || true
+            kill $pid 2>/dev/null || true
+            wait $pid 2>/dev/null || true
+            exit 0
+          fi
+          wait $pid
+          status=$?
+          echo "binary exited within 6s with status=$status"
+          sed -n '1,80p' launch.log || true
+          [ "$status" -eq 0 ] && exit 0 || exit 1
+
+      - name: Launch the binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:CLAUDE_PLUGIN_ROOT "${{ matrix.binary }}"
+          $p = Start-Process -FilePath $bin -PassThru `
+            -RedirectStandardOutput launch.log `
+            -RedirectStandardError launch.err
+          Start-Sleep -Seconds 6
+          if (-not $p.HasExited) {
+            Write-Host "binary alive after 6s — pass"
+            if (Test-Path launch.log) { Get-Content launch.log | Select-Object -First 80 }
+            if (Test-Path launch.err) { Get-Content launch.err | Select-Object -First 80 }
+            Stop-Process -Id $p.Id -Force
+            exit 0
+          }
+          Write-Host "binary exited within 6s with code=$($p.ExitCode)"
+          if (Test-Path launch.log) { Get-Content launch.log | Select-Object -First 80 }
+          if (Test-Path launch.err) { Get-Content launch.err | Select-Object -First 80 }
+          if ($p.ExitCode -eq 0) { exit 0 } else { exit 1 }
