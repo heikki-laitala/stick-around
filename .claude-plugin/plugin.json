@@ -1,7 +1,7 @@
 {
   "name": "stick-around",
   "description": "A tiny stick-man RPG to play on top of your terminal while Claude Code works",
-  "version": "2026.04.29",
+  "version": "2026.05.24",
   "author": {
     "name": "Heikki Laitala"
   },
