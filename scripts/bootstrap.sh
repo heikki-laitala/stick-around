@@ -81,7 +81,17 @@ install_binary() {
     fi
 
     tar -xf "$TMP" -C "$CLAUDE_PLUGIN_ROOT" || return 1
-    chmod +x "$BIN_PATH"
+    # Guard against malformed archives — e.g. an archive that contains
+    # only a dangling symlink. Without this check, chmod's failure
+    # below would be swallowed (set -e is disabled inside functions
+    # called from an `if`), the stamp would still be written, and the
+    # play skill would later fail with "binary not found" while the
+    # SessionStart hook silently reported success.
+    if [ ! -f "$BIN_PATH" ]; then
+        echo "[stick-around] archive did not contain a usable $BINARY at $BIN_PATH." >&2
+        return 1
+    fi
+    chmod +x "$BIN_PATH" || return 1
     return 0
 }
 
