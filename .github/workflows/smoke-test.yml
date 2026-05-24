@@ -529,18 +529,50 @@ jobs:
           XVFB_PID=$!
           sleep 2
 
-          # Launch nested gnome-shell. Capture stderr+stdout for later
-          # inspection.
-          dbus-launch --exit-with-session gnome-shell --nested --no-x11 \
+          # Start a session bus and export DBUS_SESSION_BUS_ADDRESS
+          # into THIS shell so gnome-shell, the readiness probe, and
+          # `gnome-extensions enable` all hit the same bus.
+          # The previous form (`dbus-launch --exit-with-session
+          # gnome-shell ...`) confined the bus to gnome-shell's
+          # process tree, leaving the parent shell on a different bus
+          # and causing the probe to systematically time out even
+          # when the shell was alive.
+          eval "$(dbus-launch --sh-syntax)"
+
+          # Launch nested gnome-shell against the exported bus.
+          gnome-shell --nested --no-x11 \
             >/tmp/gnome-shell.log 2>&1 &
           SHELL_PID=$!
 
+          cleanup() {
+            kill "$SHELL_PID" "$XVFB_PID" "${DBUS_SESSION_BUS_PID:-0}" 2>/dev/null || true
+          }
+          shell_alive() { kill -0 "$SHELL_PID" 2>/dev/null; }
+
+          skip_unhealthy() {
+            local reason="$1"
+            echo "SKIPPED: $reason"
+            echo "--- gnome-shell.log (last 80 lines) ---"
+            tail -n 80 /tmp/gnome-shell.log || true
+            cleanup
+            # Exit 0 — environment couldn't host the test, not a code
+            # failure. Tier 1B (static checks) still ran and caught
+            # the realistic load-time errors.
+            exit 0
+          }
+
           # Give it up to 15s to come up. A live shell registers
-          # org.gnome.Shell on the session bus; we poll for that.
+          # org.gnome.Shell on the session bus AND its process is
+          # still alive. The latter check matters because gnome-shell
+          # on some kernels registers its bus name early then crashes
+          # mid-initialization with a Gio.IOErrorEnum; without the
+          # process check we'd catch the brief alive window and then
+          # run `enable` / `info` against a dead shell.
           STARTED=0
           for i in $(seq 1 15); do
             if dbus-send --session --dest=org.gnome.Shell --print-reply \
-                 /org/gnome/Shell org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1; then
+                 /org/gnome/Shell org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1 \
+               && shell_alive; then
               STARTED=1
               break
             fi
@@ -548,30 +580,63 @@ jobs:
           done
 
           if [ "$STARTED" -eq 0 ]; then
-            echo "SKIPPED: gnome-shell --nested did not come up in this environment."
-            echo "--- gnome-shell.log (last 80 lines) ---"
-            tail -n 80 /tmp/gnome-shell.log || true
-            kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
-            # Exit 0 — environment couldn't host the test, not a code
-            # failure. Tier 1B (static checks) still ran and caught
-            # the realistic load-time errors.
-            exit 0
+            skip_unhealthy "gnome-shell --nested did not come up in this environment."
           fi
 
-          # Shell is up — enable the extension and look for load errors.
-          gnome-extensions enable stick-around@stickaround.dev || true
+          # Shell is up — every check past this point is a hard
+          # pass/fail UNLESS the shell crashes between checks (which
+          # is an environment failure, not a code regression).
+          if ! shell_alive; then
+            skip_unhealthy "gnome-shell exited between readiness probe and enable."
+          fi
+
+          if ! gnome-extensions enable stick-around@stickaround.dev; then
+            if ! shell_alive; then
+              skip_unhealthy "gnome-shell exited during enable."
+            fi
+            echo "FAIL: gnome-extensions enable returned non-zero against a live shell."
+            echo "--- gnome-shell.log (last 80 lines) ---"
+            tail -n 80 /tmp/gnome-shell.log || true
+            cleanup
+            exit 1
+          fi
           sleep 3
+
+          if ! shell_alive; then
+            skip_unhealthy "gnome-shell exited after enable but before state check."
+          fi
+
+          # Confirm the runtime state, not just the desired state.
+          # `info` reports `State: <NAME>`; ACTIVE and ENABLED both
+          # mean the extension is loaded successfully. Any other
+          # value (ERROR, INITIALIZED stuck, OUT_OF_DATE, …) is a
+          # failure.
+          STATE=$(gnome-extensions info stick-around@stickaround.dev 2>/dev/null \
+            | awk -F': *' '/^State:/ {print $2}')
+          case "$STATE" in
+            ACTIVE|ENABLED) ;;
+            *)
+              if ! shell_alive; then
+                skip_unhealthy "gnome-shell exited during state inspection (empty State output)."
+              fi
+              echo "FAIL: extension state is '$STATE', expected ACTIVE or ENABLED."
+              echo "--- gnome-shell.log (last 80 lines) ---"
+              tail -n 80 /tmp/gnome-shell.log || true
+              cleanup
+              exit 1
+              ;;
+          esac
 
           echo "--- gnome-shell.log (last 120 lines) ---"
           tail -n 120 /tmp/gnome-shell.log || true
 
-          # Look for JS exceptions traced through our extension. Tolerate
-          # generic shell warnings.
+          # Final pass: even with State=ACTIVE, a top-level JS error
+          # traced to our extension during load is a regression.
           if grep -E "stick-around.*(Error|Exception|TypeError|ReferenceError)" /tmp/gnome-shell.log; then
             echo "FAIL: extension load produced JS errors"
-            kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
+            cleanup
             exit 1
           fi
 
-          kill "$SHELL_PID" "$XVFB_PID" 2>/dev/null || true
-          echo "PASS: extension loaded under live gnome-shell with no JS errors"
+          cleanup
+          echo "PASS: extension loaded under live gnome-shell with State=$STATE and no JS errors"
