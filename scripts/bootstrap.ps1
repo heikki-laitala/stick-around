@@ -103,6 +103,14 @@ function Install-Binary {
         # works on every supported platform.
         & tar.exe -xf $Tmp -C $Root
         if ($LASTEXITCODE -ne 0) { return $false }
+        # Guard against malformed archives that don't drop the expected
+        # binary at $BinPath. Mirrors the same check in bootstrap.sh so
+        # a bad release surfaces as "binary install failed" instead of
+        # silently writing a stamp over a missing executable.
+        if (-not (Test-Path $BinPath)) {
+            Write-Error "[stick-around] archive did not contain a usable $Binary at $BinPath."
+            return $false
+        }
         return $true
     } finally {
         try { Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue } catch {}
