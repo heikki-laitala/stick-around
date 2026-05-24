@@ -389,9 +389,8 @@ jobs:
           if ($p.ExitCode -eq 0) { exit 0 } else { exit 1 }
 
   # ──────────────────────────────────────────────────────────────────
-  # Tier 1B — GNOME extension static validation (Linux, always runs)
-  #
-  # Catches the realistic failure modes of the helper extension: JS
+  # GNOME extension static validation (Linux). Catches realistic
+  # failure modes of the helper extension: JS
   # syntax errors, malformed metadata.json, broken gschema XML. These
   # surface only inside a real Mutter session today, which means a typo
   # ships and breaks every Linux user's activation chord until someone
@@ -438,43 +437,3 @@ jobs:
         # <enum> fails the build instead of silently producing a
         # mis-compiled schema users would only notice on first launch.
         run: glib-compile-schemas --strict gnome-extension/schemas
-
-  # ──────────────────────────────────────────────────────────────────
-  # Tier 2 — Claude Code-driven install: NOT IMPLEMENTED
-  #
-  # Original plan: install Claude Code CLI in CI, run
-  #   claude -p "/plugin marketplace add heikki-laitala/stick-around"
-  #   claude -p "/plugin install stick-around@stick-around"
-  # and assert the cache layout matches what the existing rsync
-  # stand-in produces.
-  #
-  # Spike result: Claude Code's `-p` (non-interactive print mode) does
-  # NOT support the `/plugin` family of commands. The CLI responds
-  # with the literal string "/plugin isn't available in this
-  # environment." and exits 0, so we can't drive the install flow
-  # this way today. Pure-API alternatives would require shimming the
-  # plugin manager's internals, which trades the test fidelity
-  # benefit for tight coupling to undocumented surface area.
-  #
-  # Until Claude Code grows non-interactive plugin commands the
-  # rsync-based source mirror in the smoke-test job (above) is the
-  # most faithful stand-in available, and it already covers
-  # everything downstream of /plugin install. Re-revisit when the
-  # CLI surface changes.
-  #
-  # ──────────────────────────────────────────────────────────────────
-  # Tier 3 (nested GNOME Shell extension load) was tried in this
-  # workflow and removed. The job ran gnome-shell --nested under Xvfb
-  # with a propagated session bus, enabled the extension via the CLI,
-  # and asserted ACTIVE/ENABLED state. Even with the strict
-  # bus-and-process guards in place, gnome-shell consistently
-  # segfaults during initialization on container-style runners
-  # (Gio.IOErrorEnum talking to colord / SessionManager), and a hosted
-  # ubuntu-latest VM doesn't ship a session manager either. In
-  # practice that meant ~3 minutes of apt + a SKIPPED outcome on every
-  # run. The static checks in gnome-extension-check (above) cover
-  # parse-time errors with zero flake risk; load-time errors that
-  # only surface in a real Mutter session remain best caught by a
-  # human dogfooding pass on a Linux desktop. Re-add this tier if a
-  # hosted-runner image that supports gnome-shell --nested becomes
-  # available.
