@@ -105,9 +105,11 @@ jobs:
           fail_on_unmatched_files: true
 
   build-windows:
-    # Pinned: windows-latest redirects to the 2025 image by 2026-06-15.
-    # Pin the release build explicitly so the published binary's build
-    # image never changes without a deliberate bump.
+    # Pin the OS image label so it can't silently jump to a future
+    # Windows Server version. NOTE: this does NOT freeze the build
+    # toolchain — the VS toolchain inside the windows-2025 image moves
+    # to VS 2026 during the 2026-06-08..15 rollout regardless of this
+    # label. Switch to windows-2022 if a release must stay on VS 2022.
     runs-on: windows-2025
     permissions:
       contents: write
