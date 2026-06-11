@@ -64,7 +64,8 @@ jobs:
       - run: make build
 
   build-windows:
-    runs-on: windows-latest
+    # Pinned: windows-latest redirects to the 2025 image by 2026-06-15.
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

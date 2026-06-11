@@ -39,7 +39,10 @@ jobs:
             binary: stick-around
           - os: macos-14
             binary: stick-around
-          - os: windows-latest
+          # Pinned to windows-2025 explicitly: windows-latest is being
+          # redirected to the 2025 image by 2026-06-15, so pin now to
+          # avoid an unannounced runner-image change under us.
+          - os: windows-2025
             binary: stick-around.exe
     runs-on: ${{ matrix.os }}
     name: smoke (${{ matrix.os }})

@@ -105,7 +105,10 @@ jobs:
           fail_on_unmatched_files: true
 
   build-windows:
-    runs-on: windows-latest
+    # Pinned: windows-latest redirects to the 2025 image by 2026-06-15.
+    # Pin the release build explicitly so the published binary's build
+    # image never changes without a deliberate bump.
+    runs-on: windows-2025
     permissions:
       contents: write
     steps:
