@@ -19,7 +19,7 @@ jobs:
           PJV=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
           [ "$TAG" = "$PJV" ] || { echo "tag $GITHUB_REF_NAME requires plugin.json version $TAG, got $PJV"; exit 1; }
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
@@ -78,7 +78,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
@@ -124,7 +124,7 @@ jobs:
           $pjv = $matches[1]
           if ($tag -ne $pjv) { Write-Error "tag $env:GITHUB_REF_NAME requires plugin.json version $tag, got $pjv"; exit 1 }
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
