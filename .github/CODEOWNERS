@@ -1,0 +1,7 @@
+# Code owners for stick-around.
+#
+# The owner listed here is automatically requested for review on every
+# pull request. Combined with branch protection on `main` that requires
+# review from Code Owners, no change merges without the owner's approval.
+
+* @heikki-laitala
