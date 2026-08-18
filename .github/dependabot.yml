@@ -1,0 +1,63 @@
+# Dependency update automation.
+#
+# Added after a two-month drift went unnoticed: tauri was 5 patch
+# releases behind and the vitest dev chain had accumulated a critical
+# advisory. Nothing here can merge on its own — main's ruleset still
+# requires CI plus a Code Owners review — so these are review prompts,
+# not auto-merges.
+#
+# Note: version updates (this file) are independent of Dependabot
+# security alerts, which are a repository setting and must be enabled in
+# the GitHub UI under Settings -> Advanced Security.
+version: 2
+
+updates:
+  # GitHub Actions. This is the ecosystem that matters most here,
+  # because every `uses:` in this repo is pinned to an immutable commit
+  # SHA. Pins are a supply-chain win but they never expire on their own,
+  # so without Dependabot they silently rot. Dependabot rewrites both
+  # the SHA and the trailing `# vX.Y.Z` comment, which is exactly the
+  # convention the workflows already use.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # npm. All four direct deps are dev/build tooling except
+  # @tauri-apps/api; tauri.conf.json ships src/ unbundled, so nothing
+  # here reaches users at runtime. Minor and patch bumps are grouped
+  # into one PR; majors get their own so they can be reviewed and
+  # tested on their own merits (vitest 3 -> 4 was a real major).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # Cargo. The manifest is at src-tauri/Cargo.toml, not the repo root.
+  # Grouped the same way: the lockfile refresh that moves 130+
+  # transitive crates is one reviewable PR, while a major bump (e.g.
+  # the `windows` crate, still on 0.58) arrives separately.
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
