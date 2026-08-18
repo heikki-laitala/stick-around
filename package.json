@@ -11,8 +11,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "eslint": "^10.2.0",
-    "vitest": "^3"
+    "eslint": "^10.8.1",
+    "vitest": "^4"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"
