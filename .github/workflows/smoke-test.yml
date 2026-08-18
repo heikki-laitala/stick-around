@@ -8,6 +8,11 @@ name: smoke-test
 #   - Manually via workflow_dispatch (optional `version` input to test a
 #     specific released tag; defaults to plugin.json's current version).
 #   - Automatically after release.yml finishes successfully.
+#   - Monthly on a cron, to catch rot in the install path that no commit
+#     of ours causes: a yanked release asset, an expired runner image, a
+#     GitHub download-URL change, a new macOS TCC schema. Without this
+#     the question "does the install still work?" only gets answered when
+#     a user complains, or when someone thinks to dispatch it by hand.
 #
 # Out of scope: the dev path (`make deps` / `make dev`). Those are
 # already covered by ci.yml. This workflow covers the path real users
@@ -23,14 +28,20 @@ on:
   workflow_run:
     workflows: [release]
     types: [completed]
+  # 06:00 UTC on the 1st. Monthly rather than weekly: this is a
+  # three-OS matrix plus a download of every release asset, and the
+  # failure modes it guards against drift on a scale of months.
+  schedule:
+    - cron: '0 6 1 * *'
 
 permissions:
   contents: read
 
 jobs:
   smoke-test:
-    # Manual runs always proceed; auto-runs only after a green release.yml.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Manual and scheduled runs always proceed; release-triggered runs
+    # only after a green release.yml.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.workflow_run.conclusion == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -322,7 +333,7 @@ jobs:
   # logs out / back in and reads the journal. The static-only checks
   # below run in <5 seconds with zero flake risk.
   gnome-extension-check:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     name: gnome-extension static checks
     steps:
