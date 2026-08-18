@@ -61,3 +61,21 @@ updates:
       cargo-minor-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+    # Two crates are held back at their current major on purpose. Both
+    # are the whole of a platform integration, and both sit in the code
+    # paths CI cannot actually exercise: `windows` backs the UI
+    # Automation TextPattern reader in platform/windows.rs, and `zbus`
+    # backs AT-SPI text reading plus the GNOME Shell helper D-Bus
+    # interface in platform/linux*.rs. A green build-windows or
+    # build-linux proves those still compile, and the smoke test proves
+    # the binary starts, but nothing asserts terminal text is still
+    # being read — so a major that compiles can ship broken. See the
+    # reasoning on the closed PRs #40 (windows 0.58 -> 0.61) and #41
+    # (zbus 4 -> 5); take these deliberately, alongside platform work,
+    # with a real machine to test on. Minor and patch updates for both
+    # crates still come through normally.
+    ignore:
+      - dependency-name: "windows"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "zbus"
+        update-types: ["version-update:semver-major"]
