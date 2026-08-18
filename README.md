@@ -148,6 +148,13 @@ re-templated `.desktop` (so the dock points at the new cache path)
 and, if the helper extension code changed, another log-out / log-in
 to load the new version.
 
+On macOS, expect the Accessibility prompt again after every upgrade. The
+released binary is ad-hoc signed (no Developer ID, no Team ID), so the
+grant is tied to that exact binary at that exact path — and each version
+installs under a new `cache/.../<version>/` directory. The old entry in
+*System Settings → Privacy & Security → Accessibility* is left pointing
+at a deleted file and can be removed.
+
 ### Uninstall
 
 From inside Claude Code, drop the plugin first:
@@ -163,6 +170,35 @@ downloaded binary in the Claude Code plugin cache. Remove it manually:
 - **macOS / Linux**: `rm -rf ~/.claude/plugins/cache/stick-around`
 - **Windows (PowerShell)**:
   `Remove-Item -Recurse -Force $env:USERPROFILE\.claude\plugins\cache\stick-around`
+
+#### Verifying nothing is left
+
+Claude Code tracks an installed plugin in six places under `~/.claude`,
+and the cache above is only one of them. If you want a genuinely clean
+slate — reinstalling from scratch to reproduce a first-run bug, say —
+check all six. Quit Claude Code first: a running session holds `.in_use`
+lock files inside the cache directory.
+
+| Location | What it holds |
+| --- | --- |
+| `plugins/cache/stick-around/` | mirrored source tree, downloaded binary, `.bootstrap-version` stamp |
+| `plugins/marketplaces/stick-around/` | the git clone `/plugin marketplace add` made |
+| `plugins/installed_plugins.json` | `.plugins["stick-around@stick-around"]` |
+| `plugins/known_marketplaces.json` | the top-level `stick-around` key |
+| `settings.json` | `.enabledPlugins["stick-around@stick-around"]` **and** `.extraKnownMarketplaces.stick-around` |
+| `plugins/data/stick-around-stick-around/` | per-plugin data directory |
+
+The `settings.json` row is the one that bites: leave
+`extraKnownMarketplaces.stick-around` in place and the marketplace comes
+back on the next start, so a reinstall isn't the clean-slate install you
+thought you were testing. Edit the JSON files with `jq`, which keeps
+Claude Code's own two-space formatting:
+
+```
+jq --indent 2 'del(.enabledPlugins["stick-around@stick-around"])
+  | del(.extraKnownMarketplaces["stick-around"])' \
+  ~/.claude/settings.json > /tmp/s && mv /tmp/s ~/.claude/settings.json
+```
 
 Per-platform follow-ups:
 
