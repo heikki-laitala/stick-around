@@ -176,7 +176,7 @@ ifeq ($(OS),Windows_NT)
 	npm install
 else
 	@if ! command -v npm >/dev/null 2>&1; then \
-		echo "ERROR: npm not found. Install Node.js 20+ from https://nodejs.org or your package manager, then re-run 'make deps'."; \
+		echo "ERROR: npm not found. Install Node.js ^20.19 / ^22.13 / >=24 from https://nodejs.org or your package manager, then re-run 'make deps'."; \
 		exit 1; \
 	fi
 	npm install
