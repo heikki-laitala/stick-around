@@ -11,7 +11,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify plugin.json version matches tag
         run: |
@@ -19,11 +19,11 @@ jobs:
           PJV=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n1)
           [ "$TAG" = "$PJV" ] || { echo "tag $GITHUB_REF_NAME requires plugin.json version $TAG, got $PJV"; exit 1; }
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.9.1
         with:
           workspaces: src-tauri
 
@@ -45,7 +45,7 @@ jobs:
           shasum -a 256 stick-around-macos-arm64.tar.gz > stick-around-macos-arm64.tar.gz.sha256
 
       - name: Upload to release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             stick-around-macos-arm64.tar.gz
@@ -58,7 +58,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify plugin.json version matches tag
         run: |
@@ -78,11 +78,11 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.9.1
         with:
           workspaces: src-tauri
 
@@ -101,7 +101,7 @@ jobs:
           sha256sum stick-around-linux-x86_64.tar.gz > stick-around-linux-x86_64.tar.gz.sha256
 
       - name: Upload to release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             stick-around-linux-x86_64.tar.gz
@@ -118,7 +118,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify plugin.json version matches tag
         shell: pwsh
@@ -129,11 +129,11 @@ jobs:
           $pjv = $matches[1]
           if ($tag -ne $pjv) { Write-Error "tag $env:GITHUB_REF_NAME requires plugin.json version $tag, got $pjv"; exit 1 }
 
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master-history pin (toolchain set below; per upstream README)
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master-history pin (toolchain set below; per upstream README)
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.9.1
         with:
           workspaces: src-tauri
 
@@ -149,7 +149,7 @@ jobs:
           "$hash  stick-around-windows-x86_64.zip" | Out-File -Encoding ascii stick-around-windows-x86_64.zip.sha256
 
       - name: Upload to release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             stick-around-windows-x86_64.zip
